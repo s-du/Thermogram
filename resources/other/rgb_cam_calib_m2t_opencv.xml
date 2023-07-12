@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<opencv_storage>
+<calibration_Time>"Wed Mar 15 15:34:18 2023"</calibration_Time>
+<image_Width>8000</image_Width>
+<image_Height>6000</image_Height>
+<Camera_Matrix type_id="opencv-matrix">
+  <rows>3</rows>
+  <cols>3</cols>
+  <dt>d</dt>
+  <data>
+    5.90590882731549846e+03 0. 4.00551853042033463e+03 0.
+    5.90590882731549846e+03 2.99295743633716256e+03 0. 0. 1.</data></Camera_Matrix>
+<Distortion_Coefficients type_id="opencv-matrix">
+  <rows>5</rows>
+  <cols>1</cols>
+  <dt>d</dt>
+  <data>
+    1.23973203838270317e-03 -7.40259216627987045e-03 -3.40625033102266478e-04 -1.29810911685347799e-04
+    -1.08872796584576093e-02</data></Distortion_Coefficients>
+</opencv_storage>
