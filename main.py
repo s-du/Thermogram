@@ -1,9 +1,5 @@
 # imports
 from PySide6 import QtWidgets, QtGui, QtCore
-from qt_material import apply_stylesheet
-from matplotlib.backends.backend_qt5agg import (
-   FigureCanvasQTAgg as FigureCanvas,
-   NavigationToolbar2QT)
 
 import os
 import json
@@ -14,6 +10,7 @@ import numpy as np
 # custom libraries
 import widgets as wid
 import resources as res
+import dialogs as dia
 from tools import thermal_tools as tt
 
 """
@@ -70,56 +67,7 @@ class ProcessedImage:
         self.meas_line_items = []
 
 
-class AboutDialog(QtWidgets.QDialog):
-    def __init__(self):
-        super().__init__()
 
-        self.setWindowTitle('What is this app about?')
-        self.setFixedSize(300,300)
-        self.layout = QtWidgets.QVBoxLayout()
-
-        about_text = QtWidgets.QLabel('This app was made by Buildwise, to simplify the analysis of drone thermal images.')
-        about_text.setWordWrap(True)
-
-        logos1 = QtWidgets.QLabel()
-        pixmap = QtGui.QPixmap(res.find('img/logo_buildwise2.png'))
-        w = self.width()
-        pixmap = pixmap.scaledToWidth(100, QtCore.Qt.SmoothTransformation)
-        logos1.setPixmap(pixmap)
-
-        logos2 = QtWidgets.QLabel()
-        pixmap = QtGui.QPixmap(res.find('img/logo_pointify.png'))
-        pixmap = pixmap.scaledToWidth(100, QtCore.Qt.SmoothTransformation)
-        logos2.setPixmap(pixmap)
-
-        self.layout.addWidget(about_text)
-        self.layout.addWidget(logos1, alignment=QtCore.Qt.AlignCenter)
-        self.layout.addWidget(logos2, alignment=QtCore.Qt.AlignCenter)
-
-        self.setLayout(self.layout)
-
-
-class DialogThParams(QtWidgets.QDialog):
-    """
-    Dialog that allows the user to choose advances thermography options
-    """
-
-    def __init__(self, param, parent=None):
-        QtWidgets.QDialog.__init__(self)
-        basepath = os.path.dirname(__file__)
-        basename = 'dialog_options'
-        uifile = os.path.join(basepath, 'ui/%s.ui' % basename)
-        wid.loadUi(uifile, self)
-        self.lineEdit_em.setText(str(param['emissivity']))
-        self.lineEdit_dist.setText(str(param['distance']))
-        self.lineEdit_rh.setText(str(param['humidity']))
-        self.lineEdit_temp.setText(str(param['reflection']))
-
-        # define constraints on lineEdit
-
-        # button actions
-        self.buttonBox.accepted.connect(self.accept)
-        self.buttonBox.rejected.connect(self.reject)
 
 
 class DroneIrWindow(QtWidgets.QMainWindow):
@@ -187,16 +135,6 @@ class DroneIrWindow(QtWidgets.QMainWindow):
 
         self.advanced_options = False
 
-        # add matplotlib container
-        self.matplot_c = wid.MplCanvas_project3d(self, width=4, height=4, dpi=100)
-        self.ax = self.matplot_c.figure.add_subplot(projection='3d')  # add subplot, retrieve axis object
-        self.ax.view_init(elev=67, azim=-33, roll=0)
-        self.ax.set_zlabel('Temperature [°C]')
-
-        # add matplotlib toolbar
-        toolbar = NavigationToolbar2QT(self.matplot_c, self)
-        self.verticalLayout_14.addWidget(toolbar)
-        self.verticalLayout_14.addWidget(self.matplot_c)
 
         # create validator for qlineedit
         onlyInt = QtGui.QIntValidator()
@@ -291,6 +229,8 @@ class DroneIrWindow(QtWidgets.QMainWindow):
         self.ir_imgs = os.listdir(self.ir_folder)
         self.rgb_imgs = os.listdir(self.rgb_folder)
         self.n_imgs = len(self.ir_imgs)
+        if self.n_imgs > 1:
+            self.pushButton_right.setEnabled(True)
 
         self.active_image = 0
 
@@ -360,7 +300,7 @@ class DroneIrWindow(QtWidgets.QMainWindow):
         tt.surface_from_image(data, self.colormap, self.n_colors, self.user_lim_col_low, self.user_lim_col_high)
 
     def show_info(self):
-        dialog = AboutDialog()
+        dialog = dia.AboutDialog()
         if dialog.exec_():
             pass
 
@@ -426,9 +366,12 @@ class DroneIrWindow(QtWidgets.QMainWindow):
         roi_meas = self.raw_data[int(p1.y()):int(p2.y()) , int(p1.x()):int(p2.x())]
 
         # clear old figure
-        self.ax.cla()
-        tt.surface_from_image_matplot(roi_meas, self.ax, self.colormap, self.n_colors, self.user_lim_col_low, self.user_lim_col_high)
-        self.matplot_c.figure.canvas.draw_idle()
+        dialog = dia.Meas3dDialog()
+        dialog.surface_from_image_matplot(roi_meas, self.colormap, self.n_colors, self.user_lim_col_low, self.user_lim_col_high)
+        if dialog.exec_():
+            pass
+
+
 
         # create description name
         desc = 'rect_measure_' + str(self.images[self.active_image].nb_meas_rect)
@@ -493,7 +436,7 @@ class DroneIrWindow(QtWidgets.QMainWindow):
             self.viewer.toggleDragMode()
 
     def define_options(self):
-        dialog = DialogThParams(self.thermal_param)
+        dialog = dia.DialogThParams(self.thermal_param)
         dialog.setWindowTitle("Choose advanced thermal options")
 
         if dialog.exec_():

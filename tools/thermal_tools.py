@@ -825,26 +825,6 @@ def surface_from_image(data, colormap, n_colors, col_low, col_high):
     app_vis.run()
 
 
-def surface_from_image_matplot(data, axes, colormap, n_colors, col_low, col_high):
-    # colormap operation
-    if colormap == 'Artic' or colormap == 'Iron' or colormap == 'Rainbow':
-        custom_cmap = get_custom_cmaps(colormap, n_colors)
-    else:
-        custom_cmap = cm.get_cmap(colormap, n_colors)
 
-    custom_cmap.set_over(col_high)
-    custom_cmap.set_under(col_low)
 
-    # get extreme values from data
-    tmax = np.amax(data)
-    tmin = np.amin(data)
 
-    # normalized data
-    thermal_normalized = (data - tmin) / (tmax - tmin)
-
-    plt.rcParams["figure.autolayout"] = True
-
-    xx, yy = np.mgrid[0:data.shape[0], 0:data.shape[1]]
-    axes.plot_surface(xx, yy, data, rstride=1, cstride=1, linewidth=0, cmap=custom_cmap)
-
-    return axes

@@ -820,29 +820,6 @@ border-radius: 10px;
     </layout>
    </widget>
   </widget>
-  <widget class="QDockWidget" name="dockWidget_6">
-   <property name="windowTitle">
-    <string>Plots</string>
-   </property>
-   <attribute name="dockWidgetArea">
-    <number>2</number>
-   </attribute>
-   <widget class="QWidget" name="dockWidgetContents_6">
-    <layout class="QVBoxLayout" name="verticalLayout_13">
-     <item>
-      <layout class="QVBoxLayout" name="verticalLayout_14">
-       <item>
-        <widget class="QPushButton" name="pushButton">
-         <property name="text">
-          <string>Clear plots</string>
-         </property>
-        </widget>
-       </item>
-      </layout>
-     </item>
-    </layout>
-   </widget>
-  </widget>
   <action name="actionLoad_folder">
    <property name="text">
     <string>Load Folder</string>
