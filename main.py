@@ -304,7 +304,8 @@ class DroneIrWindow(QtWidgets.QMainWindow):
         self.test_img_path = os.path.join(self.ir_folder, test_img)
 
         # get drone model
-        self.drone_model = tt.get_drone_model(self.test_img_path)
+        drone_name = tt.get_drone_model(self.test_img_path)
+        self.drone_model = tt.DroneModel(drone_name)
 
         # create temporary folder
         self.preview_folder = os.path.join(self.ir_folder, 'preview')
@@ -593,12 +594,13 @@ class DroneIrWindow(QtWidgets.QMainWindow):
             self.list_rgb_paths, self.list_ir_paths = tt.list_th_rgb_images_from_res(self.main_folder)
 
             # get drone model
-            self.drone_model = tt.get_drone_model(self.list_ir_paths[0])
+            drone_name = tt.get_drone_model(self.list_ir_paths[0])
+            self.drone_model = tt.DroneModel(drone_name)
 
-            print(f'Drone model : {self.drone_model}')
+            print(f'Drone model : {drone_name}')
 
             dictionary = {
-                "Drone model": self.drone_model,
+                "Drone model": drone_name,
                 "Number of image pairs": str(len(self.list_ir_paths)),
                 "rgb_paths": self.list_rgb_paths,
                 "ir_paths": self.list_ir_paths
@@ -779,7 +781,7 @@ class DroneIrWindow(QtWidgets.QMainWindow):
                                       rgb_path=read_path)
 
             cv_img = tt.cv_read_all_path(dest_path_no_post)
-            undis = tt.undis(cv_img, ir_xml_path)
+            undis, _ = tt.undis(cv_img, ir_xml_path)
             tt.cv_write_all_path(undis, dest_path_no_post)
             self.viewer.setPhoto(QtGui.QPixmap(dest_path_no_post))
 

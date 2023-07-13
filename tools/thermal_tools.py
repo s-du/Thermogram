@@ -38,6 +38,39 @@ m3t_rgb_xml_path = res.find('other/rgb_cam_calib_m3t_opencv.xml')
 
 
 # USEFUL CLASSES
+class DroneModel():
+    def __init__(self,name):
+        if name == 'MAVIC2-ENTERPRISE-ADVANCED':
+            self.rgb_xml_path = m2t_rgb_xml_path
+            self.ir_xml_path = m2t_ir_xml_path
+            sample_rgb_path = res.find('img/M2EA_RGB.JPG')
+            sample_ir_path = res.find('img/M2EA_IR.JPG')
+            cv_rgb = cv_read_all_path(sample_rgb_path)
+            cv_ir = cv_read_all_path(sample_ir_path)
+            _, self.dim_undis_ir = undis(cv_ir, self.ir_xml_path)
+            _, self.dim_undis_rgb = undis(cv_rgb, self.rgb_xml_path)
+
+            self.aspect_factor = (self.dim_undis_rgb[0] / self.dim_undis_rgb[1]) / (
+                    self.dim_undis_ir[0] / self.dim_undis_ir[1])
+
+            self.extend = 0.332
+            self.x_offset = 50
+            self.y_offset = 35
+        elif name == 'M3T':
+            self.rgb_xml_path = m3t_rgb_xml_path
+            self.ir_xml_path = m3t_ir_xml_path
+            sample_rgb_path = res.find('img/M3T_RGB.JPG')
+            sample_ir_path = res.find('img/M3T_IR.JPG')
+            cv_rgb = cv_read_all_path(sample_rgb_path)
+            cv_ir = cv_read_all_path(sample_ir_path)
+            _, self.dim_undis_ir = undis(cv_ir, self.ir_xml_path)
+            _, self.dim_undis_rgb = undis(cv_rgb, self.rgb_xml_path)
+            self.aspect_factor = (self.dim_undis_rgb[0] / self.dim_undis_rgb[1]) / (
+                    self.dim_undis_ir[0] / self.dim_undis_ir[1])
+            self.extend = 0.3504
+            self.x_offset = 49
+            self.y_offset = 53
+
 class ObjectDetectionCategory:
     """
     Class to describe a segmentation category
@@ -236,15 +269,8 @@ class RunnerMiniature(QtCore.QRunnable):
 
     def run(self):
         nb_im = len(self.list_rgb_paths)
-        if self.drone_model == 'MAVIC2-ENTERPRISE-ADVANCED':
-            ir_xml_path = m2t_ir_xml_path
-            rgb_xml_path = m2t_rgb_xml_path
-        elif self.drone_model == 'M3T':
-            ir_xml_path = m3t_ir_xml_path
-            rgb_xml_path = m3t_rgb_xml_path
-        else:
-            ir_xml_path = m3t_ir_xml_path
-            rgb_xml_path = m3t_rgb_xml_path
+        ir_xml_path = self.drone_model.ir_xml_path
+        rgb_xml_path = self.drone_model.rgb_xml_path
 
         for i, rgb_path in enumerate(self.list_rgb_paths):
             iter = i * (self.stop - self.start) / nb_im
@@ -254,8 +280,8 @@ class RunnerMiniature(QtCore.QRunnable):
             self.signals.messaged.emit(f'Pre-processing image {i}/{nb_im}')
             cv_rgb_img = cv_read_all_path(rgb_path)
 
-            und = undis(cv_rgb_img, rgb_xml_path)
-            crop = match_rgb(und, self.drone_model)
+            und, _ = undis(cv_rgb_img, rgb_xml_path)
+            crop = match_rgb_custom_parameters(und, self.drone_model)
             width = int(crop.shape[1] * self.scale_percent / 100)
             height = int(crop.shape[0] * self.scale_percent / 100)
             dim = (width, height)
@@ -358,63 +384,26 @@ def undis(cv_img, xml_path):
     x, y, w, h = roi
     dest = dest[y:y + h, x:x + w]
 
-    return dest
+    sh = dest.shape
+    height = sh[0]
+    width = sh[1]
+    dim = (width, height)
+
+    return dest, dim
 
 
 # LENS RELATED METHODS (DRONE SPECIFIC)
-def match_rgb_custom_parameters(cv_img, dim_undis_ir, aspect_factor, extend, y_offset, x_offset, resized=False):
+def match_rgb_custom_parameters(cv_img, drone_model, resized=False):
+    print(cv_img)
     h2, w2 = cv_img.shape[:2]
-    new_h = h2 * aspect_factor
-    ret_x = int(extend * w2)
-    ret_y = int(extend * new_h)
-    rgb_dest = cv_img[int(h2 / 2 + y_offset) - ret_y:int(h2 / 2 + y_offset) + ret_y,
-               int(w2 / 2 + x_offset) - ret_x:int(w2 / 2 + x_offset) + ret_x]
+    new_h = h2 * drone_model.aspect_factor
+    ret_x = int(drone_model.extend * w2)
+    ret_y = int(drone_model.extend * new_h)
+    rgb_dest = cv_img[int(h2 / 2 + drone_model.y_offset) - ret_y:int(h2 / 2 + drone_model.y_offset) + ret_y,
+               int(w2 / 2 + drone_model.x_offset) - ret_x:int(w2 / 2 + drone_model.x_offset) + ret_x]
 
     if resized:
-        rgb_dest = cv2.resize(rgb_dest, dim_undis_ir, interpolation=cv2.INTER_AREA)
-
-    return rgb_dest
-
-def match_rgb(cv_img, drone_model, resized=False):
-    h2, w2 = cv_img.shape[:2]
-    if drone_model == 'MAVIC2-ENTERPRISE-ADVANCED':
-        dim_undis_ir = (609, 475)
-        dim_undis_rgb = (7955, 5957)
-        aspect_factor = (7955 / 5957) / (
-                    609 / 475)  # this is necessary to transform the aspect ratio of the rgb image to fit
-        # the thermal image. The number represent the resolutions of images (rgb and ir respectively) after undistording
-        new_h = h2 * aspect_factor
-        ret_x = int(0.332 * w2)
-        ret_y = int(0.332 * new_h)
-        rgb_dest = cv_img[int(h2 / 2 + 35) - ret_y:int(h2 / 2 + 35) + ret_y,
-                   int(w2 / 2 + 50) - ret_x:int(w2 / 2 + 50) + ret_x]
-
-    if drone_model == 'M3T':
-        dim_undis_ir = (603, 469)
-        dim_undis_rgb = (3867, 2871)
-        aspect_factor = (3867 / 2871) / (
-                603 / 469)  # this is necessary to transform the aspect ratio of the rgb image to fit
-        # the thermal image. The number represent the resolutions of images (rgb and ir respectively) after undistording
-        new_h = h2 * aspect_factor
-        ret_x = int(
-            0.348 * w2)  # this factor was obtained by measuring a similar line on the ir and rgb pictures (both undistorded)
-        ret_y = int(0.348 * new_h)
-        rgb_dest = cv_img[int(h2 / 2 + 55) - ret_y:int(h2 / 2 + 55) + ret_y,
-                   int(w2 / 2 + 55) - ret_x:int(w2 / 2 + 55) + ret_x]
-    else:
-        dim_undis_ir = (603, 469)
-        dim_undis_rgb = (3867, 2871)
-        aspect_factor = (3867 / 2871) / (
-                603 / 469)  # this is necessary to transform the aspect ratio of the rgb image to fit
-        # the thermal image. The number represent the resolutions of images (rgb and ir respectively) after undistording
-        new_h = h2 * aspect_factor
-        ret_x = int(
-            0.348 * w2)  # this factor was obtained by measuring a similar line on the ir and rgb pictures (both undistorded)
-        ret_y = int(0.348 * new_h)
-        rgb_dest = cv_img[int(h2 / 2 + 55) - ret_y:int(h2 / 2 + 55) + ret_y,
-                   int(w2 / 2 + 55) - ret_x:int(w2 / 2 + 55) + ret_x]
-    if resized:
-        rgb_dest = cv2.resize(rgb_dest, dim_undis_ir, interpolation=cv2.INTER_AREA)
+        rgb_dest = cv2.resize(rgb_dest, drone_model.dim_undis_ir, interpolation=cv2.INTER_AREA)
 
     return rgb_dest
 
@@ -441,12 +430,7 @@ def add_lines_from_rgb(cv_ir_img, cv_match_rgb_img, drone_model, dest_path, exif
     foreground = np.array(pil_edges_rgba)
 
     # resize
-    if drone_model == 'MAVIC2-ENTERPRISE-ADVANCED':
-        dim = (609, 475)
-    if drone_model == 'M3T':
-        dim = (603, 469)
-    else:
-        dim = (603, 469)
+    dim = drone_model.dim_undis_ir
     foreground = cv2.resize(foreground, dim, interpolation=cv2.INTER_AREA)
     foreground_float = foreground.astype(float)  # Inputs to blend_modes need to be floats.
 
@@ -572,16 +556,10 @@ def copy_list_dest(list_paths, dest_folder):
 
 
 def create_undis_folder(list_ir_paths, drone_model, dest_und_folder):
-    if drone_model == 'MAVIC2-ENTERPRISE-ADVANCED':
-        ir_xml_path = m2t_ir_xml_path
-    elif drone_model == 'M3T':
-        ir_xml_path = m3t_ir_xml_path
-    else:
-        ir_xml_path = m3t_ir_xml_path
-
+    ir_xml_path = drone_model.ir_xml_path
     for ir_path in list_ir_paths:
         cv_ir_img = cv_read_all_path(ir_path)
-        cv_und = undis(cv_ir_img, ir_xml_path)
+        cv_und, _ = undis(cv_ir_img, ir_xml_path)
         _, file = os.path.split(ir_path)
         new_name = file[:-4] + 'undis.JPG'
         dest_path = os.path.join(dest_und_folder, new_name)
@@ -596,15 +574,9 @@ def create_rgb_crop_folder(list_rgb_paths, drone_model, scale_percent, dest_crop
         progressbar.setProperty("value", start + iter)
         cv_rgb_img = cv_read_all_path(rgb_path)
 
-        if drone_model == 'MAVIC2-ENTERPRISE-ADVANCED':
-            rgb_xml_path = m2t_rgb_xml_path
-        elif drone_model == 'M3T':
-            rgb_xml_path = m3t_rgb_xml_path
-        else:
-            rgb_xml_path = m3t_rgb_xml_path
-
+        rgb_xml_path = drone_model.rgb_xml_path
         und = undis(cv_rgb_img, rgb_xml_path)
-        crop = match_rgb(und, drone_model)
+        crop = match_rgb_custom_parameters(und, drone_model)
         width = int(crop.shape[1] * scale_percent / 100)
         height = int(crop.shape[0] * scale_percent / 100)
         dim = (width, height)
@@ -646,15 +618,7 @@ def process_one_th_picture(param, drone_model, ir_img_path, dest_path, tmin, tma
     new_raw_path = Path(str(ir_img_path)[:-4] + '.raw')
 
     exif = read_dji_image(str(ir_img_path), str(new_raw_path), param=param)
-    if drone_model == 'MAVIC2-ENTERPRISE-ADVANCED':
-        ir_xml_path = m2t_ir_xml_path
-        rgb_xml_path = m2t_rgb_xml_path
-    elif drone_model == 'M3T':
-        ir_xml_path = m3t_ir_xml_path
-        rgb_xml_path = m3t_rgb_xml_path
-    else:
-        ir_xml_path = m3t_ir_xml_path
-        rgb_xml_path = m3t_rgb_xml_path
+    ir_xml_path = drone_model.ir_xml_path
 
     # read raw dji output
     fd = open(new_raw_path, 'rb')
@@ -716,7 +680,7 @@ def process_one_th_picture(param, drone_model, ir_img_path, dest_path, tmin, tma
         img_thermal.save(dest_path)
         cv_ir_img = cv_read_all_path(dest_path)
 
-        cv_ir_img = undis(cv_ir_img, ir_xml_path)
+        cv_ir_img, _ = undis(cv_ir_img, ir_xml_path)
         cv_match_rgb_img = cv_read_all_path(rgb_path)
         add_lines_from_rgb(cv_ir_img, cv_match_rgb_img, drone_model, dest_path, exif=exif)
 
@@ -725,8 +689,7 @@ def process_one_th_picture(param, drone_model, ir_img_path, dest_path, tmin, tma
     #    img_th_fz.save(thermal_filename)
 
     # create an undistort version of the temperature map
-    raw_data_temp = undis(im, ir_xml_path)
-
+    raw_data_temp, _ = undis(im, ir_xml_path)
 
     # remove raw file
     os.remove(new_raw_path)
