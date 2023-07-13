@@ -16,6 +16,12 @@ import widgets as wid
 import resources as res
 from tools import thermal_tools as tt
 
+"""
+TODO:
+- Allow to import only thermal pictures
+- Implement improved drone data
+
+"""
 # FILES
 # default lens calibration files
 ir_xml_path = res.find('other/cam_calib_m2t_opencv.xml')
@@ -212,7 +218,6 @@ class DroneIrWindow(QtWidgets.QMainWindow):
         # Create model (for the tree structure)
         self.model = QtGui.QStandardItemModel()
         self.treeView.setModel(self.model)
-
 
         # add measurement and annotations categories to tree view
         self.add_item_in_tree(self.model, RECT_MEAS_NAME)

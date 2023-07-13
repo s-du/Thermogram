@@ -242,6 +242,9 @@ class RunnerMiniature(QtCore.QRunnable):
         elif self.drone_model == 'M3T':
             ir_xml_path = m3t_ir_xml_path
             rgb_xml_path = m3t_rgb_xml_path
+        else:
+            ir_xml_path = m3t_ir_xml_path
+            rgb_xml_path = m3t_rgb_xml_path
 
         for i, rgb_path in enumerate(self.list_rgb_paths):
             iter = i * (self.stop - self.start) / nb_im
@@ -398,7 +401,18 @@ def match_rgb(cv_img, drone_model, resized=False):
         ret_y = int(0.348 * new_h)
         rgb_dest = cv_img[int(h2 / 2 + 55) - ret_y:int(h2 / 2 + 55) + ret_y,
                    int(w2 / 2 + 55) - ret_x:int(w2 / 2 + 55) + ret_x]
-
+    else:
+        dim_undis_ir = (603, 469)
+        dim_undis_rgb = (3867, 2871)
+        aspect_factor = (3867 / 2871) / (
+                603 / 469)  # this is necessary to transform the aspect ratio of the rgb image to fit
+        # the thermal image. The number represent the resolutions of images (rgb and ir respectively) after undistording
+        new_h = h2 * aspect_factor
+        ret_x = int(
+            0.348 * w2)  # this factor was obtained by measuring a similar line on the ir and rgb pictures (both undistorded)
+        ret_y = int(0.348 * new_h)
+        rgb_dest = cv_img[int(h2 / 2 + 55) - ret_y:int(h2 / 2 + 55) + ret_y,
+                   int(w2 / 2 + 55) - ret_x:int(w2 / 2 + 55) + ret_x]
     if resized:
         rgb_dest = cv2.resize(rgb_dest, dim_undis_ir, interpolation=cv2.INTER_AREA)
 
@@ -430,6 +444,8 @@ def add_lines_from_rgb(cv_ir_img, cv_match_rgb_img, drone_model, dest_path, exif
     if drone_model == 'MAVIC2-ENTERPRISE-ADVANCED':
         dim = (609, 475)
     if drone_model == 'M3T':
+        dim = (603, 469)
+    else:
         dim = (603, 469)
     foreground = cv2.resize(foreground, dim, interpolation=cv2.INTER_AREA)
     foreground_float = foreground.astype(float)  # Inputs to blend_modes need to be floats.
@@ -560,6 +576,8 @@ def create_undis_folder(list_ir_paths, drone_model, dest_und_folder):
         ir_xml_path = m2t_ir_xml_path
     elif drone_model == 'M3T':
         ir_xml_path = m3t_ir_xml_path
+    else:
+        ir_xml_path = m3t_ir_xml_path
 
     for ir_path in list_ir_paths:
         cv_ir_img = cv_read_all_path(ir_path)
@@ -581,6 +599,8 @@ def create_rgb_crop_folder(list_rgb_paths, drone_model, scale_percent, dest_crop
         if drone_model == 'MAVIC2-ENTERPRISE-ADVANCED':
             rgb_xml_path = m2t_rgb_xml_path
         elif drone_model == 'M3T':
+            rgb_xml_path = m3t_rgb_xml_path
+        else:
             rgb_xml_path = m3t_rgb_xml_path
 
         und = undis(cv_rgb_img, rgb_xml_path)
@@ -630,6 +650,9 @@ def process_one_th_picture(param, drone_model, ir_img_path, dest_path, tmin, tma
         ir_xml_path = m2t_ir_xml_path
         rgb_xml_path = m2t_rgb_xml_path
     elif drone_model == 'M3T':
+        ir_xml_path = m3t_ir_xml_path
+        rgb_xml_path = m3t_rgb_xml_path
+    else:
         ir_xml_path = m3t_ir_xml_path
         rgb_xml_path = m3t_rgb_xml_path
 
