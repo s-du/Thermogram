@@ -82,8 +82,20 @@ class ObjectDetectionCategory:
 
 
 class ProcessedImage_bis:
-    def __init__(self):
-        self.path = ''
+    def __init__(self, path):
+        self.path = path
+        # colormap infos
+        self.colormap = 'coolwarm'
+        self.n_colors = 256
+        # ir infos
+        self.thermal_param = {'emissivity': 0.95, 'distance': 5, 'humidity': 50, 'reflection': 25}
+        self.tmin, self.tmax = compute_delta(path, self.thermal_param)
+
+        self.user_lim_col_low = 'w'
+        self.user_lim_col_high = 'w'
+
+        self.post_process = ''
+
         # for annotations
         self.annot_rect_items = []
         self.corresp_cat = []
@@ -95,6 +107,25 @@ class ProcessedImage_bis:
         self.meas_point_list = []
         self.nb_meas_line = 0  # number of line measurements
         self.meas_line_list = []
+
+        # to_delete
+        self.meas_rect_items = []
+        self.meas_point_items = []
+        self.meas_text_spot_items = []
+        self.meas_line_items = []
+        self.meas_rect_coords = []
+
+    def update_colormap_data(self, colormap, n_colors, user_lim_col_high, user_lim_col_low, post_process, tmin, tmax):
+        self.colormap= colormap
+        self.n_colors= n_colors
+        self.user_lim_col_high = user_lim_col_high
+        self.user_lim_col_low = user_lim_col_low
+        self.tmin = tmin
+        self.tmax = tmax
+        self.post_process = post_process
+
+    def get_colormap_data(self):
+        return self.colormap, self.n_colors, self.user_lim_col_high, self.user_lim_col_low, self.tmin, self.tmax
 
 class LineMeas:
     def __init__(self):
@@ -297,29 +328,7 @@ class RunnerMiniature(QtCore.QRunnable):
         self.signals.finished.emit()
 
 
-# custom colormaps
-def get_custom_cmaps(colormap_name, n_colors):
-    colors = [(25, 0, 150), (94, 243, 247), (100, 100, 100), (243, 116, 27), (251, 250, 208)]
-    colors_scaled = [np.array(x).astype(np.float32) / 255 for x in colors]
-    artic_cmap = mcol.LinearSegmentedColormap.from_list('my_colormap', colors_scaled, N=n_colors)
 
-    colors = [(0, 0, 0), (144, 15, 170), (230, 88, 65), (248, 205, 35), (255, 255, 255)]
-    colors_scaled = [np.array(x).astype(np.float32) / 255 for x in colors]
-    ironbow_cmap = mcol.LinearSegmentedColormap.from_list('my_colormap', colors_scaled, N=n_colors)
-
-    colors = [(8, 0, 75), (43, 80, 203), (119, 185, 31), (240, 205, 35), (245, 121, 47), (236, 64, 100),
-              (240, 222, 203)]
-    colors_scaled = [np.array(x).astype(np.float32) / 255 for x in colors]
-    rainbow_cmap = mcol.LinearSegmentedColormap.from_list('my_colormap', colors_scaled, N=n_colors)
-
-    if colormap_name == 'Artic':
-        out_colormap = artic_cmap
-    elif colormap_name == 'Iron':
-        out_colormap = ironbow_cmap
-    elif colormap_name == 'Rainbow':
-        out_colormap = rainbow_cmap
-
-    return out_colormap
 
 
 # SIMPLE PATH FUNCTIONS
@@ -604,6 +613,48 @@ def get_corresponding_crop_rectangle(p1, p2, scale):
 
 
 # THERMAL PROCESSING
+# custom colormaps
+def get_custom_cmaps(colormap_name, n_colors):
+    colors = [(25, 0, 150), (94, 243, 247), (100, 100, 100), (243, 116, 27), (251, 250, 208)]
+    colors_scaled = [np.array(x).astype(np.float32) / 255 for x in colors]
+    artic_cmap = mcol.LinearSegmentedColormap.from_list('my_colormap', colors_scaled, N=n_colors)
+
+    colors = [(0, 0, 0), (144, 15, 170), (230, 88, 65), (248, 205, 35), (255, 255, 255)]
+    colors_scaled = [np.array(x).astype(np.float32) / 255 for x in colors]
+    ironbow_cmap = mcol.LinearSegmentedColormap.from_list('my_colormap', colors_scaled, N=n_colors)
+
+    colors = [(8, 0, 75), (43, 80, 203), (119, 185, 31), (240, 205, 35), (245, 121, 47), (236, 64, 100),
+              (240, 222, 203)]
+    colors_scaled = [np.array(x).astype(np.float32) / 255 for x in colors]
+    rainbow_cmap = mcol.LinearSegmentedColormap.from_list('my_colormap', colors_scaled, N=n_colors)
+
+    if colormap_name == 'Artic':
+        out_colormap = artic_cmap
+    elif colormap_name == 'Iron':
+        out_colormap = ironbow_cmap
+    elif colormap_name == 'Rainbow':
+        out_colormap = rainbow_cmap
+
+    return out_colormap
+
+def compute_delta(img_path, thermal_param):
+    raw_out = img_path[:-4] + '.raw'
+    read_dji_image(img_path, raw_out, thermal_param)
+
+    fd = open(raw_out, 'rb')
+    rows = 512
+    cols = 640
+    f = np.fromfile(fd, dtype='<f4', count=rows * cols)
+    im = f.reshape((rows, cols))
+    fd.close()
+
+    comp_tmin = np.amin(im)
+    comp_tmax = np.amax(im)
+
+    os.remove(raw_out)
+
+    return comp_tmin, comp_tmax
+
 def read_dji_image(img_in, raw_out, param={'emissivity': 0.95, 'distance': 5, 'humidity': 50, 'reflection': 25}):
     dist = param['distance']
     rh = param['humidity']

@@ -38,6 +38,13 @@ RECT_MEAS_NAME = 'Rectangle measurements'
 POINT_MEAS_NAME = 'Spot measurements'
 LINE_MEAS_NAME = 'Line measurements'
 
+OUT_LIM = ['black', 'white', 'red']
+OUT_LIM_MATPLOT = ['k', 'w', 'r']
+POST_PROCESS = ['none', 'smooth', 'sharpen', 'sharpen strong', 'edge (simple)', 'edge (from rgb)']
+COLORMAPS = ['coolwarm','Artic', 'Iron', 'Rainbow', 'Greys_r', 'Greys', 'plasma', 'inferno', 'jet',
+                              'Spectral_r', 'cividis', 'viridis', 'gnuplot2']
+VIEWS = ['th. undistorted', 'RGB crop']
+
 # USEFUL CLASSES
 class ObjectDetectionCategory:
     """
@@ -46,28 +53,6 @@ class ObjectDetectionCategory:
     def __init__(self):
         self.color = None
         self.name = ''
-
-
-class ProcessedImage:
-    def __init__(self):
-        self.path = ''
-        # for annotations
-        self.annot_rect_items = []
-        self.corresp_cat = []
-
-        # for measurements
-        self.nb_meas_rect = 0 # number of rect measurements
-        self.meas_rect_items = []
-        self.meas_rect_coords = []
-        self.nb_meas_point = 0 # number of spot measurements
-        self.meas_point_items = []
-        self.meas_text_spot_items = []
-
-        self.nb_meas_line = 0  # number of line measurements
-        self.meas_line_items = []
-
-
-
 
 
 class DroneIrWindow(QtWidgets.QMainWindow):
@@ -97,7 +82,10 @@ class DroneIrWindow(QtWidgets.QMainWindow):
         self.__pool.setMaxThreadCount(3)
 
         # set variables
-        self.preview_rgb = False
+        self.rgb_shown = False
+
+        # set options
+        self.save_colormap_info = True # if True, the colormap and temperature options will be stored for each picture
 
         self.list_rgb_paths = ''
         self.list_ir_paths = ''
@@ -114,12 +102,11 @@ class DroneIrWindow(QtWidgets.QMainWindow):
         self.images = []
 
         # comboboxes content
-        self.out_of_lim = ['black', 'white', 'red']
-        self.out_of_matp = ['k', 'w', 'r']
-        self.img_post = ['none', 'smooth', 'sharpen', 'sharpen strong', 'edge (simple)', 'edge (from rgb)']
-        self.colormap_list = ['coolwarm','Artic', 'Iron', 'Rainbow', 'Greys_r', 'Greys', 'plasma', 'inferno', 'jet',
-                              'Spectral_r', 'cividis', 'viridis', 'gnuplot2']
-        self.view_list = ['th. undistorted', 'RGB crop']
+        self.out_of_lim = OUT_LIM
+        self.out_of_matp = OUT_LIM_MATPLOT
+        self.img_post = POST_PROCESS
+        self.colormap_list = COLORMAPS
+        self.view_list = VIEWS
 
         # add content to comboboxes
         self.comboBox.addItems(self.colormap_list)
@@ -134,7 +121,6 @@ class DroneIrWindow(QtWidgets.QMainWindow):
         self.comboBox_view.addItems(self.view_list)
 
         self.advanced_options = False
-
 
         # create validator for qlineedit
         onlyInt = QtGui.QIntValidator()
@@ -208,6 +194,7 @@ class DroneIrWindow(QtWidgets.QMainWindow):
         self.pushButton_estimate.clicked.connect(self.estimate_temp)
         self.pushButton_advanced.clicked.connect(self.define_options)
         self.pushButton_meas_color.clicked.connect(self.viewer.change_meas_color)
+        self.pushButton_test.clicked.connect(self.test_button) # for testing purposes
 
         # Dropdowns
         self.comboBox.currentIndexChanged.connect(self.update_img_preview)
@@ -216,12 +203,16 @@ class DroneIrWindow(QtWidgets.QMainWindow):
         self.comboBox_post.currentIndexChanged.connect(self.update_img_preview)
         self.comboBox_img.currentIndexChanged.connect(lambda: self.update_img_to_preview('other'))
         self.comboBox_view.currentIndexChanged.connect(self.update_img_preview)
+
         # Line edits
         self.lineEdit_min_temp.editingFinished.connect(self.update_img_preview)
         self.lineEdit_max_temp.editingFinished.connect(self.update_img_preview)
         self.lineEdit_colors.editingFinished.connect(self.update_img_preview)
 
     def update_img_list(self):
+        """
+        Save information about the number of images and add processed images classes
+        """
         self.ir_folder = self.original_th_img_folder
         self.rgb_folder = self.rgb_crop_img_folder
 
@@ -229,6 +220,7 @@ class DroneIrWindow(QtWidgets.QMainWindow):
         self.ir_imgs = os.listdir(self.ir_folder)
         self.rgb_imgs = os.listdir(self.rgb_folder)
         self.n_imgs = len(self.ir_imgs)
+
         if self.n_imgs > 1:
             self.pushButton_right.setEnabled(True)
 
@@ -236,7 +228,8 @@ class DroneIrWindow(QtWidgets.QMainWindow):
 
         # add classes
         for im in self.ir_imgs:
-            image = ProcessedImage()
+            print(os.path.join(self.ir_folder, im))
+            image = tt.ProcessedImage_bis(os.path.join(self.ir_folder, im))
             self.images.append(image)
 
         # choose first image for preview
@@ -253,10 +246,11 @@ class DroneIrWindow(QtWidgets.QMainWindow):
             os.mkdir(self.preview_folder)
 
         # quickly compute temperature delta on first image
-        self.tmin, self.tmax = self.compute_delta(self.test_img_path)
+        self.tmin = self.images[self.active_image].tmin
+        self.tmax = self.images[self.active_image].tmax
+
         self.lineEdit_min_temp.setText(str(round(self.tmin, 2)))
         self.lineEdit_max_temp.setText(str(round(self.tmax, 2)))
-
 
         self.update_img_preview()
         self.comboBox_img.addItems(self.ir_imgs)
@@ -493,30 +487,13 @@ class DroneIrWindow(QtWidgets.QMainWindow):
                                               "Oops! Some of the values are not valid!")
                 self.define_options()
 
-    def compute_delta(self, img_path):
-        raw_out = img_path[:-4] + '.raw'
-        tt.read_dji_image(img_path, raw_out, self.thermal_param)
-
-        fd = open(raw_out, 'rb')
-        rows = 512
-        cols = 640
-        f = np.fromfile(fd, dtype='<f4', count=rows * cols)
-        im = f.reshape((rows, cols))
-        fd.close()
-
-        comp_tmin = np.amin(im)
-        comp_tmax = np.amax(im)
-
-        os.remove(raw_out)
-
-        return comp_tmin, comp_tmax
 
     def estimate_temp(self):
         ref_pic_name = QtWidgets.QFileDialog.getOpenFileName(self, 'Open file',
                                                              self.ir_folder, "Image files (*.jpg *.JPG *.gif)")
         img_path = ref_pic_name[0]
         if img_path != '':
-            tmin, tmax = self.compute_delta(img_path)
+            tmin, tmax = tt.compute_delta(img_path, self.thermal_param)
             self.lineEdit_min_temp.setText(str(round(tmin, 2)))
             self.lineEdit_max_temp.setText(str(round(tmax, 2)))
 
@@ -628,9 +605,42 @@ class DroneIrWindow(QtWidgets.QMainWindow):
         self.viewer.change_meas_color()
         self.switch_image_data()
 
+    def test_button(self):
+        self.lineEdit_colors.setText(str(200))
+
     def switch_image_data(self):
+        """
+        When the shown picture is change (adapt measurements and user colormap for this picture)
+        """
+        # load stored data
+        self.colormap, self.n_colors, self.user_lim_col_high, self.user_lim_col_low, self.tmin, self.tmax = self.images[self.active_image].get_colormap_data()
+        print(f'HERE___________{self.tmin}')
+        print(f'HERE___________{self.tmax}')
+
+        # find correspondances in comboboxes
+        a = self.colormap_list.index(self.colormap)
+        b = self.out_of_matp.index(self.user_lim_col_high)
+        c = self.out_of_matp.index(self.user_lim_col_low)
+        d = self.img_post.index(self.post_process)
+
+        # adapt combos
+        self.comboBox.setCurrentIndex(a)
+        self.comboBox_colors_high.setCurrentIndex(b)
+        self.comboBox_colors_low.setCurrentIndex(c)
+        self.comboBox_post.setCurrentIndex(d)
+
+        # fill values lineedits
+        self.lineEdit_colors.setText(str(self.n_colors))
+        self.lineEdit_min_temp.setText(str(round(self.tmin, 2)))
+        self.lineEdit_max_temp.setText(str(round(self.tmax, 2)))
+
+
+        self.thermal_param = self.images[self.active_image].thermal_param
+
+        # clean measurements and annotations
         self.viewer.clean_scene()
-        # clean tree
+
+        # Tree operations
         self.model = QtGui.QStandardItemModel()
         self.treeView.setModel(self.model)
 
@@ -655,10 +665,14 @@ class DroneIrWindow(QtWidgets.QMainWindow):
         for item in self.images[self.active_image].meas_text_spot_items:
             list_of_items.append(item)
 
+        # add measurements and annotations for the new image
         self.viewer.draw_all_meas(list_of_items)
 
     def update_img_to_preview(self, direction):
-        self.preview_rgb = False
+        """
+        Iterate through images when user change the image
+        """
+
         if direction == 'minus':
             self.active_image -= 1
             self.comboBox_img.setCurrentIndex(self.active_image)
@@ -668,7 +682,7 @@ class DroneIrWindow(QtWidgets.QMainWindow):
         else:
             self.active_image = self.comboBox_img.currentIndex()
 
-        # remove all measurements and annotations
+        # remove all measurements and annotations and get new data
         self.switch_image_data()
 
         test_img = self.ir_imgs[self.active_image]
@@ -687,7 +701,49 @@ class DroneIrWindow(QtWidgets.QMainWindow):
         else:
             self.pushButton_left.setEnabled(True)
 
+    def compile_user_values(self):
+        # colormap
+        i = self.comboBox.currentIndex()
+        self.colormap = self.colormap_list[i]
+
+        try:
+            self.n_colors = int(self.lineEdit_colors.text())
+        except:
+            self.n_colors = 256
+
+        #   temp limits
+        try:
+            tmin = float(self.lineEdit_min_temp.text())
+            tmax = float(self.lineEdit_max_temp.text())
+
+            if tmax > tmin:
+                self.tmin = tmin
+                self.tmax = tmax
+            else:
+                raise ValueError
+
+        except ValueError:
+            QtWidgets.QMessageBox.warning(self, "Warning",
+                                          "Oops! A least one of the temperatures is not valid.  Try again...")
+            self.lineEdit_min_temp.setText(str(round(self.tmin, 2)))
+            self.lineEdit_max_temp.setText(str(round(self.tmax, 2)))
+
+        #   out of limits color
+        i = self.comboBox_colors_low.currentIndex()
+        self.user_lim_col_low = self.out_of_matp[i]
+
+        i = self.comboBox_colors_high.currentIndex()
+        self.user_lim_col_high = self.out_of_matp[i]
+
+        #   post process operation
+        k = self.comboBox_post.currentIndex()
+        self.post_process = self.img_post[k]
+
+
     def update_img_preview(self):
+        """
+        Update what is shown in the viewer
+        """
         # fetch user choices
         v = self.comboBox_view.currentIndex()
         rgb_path = os.path.join(self.rgb_folder, self.rgb_imgs[self.active_image])
@@ -697,52 +753,15 @@ class DroneIrWindow(QtWidgets.QMainWindow):
             self.viewer.clean_scene()
 
         else:
-            # colormap
-            i = self.comboBox.currentIndex()
-            colormap = self.colormap_list[i]
-            self.colormap = colormap
-            try:
-                self.n_colors = int(self.lineEdit_colors.text())
-            except:
-                self.n_colors = 256
+            self.compile_user_values()
 
-            #   temp limits
-            try:
-                tmin = float(self.lineEdit_min_temp.text())
-                tmax = float(self.lineEdit_max_temp.text())
-
-                if tmax > tmin:
-                    self.tmin = tmin
-                    self.tmax = tmax
-                else:
-                    raise ValueError
-
-            except ValueError:
-                QtWidgets.QMessageBox.warning(self, "Warning",
-                                              "Oops! A least one of the temperatures is not valid.  Try again...")
-                self.lineEdit_min_temp.setText(str(round(self.tmin, 2)))
-                self.lineEdit_max_temp.setText(str(round(self.tmax, 2)))
-
-            #   out of limits color
-            i = self.comboBox_colors_low.currentIndex()
-            user_lim_col_low = self.out_of_matp[i]
-            self.user_lim_col_low = user_lim_col_low
-            i = self.comboBox_colors_high.currentIndex()
-            user_lim_col_high = self.out_of_matp[i]
-            self.user_lim_col_high = user_lim_col_high
-
-            #   post process operation
-            k = self.comboBox_post.currentIndex()
-            post_process = self.img_post[k]
-
-            print(self.preview_folder)
             dest_path_no_post = os.path.join(self.preview_folder, 'preview.JPG')
             dest_path_post = os.path.join(self.preview_folder, 'preview_post.JPG')
 
             read_path = os.path.join(self.rgb_folder, self.rgb_imgs[self.active_image])
             self.raw_data = tt.process_one_th_picture(self.thermal_param, self.drone_model, self.test_img_path, dest_path_no_post,
-                                      self.tmin, self.tmax, colormap, user_lim_col_high,
-                                      user_lim_col_low, n_colors=self.n_colors, post_process='none',
+                                      self.tmin, self.tmax, self.colormap, self.user_lim_col_high,
+                                      self.user_lim_col_low, n_colors=self.n_colors, post_process='none',
                                       rgb_path=read_path)
 
             cv_img = tt.cv_read_all_path(dest_path_no_post)
@@ -753,26 +772,33 @@ class DroneIrWindow(QtWidgets.QMainWindow):
             # set left and right views (in dual viewer)
             self.dual_viewer.load_images_from_path(rgb_path, dest_path_no_post)
 
-            if k !=0: #if a post-process is applied
+            if self.post_process != 'none': #if a post-process is applied
                 _ = tt.process_one_th_picture(self.thermal_param, self.drone_model, self.test_img_path,
                                                           dest_path_post,
-                                                          self.tmin, self.tmax, colormap, user_lim_col_high,
-                                                          user_lim_col_low, n_colors=self.n_colors,
-                                                          post_process=post_process,
+                                                          self.tmin, self.tmax, self.colormap, self.user_lim_col_high,
+                                                          self.user_lim_col_low, n_colors=self.n_colors,
+                                                          post_process=self.post_process,
                                                           rgb_path=read_path)
 
-                if post_process != 'edge (from rgb)':
+                if self.post_process != 'edge (from rgb)':
                     cv_img = tt.cv_read_all_path(dest_path_post)
-                    undis = tt.undis(cv_img, ir_xml_path)
+                    undis, _ = tt.undis(cv_img, ir_xml_path)
                     tt.cv_write_all_path(undis, dest_path_post)
 
                 self.viewer.setPhoto(QtGui.QPixmap(dest_path_post))
                 # set left and right views
                 self.dual_viewer.load_images_from_path(rgb_path, dest_path_post)
 
-            self.dest_path_no_post = dest_path_no_post
+            # store all colormap data in current image before switching image
+            self.images[self.active_image].update_colormap_data(self.colormap, self.n_colors,
+                                                                self.user_lim_col_high,
+                                                                self.user_lim_col_low, self.post_process, self.tmin, self.tmax)
+            # store emissivity data
+            self.images[self.active_image].thermal_param = self.thermal_param
 
+            self.dest_path_no_post = dest_path_no_post
             self.viewer.set_temperature_data(self.raw_data)
+
 
     def go_save(self):
         """

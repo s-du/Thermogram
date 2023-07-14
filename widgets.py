@@ -133,8 +133,8 @@ class MplCanvas_project3d(FigureCanvasQTAgg):
     """
     Class for embedding matplotlib plots into PySide6
     """
-    def __init__(self, parent=None, width=5, height=4, dpi=100):
-        fig = Figure(figsize=(width, height), dpi=dpi)
+    def __init__(self, parent=None):
+        fig = Figure()
         super(MplCanvas_project3d, self).__init__(fig)
 
 

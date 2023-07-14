@@ -124,9 +124,9 @@ class Meas3dDialog(QtWidgets.QDialog):
         wid.loadUi(uifile, self)
 
         self.setWindowTitle('Area Measurement')
-        self.matplot_c = wid.MplCanvas_project3d(self, width=4, height=4, dpi=100)
+        self.matplot_c = wid.MplCanvas_project3d(self)
         self.ax = self.matplot_c.figure.add_subplot(projection='3d')  # add subplot, retrieve axis object
-        # self.ax.view_init(elev=67, azim=-33, roll=0)
+        self.ax.view_init(elev=70, azim=-45, roll=0)
         self.ax.set_zlabel('Temperature [°C]')
 
         self.data = data
@@ -139,7 +139,6 @@ class Meas3dDialog(QtWidgets.QDialog):
         # add table model for data
         self.model = wid.TableModel(self.highlights)
         self.tableView.setModel(self.model)
-
 
         # add matplotlib toolbar
         toolbar = NavigationToolbar2QT(self.matplot_c, self)
@@ -166,8 +165,8 @@ class Meas3dDialog(QtWidgets.QDialog):
 
         highlights = [
             ['Size [pxl²]', self.area],
-            ['Max. Temp. [°C]', self.tmax],
-            ['Min. Temp. [°C]', self.tmin],
+            ['Max. Temp. [°C]', str(self.tmax)],
+            ['Min. Temp. [°C]', str(self.tmin)],
         ]
         return highlights
 
