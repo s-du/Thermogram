@@ -820,7 +820,6 @@ def process_all_th_pictures(param, drone_model, ir_paths, dest_folder, tmin, tma
 
 
 def surface_from_image(data, colormap, n_colors, col_low, col_high):
-
     if colormap == 'Artic' or colormap == 'Iron' or colormap == 'Rainbow':
         custom_cmap = get_custom_cmaps(colormap, n_colors)
     else:
@@ -835,7 +834,9 @@ def surface_from_image(data, colormap, n_colors, col_low, col_high):
     if np.array(loc_tmax).shape[1] > 1:
         loc_tmax = loc_tmax[0]
 
-    loc_tmax = np.flip(loc_tmax)
+    print(loc_tmax)
+
+    loc_tmax[0] = -loc_tmax[0]
     loc_tmax[1] = -loc_tmax[1]
 
     tmin = np.amin(data)
@@ -843,7 +844,7 @@ def surface_from_image(data, colormap, n_colors, col_low, col_high):
     if np.array(loc_tmin).shape[1] > 1:
         loc_tmin = loc_tmin[0]
 
-    loc_tmin = np.flip(loc_tmin)
+    loc_tmin[0] = -loc_tmin[0]
     loc_tmin[1] = -loc_tmin[1]
 
     # normalized data
@@ -852,7 +853,11 @@ def surface_from_image(data, colormap, n_colors, col_low, col_high):
     thermal_cmap = custom_cmap(thermal_normalized)
     # thermal_cmap = np.uint8(thermal_cmap)
     color_array = thermal_cmap[:, :, [0, 1, 2]]
+
     print(color_array)
+    print(color_array.shape)
+
+    color_array = np.transpose(color_array, (1, 0, 2))
     print(color_array.shape)
 
     w = data.shape[1]
@@ -862,19 +867,23 @@ def surface_from_image(data, colormap, n_colors, col_low, col_high):
 
     point_cloud = []
     # Generate the x and y coordinates
-    x_coords = np.arange(w)
-    y_coords = np.arange(h)
-    x_mesh, y_mesh = np.meshgrid(x_coords, -y_coords)
+    y_coords = np.arange(w)
+    x_coords = np.arange(h)
+    x_mesh, y_mesh = np.meshgrid(-x_coords, -y_coords)
 
     # Flatten the arrays
     x_values = x_mesh.flatten()
 
     y_values = y_mesh.flatten()
     # y_values = np.flip(y_values)
-    intensity_values = data.flatten()
+    intensity_values = np.transpose(data).flatten()
 
     # Create the point cloud using the flattened arrays
-    point_cloud = np.column_stack((x_values, y_values, intensity_values*10))
+    # compute range of temp
+    range_temp = tmax-tmin
+    # compute how the range scales compared to x/y
+    factor = w/range_temp/3
+    point_cloud = np.column_stack((x_values, y_values, intensity_values*factor))
 
     pcd = o3d.geometry.PointCloud()
     pcd.points = o3d.utility.Vector3dVector(point_cloud)
@@ -886,7 +895,7 @@ def surface_from_image(data, colormap, n_colors, col_low, col_high):
     app_vis = gui.Application.instance
     app_vis.initialize()
 
-    viz = wid.Custom3dView(pcd, tmin, tmax, loc_tmin, loc_tmax)
+    viz = wid.Custom3dView(pcd, tmin, tmax, loc_tmin, loc_tmax, factor)
     app_vis.run()
 
 

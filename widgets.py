@@ -194,7 +194,7 @@ def QPixmapToArray(pixmap):
 
 # CUSTOM 3D VIEWER
 class Custom3dView:
-    def __init__(self, cloud_ir, tmin, tmax, loc_tmin, loc_tmax):
+    def __init__(self, cloud_ir, tmin, tmax, loc_tmin, loc_tmax, factor):
 
         app = gui.Application.instance
         self.window = app.create_window("Open3D - Infrared analyzer", 1024, 768)
@@ -219,6 +219,7 @@ class Custom3dView:
 
         self.widget3d.scene = rendering.Open3DScene(self.window.renderer)
         self.widget3d.enable_scene_caching(True)
+        self.widget3d.scene.show_axes(True)
         self.widget3d.scene.scene.set_sun_light(
             [0.577, -0.577, -0.577],  # direction
             [1, 1, 1],  # color
@@ -272,20 +273,20 @@ class Custom3dView:
         self._voxel.add_item(self.voxel_name[3])
         self._voxel.set_on_selection_changed(self._on_voxel)
 
-        combo_light = gui.Horiz(0, gui.Margins(0.25 * em, 0.25 * em, 0.25 * em, 0.25 * em))
-        combo_light.add_child(gui.Label("Rendering"))
-        combo_light.add_child(self._shader)
-        combo_light.add_child(self._voxel)
+        combo_voxel = gui.Horiz(0, gui.Margins(0.25 * em, 0.25 * em, 0.25 * em, 0.25 * em))
+        combo_voxel.add_child(gui.Label("Size of voxels"))
+        combo_voxel.add_child(self._voxel)
 
         # layout
         view_ctrls.add_child(combo_light)
+        view_ctrls.add_child(combo_voxel)
         self.layout.add_child(view_ctrls)
         self.window.add_child(self.layout)
 
         bounds = self.widget3d.scene.bounding_box
         center = bounds.get_center()
         self.widget3d.setup_camera(60, bounds, center)
-        self.widget3d.look_at(center, center + [0, 0, 400], [0, 0, 1])
+        self.widget3d.look_at(center, center + [0, 0, 600], [0, 0, 1])
         self.widget3d.set_on_mouse(self._on_mouse_widget3d)
 
         # We are sizing the info label to be exactly the right size,
@@ -295,8 +296,8 @@ class Custom3dView:
         self.widget3d.set_on_mouse(self._on_mouse_widget3d)
 
         # add labels for min and max values
-        loc_tmin = np.append(loc_tmin, tmin * 10)
-        loc_tmax = np.append(loc_tmax, tmax * 10)
+        loc_tmin = np.append(loc_tmin, tmin * factor)
+        loc_tmax = np.append(loc_tmax, tmax * factor)
         text_max = 'Temp. max.:' + str(round(tmax, 2)) + '°C'
         text_min = 'Temp. min.:' + str(round(tmin, 2)) + '°C'
         lab_tmin = self.widget3d.add_3d_label(loc_tmin, text_min)
