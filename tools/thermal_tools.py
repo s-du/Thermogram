@@ -588,6 +588,20 @@ def create_rgb_crop_folder(list_rgb_paths, drone_model, scale_percent, dest_crop
         dest_path = os.path.join(dest_crop_folder, new_name)
         cv2.imwrite(dest_path, crop)
 
+# CROP OPS
+def get_corresponding_crop_rectangle(p1, p2, scale):
+    # Scale the coordinates of p1 and p2 to the larger image size
+    p1_large = (int(p1[0] * scale), int(p1[1] * scale))
+    p2_large = (int(p2[0] * scale), int(p2[1] * scale))
+
+    # Calculate the top-left and bottom-right coordinates of the crop rectangle
+    crop_tl = (min(p1_large[0], p2_large[0]), min(p1_large[1], p2_large[1]))
+    crop_br = (max(p1_large[0], p2_large[0]), max(p1_large[1], p2_large[1]))
+
+    print(p1, p2, crop_tl, crop_br)
+
+    return crop_tl, crop_br
+
 
 # THERMAL PROCESSING
 def read_dji_image(img_in, raw_out, param={'emissivity': 0.95, 'distance': 5, 'humidity': 50, 'reflection': 25}):

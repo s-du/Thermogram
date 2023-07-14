@@ -353,7 +353,6 @@ class DroneIrWindow(QtWidgets.QMainWindow):
         :param nb: number of existing roi's
         """
 
-
         img_from_gui = self.viewer.get_current_image()
         self.images[self.active_image].nb_meas_rect = img_from_gui.nb_meas_rect
         self.images[self.active_image].annot_rect_items = img_from_gui.annot_rect_items
@@ -363,15 +362,39 @@ class DroneIrWindow(QtWidgets.QMainWindow):
         last_coords = self.images[self.active_image].meas_rect_coords[-1]
         p1 = last_coords[0]
         p2 = last_coords[1]
-        roi_meas = self.raw_data[int(p1.y()):int(p2.y()) , int(p1.x()):int(p2.x())]
 
-        # clear old figure
-        dialog = dia.Meas3dDialog()
-        dialog.surface_from_image_matplot(roi_meas, self.colormap, self.n_colors, self.user_lim_col_low, self.user_lim_col_high)
+        # get image data
+        rgb_path = os.path.join(self.rgb_folder, self.rgb_imgs[self.active_image])
+        ir_path = self.dest_path_no_post
+
+        # crop data to last rectangle
+        roi_meas = self.raw_data[int(p1.y()):int(p2.y()), int(p1.x()):int(p2.x())]
+
+        cv_rgb = tt.cv_read_all_path(rgb_path)
+        h_rgb, w_rgb, _ = cv_rgb.shape
+        cv_ir = tt.cv_read_all_path(ir_path)
+        h_ir, w_ir, _ = cv_ir.shape
+        roi_ir = cv_ir[int(p1.y()):int(p2.y()), int(p1.x()):int(p2.x())]
+
+        p1 = (p1.x(), p1.y())
+        p2 = (p2.x(), p2.y())
+        scale = w_rgb/w_ir
+        crop_tl, crop_tr = tt.get_corresponding_crop_rectangle(p1, p2, scale)
+
+        roi_rgb = cv_rgb[int(crop_tl[1]):int(crop_tr[1]), int(crop_tl[0]):int(crop_tr[0])]
+
+        roi_rgb_path = os.path.join(self.preview_folder, 'roi_rgb.JPG')
+        roi_ir_path = os.path.join(self.preview_folder, 'roi_ir.JPG')
+        tt.cv_write_all_path(roi_rgb, roi_rgb_path)
+        tt.cv_write_all_path(roi_ir, roi_ir_path)
+
+
+        # bring data 3d figure
+        dialog = dia.Meas3dDialog(roi_meas)
+        dialog.dual_view.load_images_from_path(roi_rgb_path, roi_ir_path)
+        dialog.surface_from_image_matplot(self.colormap, self.n_colors, self.user_lim_col_low, self.user_lim_col_high)
         if dialog.exec_():
             pass
-
-
 
         # create description name
         desc = 'rect_measure_' + str(self.images[self.active_image].nb_meas_rect)
@@ -634,8 +657,6 @@ class DroneIrWindow(QtWidgets.QMainWindow):
 
         self.viewer.draw_all_meas(list_of_items)
 
-
-
     def update_img_to_preview(self, direction):
         self.preview_rgb = False
         if direction == 'minus':
@@ -673,6 +694,7 @@ class DroneIrWindow(QtWidgets.QMainWindow):
 
         if v == 1: # if rgb view
             self.viewer.setPhoto(QtGui.QPixmap(rgb_path))
+            self.viewer.clean_scene()
 
         else:
             # colormap
@@ -729,7 +751,7 @@ class DroneIrWindow(QtWidgets.QMainWindow):
             self.viewer.setPhoto(QtGui.QPixmap(dest_path_no_post))
 
             # set left and right views (in dual viewer)
-            self.dual_viewer.load_images(rgb_path, dest_path_no_post)
+            self.dual_viewer.load_images_from_path(rgb_path, dest_path_no_post)
 
             if k !=0: #if a post-process is applied
                 _ = tt.process_one_th_picture(self.thermal_param, self.drone_model, self.test_img_path,
@@ -746,7 +768,9 @@ class DroneIrWindow(QtWidgets.QMainWindow):
 
                 self.viewer.setPhoto(QtGui.QPixmap(dest_path_post))
                 # set left and right views
-                self.dual_viewer.load_images(rgb_path, dest_path_post)
+                self.dual_viewer.load_images_from_path(rgb_path, dest_path_post)
+
+            self.dest_path_no_post = dest_path_no_post
 
             self.viewer.set_temperature_data(self.raw_data)
 
