@@ -3,15 +3,13 @@ from PySide6 import QtWidgets, QtGui, QtCore
 
 import os
 import json
-import platformdirs
-import copy
-import numpy as np
 
 # custom libraries
 import widgets as wid
 import resources as res
 import dialogs as dia
 from tools import thermal_tools as tt
+from tools import thermal_3d as t3d
 
 """
 TODO:
@@ -290,8 +288,9 @@ class DroneIrWindow(QtWidgets.QMainWindow):
             self.add_item_in_tree(rect_item[0], desc)
 
     def show_viz_threed(self):
-        data = self.raw_data
-        tt.surface_from_image(data, self.colormap, self.n_colors, self.user_lim_col_low, self.user_lim_col_high)
+        test_img = self.ir_imgs[self.active_image]
+        img_path = os.path.join(self.ir_folder, test_img)
+        t3d.run_viz_app(img_path, self.colormap, self.user_lim_col_high,self.user_lim_col_low, self.n_colors)
 
     def show_info(self):
         dialog = dia.AboutDialog()
