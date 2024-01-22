@@ -7,6 +7,7 @@ from matplotlib import cm
 from matplotlib.backends.backend_qt5agg import (
    FigureCanvasQTAgg as FigureCanvas,
    NavigationToolbar2QT)
+from matplotlib.figure import Figure
 
 import numpy as np
 import cv2
@@ -71,7 +72,7 @@ class AboutDialog(QtWidgets.QDialog):
         self.setFixedSize(300,300)
         self.layout = QtWidgets.QVBoxLayout()
 
-        about_text = QtWidgets.QLabel('This app was made by Buildwise, to simplify the analysis of drone thermal images.')
+        about_text = QtWidgets.QLabel('This app was made by Buildwise, to simplify the analysis of thermal images.')
         about_text.setWordWrap(True)
 
         logos1 = QtWidgets.QLabel()
@@ -113,6 +114,78 @@ class DialogThParams(QtWidgets.QDialog):
         # button actions
         self.buttonBox.accepted.connect(self.accept)
         self.buttonBox.rejected.connect(self.reject)
+
+
+class MeasLineDialog(QtWidgets.QDialog):
+    def __init__(self, data):
+        QtWidgets.QDialog.__init__(self)
+        basepath = os.path.dirname(__file__)
+        basename = 'meas_dialog_2d'
+        uifile = os.path.join(basepath, 'ui/%s.ui' % basename)
+        wid.loadUi(uifile, self)
+
+        self.verticalLayout_2.setContentsMargins(0, 0, 0, 0)  # Reset margins
+        self.verticalLayout_2.setSpacing(0)
+
+        self.data = data
+        self.y_values = data[:, 2]
+        self.x_values = np.arange(len(self.y_values))
+
+        # Plotting Area
+        self.figure = Figure()
+        self.canvas = FigureCanvas(self.figure)
+        self.verticalLayout_2.addWidget(self.canvas)
+
+        ax = self.figure.add_subplot()  # 1 row, 2 columns, second plot
+        ax.plot(self.x_values, self.y_values, 'b-')  # Assuming 'r' is accessible and correctly sized
+        ax.set_xlabel("length [pixels]")
+        ax.set_ylabel("Temperature [°C]")
+
+        # Improve the axis
+        ax.spines['top'].set_color('none')
+        ax.spines['right'].set_color('none')
+        ax.spines['bottom'].set_position(('data', 0))
+        ax.spines['left'].set_position(('data', 0))
+        ax.xaxis.set_ticks_position('bottom')
+        ax.yaxis.set_ticks_position('left')
+
+        ax.grid(True, linestyle='--', which='both', zorder=0)
+        self.figure.tight_layout()
+
+        self.highlights = self.create_highlights()
+
+        # add table model for data
+        self.model = wid.TableModel(self.highlights)
+        self.tableView.setModel(self.model)
+
+        # add matplotlib toolbar
+        toolbar = NavigationToolbar2QT(self.canvas, self)
+        self.verticalLayout_2.addWidget(toolbar)
+
+        # button actions
+        self.buttonBox.accepted.connect(self.accept)
+        self.buttonBox.rejected.connect(self.reject)
+
+        self.create_connections()
+
+    def create_connections(self):
+        pass
+
+    def create_highlights(self):
+        # extrema
+        self.tmax = np.amax(self.y_values)
+        self.tmin = np.amin(self.y_values)
+        self.tmean = np.mean(self.y_values)
+
+        # normalized data
+        self.th_norm = (self.y_values - self.tmin) / (self.tmax - self.tmin)
+
+        highlights = [
+            ['Max. Temp. [°C]', str(self.tmax)],
+            ['Min. Temp. [°C]', str(self.tmin)],
+            ['Average Temp. [°C]', str(self.tmean)]
+        ]
+        return highlights
 
 
 class Meas3dDialog(QtWidgets.QDialog):
@@ -159,6 +232,7 @@ class Meas3dDialog(QtWidgets.QDialog):
         self.area = self.data.shape[0] * self.data.shape[1]
         self.tmax = np.amax(self.data)
         self.tmin = np.amin(self.data)
+        self.tmean = np.mean(self.data)
 
         # normalized data
         self.th_norm = (self.data - self.tmin) / (self.tmax - self.tmin)
@@ -167,6 +241,7 @@ class Meas3dDialog(QtWidgets.QDialog):
             ['Size [pxl²]', self.area],
             ['Max. Temp. [°C]', str(self.tmax)],
             ['Min. Temp. [°C]', str(self.tmin)],
+            ['Average Temp. [°C]', str(self.tmean)]
         ]
         return highlights
 

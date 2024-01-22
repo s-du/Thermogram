@@ -106,10 +106,12 @@ class ProcessedImage_bis:
 
         # to_delete
         self.meas_rect_items = []
+        self.meas_rect_coords = []
         self.meas_point_items = []
         self.meas_text_spot_items = []
         self.meas_line_items = []
-        self.meas_rect_coords = []
+        self.meas_line_values = []
+
 
     def update_colormap_data(self, colormap, n_colors, user_lim_col_high, user_lim_col_low, post_process, tmin, tmax):
         self.colormap= colormap

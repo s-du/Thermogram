@@ -133,6 +133,7 @@ class MplCanvas_project3d(FigureCanvasQTAgg):
     """
     Class for embedding matplotlib plots into PySide6
     """
+
     def __init__(self, parent=None):
         fig = Figure()
         super(MplCanvas_project3d, self).__init__(fig)
@@ -158,6 +159,7 @@ class TableModel(QAbstractTableModel):
         # The following takes the first sub-list, and returns
         # the length (only works if all rows are an equal length)
         return len(self._data[0])
+
 
 def QPixmapFromItem(item):
     """
@@ -190,9 +192,6 @@ def QPixmapToArray(pixmap):
     img = np.frombuffer(byte_str, dtype=np.uint8).reshape((w, h, 4))
 
     return img
-
-
-
 
 
 # DUAL IMAGE VIEWER
@@ -664,18 +663,15 @@ class PhotoViewer(QGraphicsView):
                 self.active_image.meas_line_items.append(self._current_line_item)
                 self.active_image.nb_meas_line += 1
 
+                # compute line limits
+                p1 = np.array([int(self.origin.x()), int(self.origin.y())])
+                p2 = np.array([int(self.new_coord.x()), int(self.new_coord.y())])
+                line_values = createLineIterator(p1, p2, self.temperatures)
+                self.active_image.meas_line_values.append(line_values)
+
                 # emit signal (end of measure)
                 self.endDrawing_line_meas.emit()
                 print('Line meas. added')
-
-            # compute line values
-            p1 = np.array([int(self.origin.x()), int(self.origin.y())])
-            p2 = np.array([int(self.new_coord.x()), int(self.new_coord.y())])
-            print(p1,p2)
-            line_values = createLineIterator(p1, p2, self.temperatures)
-            plt.plot(line_values[:,2])
-            plt.ylabel('Temperature [°C]')
-            plt.show()
 
             self.origin = QPoint()
             self._current_line_item = None

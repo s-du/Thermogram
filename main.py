@@ -1,8 +1,12 @@
 # imports
-from PySide6 import QtWidgets, QtGui, QtCore
+from PySide6.QtGui import *
+from PySide6.QtWidgets import *
+from PySide6.QtCore import *
 
 import os
 import json
+
+
 
 # custom libraries
 import widgets as wid
@@ -22,7 +26,6 @@ TODO:
 ir_xml_path = res.find('other/cam_calib_m2t_opencv.xml')
 rgb_xml_path = res.find('other/rgb_cam_calib_m2t_opencv.xml')
 
-
 # PARAMETERS
 APP_FOLDER = 'DroneIrToolkit'
 ORIGIN_THERMAL_IMAGES_NAME = 'Original Thermal Images'
@@ -39,21 +42,23 @@ LINE_MEAS_NAME = 'Line measurements'
 OUT_LIM = ['black', 'white', 'red']
 OUT_LIM_MATPLOT = ['k', 'w', 'r']
 POST_PROCESS = ['none', 'smooth', 'sharpen', 'sharpen strong', 'edge (simple)', 'edge (from rgb)']
-COLORMAPS = ['coolwarm','Artic', 'Iron', 'Rainbow', 'Greys_r', 'Greys', 'plasma', 'inferno', 'jet',
-                              'Spectral_r', 'cividis', 'viridis', 'gnuplot2']
+COLORMAPS = ['coolwarm', 'Artic', 'Iron', 'Rainbow', 'Greys_r', 'Greys', 'plasma', 'inferno', 'jet',
+             'Spectral_r', 'cividis', 'viridis', 'gnuplot2']
 VIEWS = ['th. undistorted', 'RGB crop']
+
 
 # USEFUL CLASSES
 class ObjectDetectionCategory:
     """
     Class to describe a segmentation category
     """
+
     def __init__(self):
         self.color = None
         self.name = ''
 
 
-class DroneIrWindow(QtWidgets.QMainWindow):
+class DroneIrWindow(QMainWindow):
     """
     Main Window class for the Drone IR Toolkit
     """
@@ -76,14 +81,14 @@ class DroneIrWindow(QtWidgets.QMainWindow):
         self.update_progress(nb=100, text="Status: Choose image folder")
 
         # threadin
-        self.__pool = QtCore.QThreadPool()
+        self.__pool = QThreadPool()
         self.__pool.setMaxThreadCount(3)
 
         # set variables
         self.rgb_shown = False
 
         # set options
-        self.save_colormap_info = True # if True, the colormap and temperature options will be stored for each picture
+        self.save_colormap_info = True  # if True, the colormap and temperature options will be stored for each picture
 
         self.list_rgb_paths = ''
         self.list_ir_paths = ''
@@ -121,7 +126,7 @@ class DroneIrWindow(QtWidgets.QMainWindow):
         self.advanced_options = False
 
         # create validator for qlineedit
-        onlyInt = QtGui.QIntValidator()
+        onlyInt = QIntValidator()
         onlyInt.setRange(0, 999)
         self.lineEdit_colors.setValidator(onlyInt)
         self.n_colors = 256  # default number of colors
@@ -138,17 +143,17 @@ class DroneIrWindow(QtWidgets.QMainWindow):
         self.active_category = None
 
         # Create model (for the tree structure)
-        self.model = QtGui.QStandardItemModel()
+        self.model = QStandardItemModel()
         self.treeView.setModel(self.model)
 
         # add measurement and annotations categories to tree view
         self.add_item_in_tree(self.model, RECT_MEAS_NAME)
         self.add_item_in_tree(self.model, POINT_MEAS_NAME)
         self.add_item_in_tree(self.model, LINE_MEAS_NAME)
-        self.model.setHeaderData(0, QtCore.Qt.Horizontal, 'Added Data')
+        self.model.setHeaderData(0, Qt.Horizontal, 'Added Data')
 
         # add actions to action group (mutually exclusive functions)
-        ag = QtGui.QActionGroup(self)
+        ag = QActionGroup(self)
         ag.setExclusive(True)
         ag.addAction(self.actionRectangle_meas)
         ag.addAction(self.actionHand_selector)
@@ -180,11 +185,11 @@ class DroneIrWindow(QtWidgets.QMainWindow):
         self.actionLine_meas.triggered.connect(self.line_meas)
         self.actionReset_all.triggered.connect(self.reset_roi)
         self.actionInfo.triggered.connect(self.show_info)
+        self.actionSave_Image.triggered.connect(self.save_image)
 
         self.viewer.endDrawing_rect_meas.connect(self.add_rect_meas)
         self.viewer.endDrawing_point_meas.connect(self.add_point_meas)
         self.viewer.endDrawing_line_meas.connect(self.add_line_meas)
-        # self.comboBox_cat.currentIndexChanged.connect(self.on_cat_change)
 
         self.pushButton_left.clicked.connect(lambda: self.update_img_to_preview('minus'))
         self.pushButton_right.clicked.connect(lambda: self.update_img_to_preview('plus'))
@@ -192,7 +197,7 @@ class DroneIrWindow(QtWidgets.QMainWindow):
         self.pushButton_estimate.clicked.connect(self.estimate_temp)
         self.pushButton_advanced.clicked.connect(self.define_options)
         self.pushButton_meas_color.clicked.connect(self.viewer.change_meas_color)
-        self.pushButton_test.clicked.connect(self.test_button) # for testing purposes
+        self.pushButton_match.clicked.connect(self.image_matching)
 
         # Dropdowns
         self.comboBox.currentIndexChanged.connect(self.update_img_preview)
@@ -253,92 +258,18 @@ class DroneIrWindow(QtWidgets.QMainWindow):
         self.update_img_preview()
         self.comboBox_img.addItems(self.ir_imgs)
 
-    def switch_cat_data(self):
-        self.viewer.clean_scene()
-
-        # update tree view
-        self.model = QtGui.QStandardItemModel()
-        self.treeView.setModel(self.model)
-
-
-        # add object categories to tree view
-        for cat in self.categories:
-            self.add_item_in_tree(self.model, cat.name)
-            self.model.setHeaderData(0, QtCore.Qt.Horizontal, 'Categories')
-
-        counter = []
-        for c in range(len(self.categories)):
-            counter.append(0)
-
-        # load bboxes
-        for i, roi in enumerate(self.images[self.active_image].annot_rect_items):
-            print(i)
-            # define color and name of object category
-            concerned_cat = self.images[self.active_image].corresp_cat[i]
-            color = self.categories[concerned_cat].color
-            name = self.categories[concerned_cat].name
-
-            self.viewer.draw_box_from_r(roi, color)
-
-            category = self.images[self.active_image].corresp_cat[i]
-            counter[category] += 1
-
-            desc = 'rect_zone' + str(counter[category])
-            rect_item = self.model.findItems(name)
-            self.add_item_in_tree(rect_item[0], desc)
-
     def show_viz_threed(self):
         test_img = self.ir_imgs[self.active_image]
         img_path = os.path.join(self.ir_folder, test_img)
-        t3d.run_viz_app(img_path, self.colormap, self.user_lim_col_high,self.user_lim_col_low, self.n_colors)
+        t3d.run_viz_app(img_path, self.colormap, self.user_lim_col_high, self.user_lim_col_low, self.n_colors)
 
     def show_info(self):
         dialog = dia.AboutDialog()
         if dialog.exec_():
             pass
 
-    def add_cat(self):
-        """
-        Add a segmentation category (eg. 'wood', 'bricks', ...)
-        """
-        text, ok = QtWidgets.QInputDialog.getText(self, 'Text Input Dialog',
-                                                  'Enter name of category:')
-        if ok:
-            # add color
-            color = QtWidgets.QColorDialog.getColor()
-            print(color.rgb())
-            if color.isValid():
-                # add category to combobox
-                self.comboBox_cat.addItem(text)
-                self.comboBox_cat.setEnabled(True)
-
-                # add header to ROI list
-                self.add_item_in_tree(self.model, text)
-                self.model.setHeaderData(0, QtCore.Qt.Horizontal, 'Categories')
-
-                # create category class
-                cat = ObjectDetectionCategory()
-                cat.name = text
-                cat.color = color
-
-                self.categories.append(cat)
-
-                # activate tools
-                self.actionRectangle_selection.setEnabled(True)
-
-                # select new cat in combobox
-                nb_cat = len(self.categories)
-                self.comboBox_cat.setCurrentIndex(nb_cat-1)
-                self.on_cat_change()
-
-    def on_cat_change(self):
-        """
-        When the combobox to choose a segmentation category is activated
-        """
-        self.active_i = self.comboBox_cat.currentIndex()
-        if self.categories:
-            self.active_category = self.categories[self.active_i]
-            print(f"the active segmentation category is {self.active_category}")
+    def image_matching(self):
+        pass
 
     def add_rect_meas(self, nb):
         """
@@ -346,10 +277,7 @@ class DroneIrWindow(QtWidgets.QMainWindow):
         :param nb: number of existing roi's
         """
 
-        img_from_gui = self.viewer.get_current_image()
-        self.images[self.active_image].nb_meas_rect = img_from_gui.nb_meas_rect
-        self.images[self.active_image].annot_rect_items = img_from_gui.annot_rect_items
-        self.images[self.active_image].meas_rect_items = img_from_gui.meas_rect_items
+        self.images[self.active_image] = self.viewer.get_current_image()
 
         # run matplotlib on the roi
         last_coords = self.images[self.active_image].meas_rect_coords[-1]
@@ -371,7 +299,7 @@ class DroneIrWindow(QtWidgets.QMainWindow):
 
         p1 = (p1.x(), p1.y())
         p2 = (p2.x(), p2.y())
-        scale = w_rgb/w_ir
+        scale = w_rgb / w_ir
         crop_tl, crop_tr = tt.get_corresponding_crop_rectangle(p1, p2, scale)
 
         roi_rgb = cv_rgb[int(crop_tl[1]):int(crop_tr[1]), int(crop_tl[0]):int(crop_tr[0])]
@@ -380,7 +308,6 @@ class DroneIrWindow(QtWidgets.QMainWindow):
         roi_ir_path = os.path.join(self.preview_folder, 'roi_ir.JPG')
         tt.cv_write_all_path(roi_rgb, roi_rgb_path)
         tt.cv_write_all_path(roi_ir, roi_ir_path)
-
 
         # bring data 3d figure
         dialog = dia.Meas3dDialog(roi_meas)
@@ -400,13 +327,20 @@ class DroneIrWindow(QtWidgets.QMainWindow):
         self.hand_pan()
 
     def add_line_meas(self):
-        img_from_gui = self.viewer.get_current_image()
-        self.images[self.active_image].nb_meas_line = img_from_gui.nb_meas_line
-        self.images[self.active_image].meas_line_items = img_from_gui.meas_line_items
+        self.images[self.active_image] = self.viewer.get_current_image()
 
         desc = 'line_measure_' + str(self.images[self.active_image].nb_meas_line)
         line_cat = self.model.findItems(LINE_MEAS_NAME)
         self.add_item_in_tree(line_cat[0], desc)
+
+        # get values
+        last_values = self.images[self.active_image].meas_line_values[-1]
+
+        # bring data 3d figure
+        dialog = dia.MeasLineDialog(last_values)
+        if dialog.exec_():
+            pass
+
         self.hand_pan()
 
     def add_point_meas(self):
@@ -482,13 +416,12 @@ class DroneIrWindow(QtWidgets.QMainWindow):
                 self.update_img_preview()
 
             except ValueError:
-                QtWidgets.QMessageBox.warning(self, "Warning",
+                QMessageBox.warning(self, "Warning",
                                               "Oops! Some of the values are not valid!")
                 self.define_options()
 
-
     def estimate_temp(self):
-        ref_pic_name = QtWidgets.QFileDialog.getOpenFileName(self, 'Open file',
+        ref_pic_name = QFileDialog.getOpenFileName(self, 'Open file',
                                                              self.ir_folder, "Image files (*.jpg *.JPG *.gif)")
         img_path = ref_pic_name[0]
         if img_path != '':
@@ -498,12 +431,13 @@ class DroneIrWindow(QtWidgets.QMainWindow):
 
         self.update_img_preview()
 
+    # LOAD AND SAVE ACTIONS ______________________________________________________________________________
     def load_folder_phase1(self):
-        folder = str(QtWidgets.QFileDialog.getExistingDirectory(self, "Select Directory"))
+        folder = str(QFileDialog.getExistingDirectory(self, "Select Directory"))
 
         # warning message (new project)
         if self.list_rgb_paths != '':
-            qm = QtWidgets.QMessageBox
+            qm = QMessageBox
             reply = qm.question(self, '', "Are you sure ? It will create a new project", qm.Yes | qm.No)
 
             if reply == qm.Yes:
@@ -600,19 +534,42 @@ class DroneIrWindow(QtWidgets.QMainWindow):
         self.actionSpot_meas.setEnabled(True)
         self.actionLine_meas.setEnabled(True)
 
-    def change_meas_color(self):
-        self.viewer.change_meas_color()
-        self.switch_image_data()
+    def go_save(self):
+        """
+        Save measurements
+        """
+        # load image
+        pass
 
-    def test_button(self):
-        self.lineEdit_colors.setText(str(200))
+    def save_image(self):
+        # Create a QImage with the size of the viewport
+        image = QImage(self.viewer.viewport().size(), QImage.Format_ARGB32_Premultiplied)
+        image.fill(Qt.transparent)
+
+        # Paint the QGraphicsView's viewport onto the QImage
+        painter = QPainter(image)
+        self.viewer.render(painter)
+        painter.end()
+
+        # Open 'Save As' dialog
+        file_path, _ = QFileDialog.getSaveFileName(
+            None, "Save Image", "", "PNG Image (*.png);;JPEG Image (*.jpg *.jpeg *.JPEG)"
+        )
+
+        # Save the image if a file path was provided, using high-quality settings for JPEG
+        if file_path:
+            if file_path.lower().endswith('.jpg') or file_path.lower().endswith('.jpeg'):
+                image.save(file_path, 'JPEG', 100)
+            else:
+                image.save(file_path)  # PNG is lossless by default
 
     def switch_image_data(self):
         """
         When the shown picture is change (adapt measurements and user colormap for this picture)
         """
         # load stored data
-        self.colormap, self.n_colors, self.user_lim_col_high, self.user_lim_col_low, self.tmin, self.tmax = self.images[self.active_image].get_colormap_data()
+        self.colormap, self.n_colors, self.user_lim_col_high, self.user_lim_col_low, self.tmin, self.tmax = self.images[
+            self.active_image].get_colormap_data()
         print(f'HERE___________{self.tmin}')
         print(f'HERE___________{self.tmax}')
 
@@ -633,21 +590,20 @@ class DroneIrWindow(QtWidgets.QMainWindow):
         self.lineEdit_min_temp.setText(str(round(self.tmin, 2)))
         self.lineEdit_max_temp.setText(str(round(self.tmax, 2)))
 
-
         self.thermal_param = self.images[self.active_image].thermal_param
 
         # clean measurements and annotations
         self.viewer.clean_scene()
 
         # Tree operations
-        self.model = QtGui.QStandardItemModel()
+        self.model = QStandardItemModel()
         self.treeView.setModel(self.model)
 
         self.add_item_in_tree(self.model, RECT_MEAS_NAME)
         self.add_item_in_tree(self.model, POINT_MEAS_NAME)
         self.add_item_in_tree(self.model, LINE_MEAS_NAME)
 
-        self.model.setHeaderData(0, QtCore.Qt.Horizontal, 'Added Data')
+        self.model.setHeaderData(0, Qt.Horizontal, 'Added Data')
 
         point_cat = self.model.findItems(POINT_MEAS_NAME)
         rect_cat = self.model.findItems(RECT_MEAS_NAME)
@@ -656,7 +612,7 @@ class DroneIrWindow(QtWidgets.QMainWindow):
         for i, item in enumerate(self.images[self.active_image].meas_point_items):
             list_of_items.append(item)
             desc = 'spot_measure_' + str(i)
-            self.add_item_in_tree(point_cat[0],desc)
+            self.add_item_in_tree(point_cat[0], desc)
         for i, item in enumerate(self.images[self.active_image].meas_rect_items):
             list_of_items.append(item)
             desc = 'rect_measure_' + str(i)
@@ -666,6 +622,49 @@ class DroneIrWindow(QtWidgets.QMainWindow):
 
         # add measurements and annotations for the new image
         self.viewer.draw_all_meas(list_of_items)
+
+    # VISUALIZE __________________________________________________________________
+    def change_meas_color(self):
+        self.viewer.change_meas_color()
+        self.switch_image_data()
+
+    def compile_user_values(self):
+        # colormap
+        i = self.comboBox.currentIndex()
+        self.colormap = self.colormap_list[i]
+
+        try:
+            self.n_colors = int(self.lineEdit_colors.text())
+        except:
+            self.n_colors = 256
+
+        #   temp limits
+        try:
+            tmin = float(self.lineEdit_min_temp.text())
+            tmax = float(self.lineEdit_max_temp.text())
+
+            if tmax > tmin:
+                self.tmin = tmin
+                self.tmax = tmax
+            else:
+                raise ValueError
+
+        except ValueError:
+            QMessageBox.warning(self, "Warning",
+                                          "Oops! A least one of the temperatures is not valid.  Try again...")
+            self.lineEdit_min_temp.setText(str(round(self.tmin, 2)))
+            self.lineEdit_max_temp.setText(str(round(self.tmax, 2)))
+
+        #   out of limits color
+        i = self.comboBox_colors_low.currentIndex()
+        self.user_lim_col_low = self.out_of_matp[i]
+
+        i = self.comboBox_colors_high.currentIndex()
+        self.user_lim_col_high = self.out_of_matp[i]
+
+        #   post process operation
+        k = self.comboBox_post.currentIndex()
+        self.post_process = self.img_post[k]
 
     def update_img_to_preview(self, direction):
         """
@@ -700,45 +699,6 @@ class DroneIrWindow(QtWidgets.QMainWindow):
         else:
             self.pushButton_left.setEnabled(True)
 
-    def compile_user_values(self):
-        # colormap
-        i = self.comboBox.currentIndex()
-        self.colormap = self.colormap_list[i]
-
-        try:
-            self.n_colors = int(self.lineEdit_colors.text())
-        except:
-            self.n_colors = 256
-
-        #   temp limits
-        try:
-            tmin = float(self.lineEdit_min_temp.text())
-            tmax = float(self.lineEdit_max_temp.text())
-
-            if tmax > tmin:
-                self.tmin = tmin
-                self.tmax = tmax
-            else:
-                raise ValueError
-
-        except ValueError:
-            QtWidgets.QMessageBox.warning(self, "Warning",
-                                          "Oops! A least one of the temperatures is not valid.  Try again...")
-            self.lineEdit_min_temp.setText(str(round(self.tmin, 2)))
-            self.lineEdit_max_temp.setText(str(round(self.tmax, 2)))
-
-        #   out of limits color
-        i = self.comboBox_colors_low.currentIndex()
-        self.user_lim_col_low = self.out_of_matp[i]
-
-        i = self.comboBox_colors_high.currentIndex()
-        self.user_lim_col_high = self.out_of_matp[i]
-
-        #   post process operation
-        k = self.comboBox_post.currentIndex()
-        self.post_process = self.img_post[k]
-
-
     def update_img_preview(self):
         """
         Update what is shown in the viewer
@@ -747,8 +707,8 @@ class DroneIrWindow(QtWidgets.QMainWindow):
         v = self.comboBox_view.currentIndex()
         rgb_path = os.path.join(self.rgb_folder, self.rgb_imgs[self.active_image])
 
-        if v == 1: # if rgb view
-            self.viewer.setPhoto(QtGui.QPixmap(rgb_path))
+        if v == 1:  # if rgb view
+            self.viewer.setPhoto(QPixmap(rgb_path))
             self.viewer.clean_scene()
 
         else:
@@ -758,57 +718,52 @@ class DroneIrWindow(QtWidgets.QMainWindow):
             dest_path_post = os.path.join(self.preview_folder, 'preview_post.JPG')
 
             read_path = os.path.join(self.rgb_folder, self.rgb_imgs[self.active_image])
-            self.raw_data = tt.process_one_th_picture(self.thermal_param, self.drone_model, self.test_img_path, dest_path_no_post,
-                                      self.tmin, self.tmax, self.colormap, self.user_lim_col_high,
-                                      self.user_lim_col_low, n_colors=self.n_colors, post_process='none',
-                                      rgb_path=read_path)
+            self.raw_data = tt.process_one_th_picture(self.thermal_param, self.drone_model, self.test_img_path,
+                                                      dest_path_no_post,
+                                                      self.tmin, self.tmax, self.colormap, self.user_lim_col_high,
+                                                      self.user_lim_col_low, n_colors=self.n_colors,
+                                                      post_process='none',
+                                                      rgb_path=read_path)
 
             cv_img = tt.cv_read_all_path(dest_path_no_post)
             undis, _ = tt.undis(cv_img, ir_xml_path)
             tt.cv_write_all_path(undis, dest_path_no_post)
-            self.viewer.setPhoto(QtGui.QPixmap(dest_path_no_post))
+            self.viewer.setPhoto(QPixmap(dest_path_no_post))
 
             # set left and right views (in dual viewer)
             self.dual_viewer.load_images_from_path(rgb_path, dest_path_no_post)
 
-            if self.post_process != 'none': #if a post-process is applied
+            if self.post_process != 'none':  # if a post-process is applied
                 _ = tt.process_one_th_picture(self.thermal_param, self.drone_model, self.test_img_path,
-                                                          dest_path_post,
-                                                          self.tmin, self.tmax, self.colormap, self.user_lim_col_high,
-                                                          self.user_lim_col_low, n_colors=self.n_colors,
-                                                          post_process=self.post_process,
-                                                          rgb_path=read_path)
+                                              dest_path_post,
+                                              self.tmin, self.tmax, self.colormap, self.user_lim_col_high,
+                                              self.user_lim_col_low, n_colors=self.n_colors,
+                                              post_process=self.post_process,
+                                              rgb_path=read_path)
 
                 if self.post_process != 'edge (from rgb)':
                     cv_img = tt.cv_read_all_path(dest_path_post)
                     undis, _ = tt.undis(cv_img, ir_xml_path)
                     tt.cv_write_all_path(undis, dest_path_post)
 
-                self.viewer.setPhoto(QtGui.QPixmap(dest_path_post))
+                self.viewer.setPhoto(QPixmap(dest_path_post))
                 # set left and right views
                 self.dual_viewer.load_images_from_path(rgb_path, dest_path_post)
 
             # store all colormap data in current image before switching image
             self.images[self.active_image].update_colormap_data(self.colormap, self.n_colors,
                                                                 self.user_lim_col_high,
-                                                                self.user_lim_col_low, self.post_process, self.tmin, self.tmax)
+                                                                self.user_lim_col_low, self.post_process, self.tmin,
+                                                                self.tmax)
             # store emissivity data
             self.images[self.active_image].thermal_param = self.thermal_param
 
             self.dest_path_no_post = dest_path_no_post
             self.viewer.set_temperature_data(self.raw_data)
 
-
-    def go_save(self):
-        """
-        Save measurements
-        """
-        # load image
-        pass
-
-    # GENERAL GUI METHODS
+    # GENERAL GUI METHODS __________________________________________________________________________
     def add_item_in_tree(self, parent, line):
-        item = QtGui.QStandardItem(line)
+        item = QStandardItem(line)
         parent.appendRow(item)
 
     def write_json(self, dictionary):
@@ -861,7 +816,7 @@ class DroneIrWindow(QtWidgets.QMainWindow):
         self.active_category = None
 
         # Create model (for the tree structure)
-        self.model = QtGui.QStandardItemModel()
+        self.model = QStandardItemModel()
         self.treeView.setModel(self.model)
 
         # clean graphicscene
@@ -872,7 +827,7 @@ class DroneIrWindow(QtWidgets.QMainWindow):
 
     def reset_roi(self):
         # clean tree view
-        self.model = QtGui.QStandardItemModel()
+        self.model = QStandardItemModel()
         self.treeView.setModel(self.model)
 
         # clean roi in each cat
@@ -882,7 +837,7 @@ class DroneIrWindow(QtWidgets.QMainWindow):
 
         for cat in self.categories:
             self.add_item_in_tree(self.model, cat.name)
-        self.model.setHeaderData(0, QtCore.Qt.Horizontal, 'Categories')
+        self.model.setHeaderData(0, Qt.Horizontal, 'Categories')
 
         # clean graphicscene
         self.viewer.clean_scene()
@@ -891,7 +846,7 @@ class DroneIrWindow(QtWidgets.QMainWindow):
         """
         Function to add an icon to a pushButton
         """
-        pushButton_object.setIcon(QtGui.QIcon(img_source))
+        pushButton_object.setIcon(QIcon(img_source))
 
 
 def main(argv=None):
@@ -915,15 +870,15 @@ def main(argv=None):
     }
 
     # create the application if necessary
-    if (not QtWidgets.QApplication.instance()):
-        app = QtWidgets.QApplication(argv)
+    if (not QApplication.instance()):
+        app = QApplication(argv)
         app.setStyle('Breeze')
         # apply_stylesheet(app, theme='light_blue.xml',extra=extra)
 
     # create the main window
 
     window = DroneIrWindow()
-    window.setWindowIcon(QtGui.QIcon(res.find('img/icone.png')))
+    window.setWindowIcon(QIcon(res.find('img/icone.png')))
     window.showMaximized()
 
     # run the application if necessary
