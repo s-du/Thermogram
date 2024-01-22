@@ -326,6 +326,7 @@ border-radius: 10px;
     </property>
     <addaction name="actionLoad_folder"/>
     <addaction name="actionSave_Image"/>
+    <addaction name="actionProcess_all"/>
    </widget>
    <widget class="QMenu" name="menuAbout">
     <property name="title">
@@ -931,6 +932,14 @@ border-radius: 10px;
   <action name="actionSave_Image">
    <property name="text">
     <string>Save Image</string>
+   </property>
+  </action>
+  <action name="actionProcess_all">
+   <property name="text">
+    <string>Process all</string>
+   </property>
+   <property name="toolTip">
+    <string>Process all pictures with the same parameters</string>
    </property>
   </action>
  </widget>

@@ -120,6 +120,7 @@ class ProcessedImage_bis:
 
 class PointMeas:
     def __int__(self, qpoint):
+        self.name = ''
         self.qpoint = qpoint
         self.ellipse_item = None
         self.text_item = None
@@ -144,6 +145,7 @@ class PointMeas:
 
 class LineMeas:
     def __init__(self, item):
+        self.name = ''
         self.main_item = item
         self.spot_items = []
         self.text_items = []
@@ -204,6 +206,7 @@ class LineMeas:
 
 class RectMeas:
     def __init__(self, item):
+        self.name = ''
         self.main_item = item
         self.ellipse_items = []
         self.text_items = []

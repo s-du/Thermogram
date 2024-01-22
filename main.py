@@ -139,6 +139,8 @@ class DroneIrWindow(QMainWindow):
         # Create model (for the tree structure)
         self.model = QStandardItemModel()
         self.treeView.setModel(self.model)
+        self.treeView.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.treeView.customContextMenuRequested.connect(self.onContextMenu)
 
         # add measurement and annotations categories to tree view
         self.add_item_in_tree(self.model, RECT_MEAS_NAME)
@@ -180,6 +182,7 @@ class DroneIrWindow(QMainWindow):
         self.actionReset_all.triggered.connect(self.reset_roi)
         self.actionInfo.triggered.connect(self.show_info)
         self.actionSave_Image.triggered.connect(self.save_image)
+        self.actionProcess_all.triggered.connect(self.process_all_images)
 
         self.viewer.endDrawing_rect_meas.connect(self.add_rect_meas)
         self.viewer.endDrawing_point_meas.connect(self.add_point_meas)
@@ -293,23 +296,24 @@ class DroneIrWindow(QMainWindow):
         for item in new_rect_annot.text_items:
             self.viewer.add_item_from_annot(item)
 
+        # create description name
+        self.images[self.active_image].nb_meas_rect += 1
+        desc = 'rect_measure_' + str(self.images[self.active_image].nb_meas_rect)
+        new_rect_annot.name = desc
+
+        # add annotation to the image annotation list
+        self.images[self.active_image].meas_rect_list.append(new_rect_annot)
+
+        rect_cat = self.model.findItems(RECT_MEAS_NAME)
+        self.add_item_in_tree(rect_cat[0], desc)
+        self.treeView.expandAll()
+
         # bring data 3d figure
         dialog = dia.Meas3dDialog(new_rect_annot)
         dialog.dual_view.load_images_from_path(roi_rgb_path, roi_ir_path)
         dialog.surface_from_image_matplot(self.colormap, self.n_colors, self.user_lim_col_low, self.user_lim_col_high)
         if dialog.exec_():
             pass
-
-        # add annotation to the image annotation list
-        self.images[self.active_image].meas_rect_list.append(new_rect_annot)
-        self.images[self.active_image].nb_meas_rect += 1
-
-        # create description name
-        desc = 'rect_measure_' + str(self.images[self.active_image].nb_meas_rect)
-
-        rect_cat = self.model.findItems(RECT_MEAS_NAME)
-        self.add_item_in_tree(rect_cat[0], desc)
-        self.treeView.expandAll()
 
         # switch back to hand tool
         self.hand_pan()
@@ -320,12 +324,13 @@ class DroneIrWindow(QMainWindow):
 
         # compute stuff
         new_line_annot.compute_data(self.raw_data)
+        self.images[self.active_image].nb_meas_line += 1
+        desc = 'line_measure_' + str(self.images[self.active_image].nb_meas_line)
+        new_line_annot.name = desc
 
         # add annotation to the image annotation list
         self.images[self.active_image].meas_line_list.append(new_line_annot)
-        self.images[self.active_image].nb_meas_line += 1
 
-        desc = 'line_measure_' + str(self.images[self.active_image].nb_meas_line)
         line_cat = self.model.findItems(LINE_MEAS_NAME)
         self.add_item_in_tree(line_cat[0], desc)
 
@@ -344,21 +349,21 @@ class DroneIrWindow(QMainWindow):
         self.viewer.add_item_from_annot(new_pt_annot.ellipse_item)
         self.viewer.add_item_from_annot(new_pt_annot.text_item)
 
+        # create description name
+        self.images[self.active_image].nb_meas_point += 1
+        desc = 'spot_measure_' + str(self.images[self.active_image].nb_meas_point)
+        new_pt_annot.name = desc
+
         # add annotation to the image annotation list
         self.images[self.active_image].meas_point_list.append(new_pt_annot)
-        self.images[self.active_image].nb_meas_point += 1
-        # create description name
-        desc = 'spot_measure_' + str(self.images[self.active_image].nb_meas_point)
 
         point_cat = self.model.findItems(POINT_MEAS_NAME)
         self.add_item_in_tree(point_cat[0], desc)
         self.hand_pan()
 
-
     # measurements methods
     def rectangle_meas(self):
         if self.actionRectangle_meas.isChecked():
-
             # activate drawing tool
             self.viewer.rect_meas = True
             self.viewer.toggleDragMode()
@@ -407,12 +412,12 @@ class DroneIrWindow(QMainWindow):
 
             except ValueError:
                 QMessageBox.warning(self, "Warning",
-                                              "Oops! Some of the values are not valid!")
+                                    "Oops! Some of the values are not valid!")
                 self.define_options()
 
     def estimate_temp(self):
         ref_pic_name = QFileDialog.getOpenFileName(self, 'Open file',
-                                                             self.ir_folder, "Image files (*.jpg *.JPG *.gif)")
+                                                   self.ir_folder, "Image files (*.jpg *.JPG *.gif)")
         img_path = ref_pic_name[0]
         if img_path != '':
             tmin, tmax = tt.compute_delta(img_path, self.thermal_param)
@@ -553,6 +558,9 @@ class DroneIrWindow(QMainWindow):
             else:
                 image.save(file_path)  # PNG is lossless by default
 
+    def process_all_images(self):
+        pass
+
     def switch_image_data(self):
         """
         When the shown picture is change (adapt measurements and user colormap for this picture)
@@ -583,6 +591,9 @@ class DroneIrWindow(QMainWindow):
         self.thermal_param = self.images[self.active_image].thermal_param
 
         # clean measurements and annotations
+        self.retrace_items()
+
+    def retrace_items(self):
         self.viewer.clean_scene()
 
         # Tree operations
@@ -600,14 +611,14 @@ class DroneIrWindow(QMainWindow):
         line_cat = self.model.findItems(LINE_MEAS_NAME)
 
         for i, point in enumerate(self.images[self.active_image].meas_point_list):
-            desc = 'spot_measure_' + str(i)
+            desc = point.name
             self.add_item_in_tree(point_cat[0], desc)
 
             self.viewer.add_item_from_annot(point.ellipse_item)
             self.viewer.add_item_from_annot(point.text_item)
 
         for i, rect in enumerate(self.images[self.active_image].meas_rect_list):
-            desc = 'rect_measure_' + str(i)
+            desc = rect.name
             self.add_item_in_tree(rect_cat[0], desc)
 
             self.viewer.add_item_from_annot(rect.main_item)
@@ -616,15 +627,13 @@ class DroneIrWindow(QMainWindow):
             for item in rect.text_items:
                 self.viewer.add_item_from_annot(item)
 
-
         for i, line in enumerate(self.images[self.active_image].meas_line_list):
-            desc = 'rect_measure_' + str(i)
+            desc = line.name
             self.add_item_in_tree(line_cat[0], desc)
 
             self.viewer.add_item_from_annot(line.main_item)
 
-        # add measurements and annotations for the new image
-        # self.viewer.draw_all_meas(list_of_items) TODO Adapt to class system
+
 
     # VISUALIZE __________________________________________________________________
     def change_meas_color(self):
@@ -654,7 +663,7 @@ class DroneIrWindow(QMainWindow):
 
         except ValueError:
             QMessageBox.warning(self, "Warning",
-                                          "Oops! A least one of the temperatures is not valid.  Try again...")
+                                "Oops! A least one of the temperatures is not valid.  Try again...")
             self.lineEdit_min_temp.setText(str(round(self.tmin, 2)))
             self.lineEdit_max_temp.setText(str(round(self.tmax, 2)))
 
@@ -762,6 +771,114 @@ class DroneIrWindow(QMainWindow):
             self.images[self.active_image].thermal_param = self.thermal_param
 
             self.dest_path_no_post = dest_path_no_post
+
+
+    # CONTEXT MENU _________________________________________________
+    def onContextMenu(self, point):
+        # Get the index of the item that was clicked
+        index = self.treeView.indexAt(point)
+        if not index.isValid():
+            return
+
+        item = self.model.itemFromIndex(index)
+
+        # Check if the clicked item is a second level item (annotation object)
+        if item and item.parent() and item.parent().text() in [RECT_MEAS_NAME, POINT_MEAS_NAME, LINE_MEAS_NAME]:
+            # Create Context Menu
+            contextMenu = QMenu(self.treeView)
+
+            deleteAction = contextMenu.addAction("Delete Annotation")
+            showAction = contextMenu.addAction("Show Annotation")
+
+            # Connect actions to methods
+            deleteAction.triggered.connect(lambda: self.deleteAnnotation(item))
+            showAction.triggered.connect(lambda: self.showAnnotation(item))
+
+            # Display the menu
+            contextMenu.exec_(self.treeView.viewport().mapToGlobal(point))
+
+    def deleteAnnotation(self, item):
+        # Implement the logic to delete the annotation
+        lookup_text = item.text()
+        print(f"Deleting annotation: {lookup_text}")
+        if 'line' in lookup_text:
+            for i, annot in enumerate(self.images[self.active_image].meas_line_list):
+                if annot.name == lookup_text:
+                    remove_index = i
+                    break
+
+            if remove_index != -1:
+                self.images[self.active_image].meas_line_list.pop(remove_index)
+
+        if 'rect' in lookup_text:
+            for i, annot in enumerate(self.images[self.active_image].meas_rect_list):
+                if annot.name == lookup_text:
+                    remove_index = i
+                    break
+
+            if remove_index != -1:
+                self.images[self.active_image].meas_rect_list.pop(remove_index)
+
+        if 'spot' in lookup_text:
+            for i, annot in enumerate(self.images[self.active_image].meas_point_list):
+                if annot.name == lookup_text:
+                    remove_index = i
+                    break
+
+            if remove_index != -1:
+                self.images[self.active_image].meas_point_list.pop(remove_index)
+
+
+
+        # retrace items
+        self.retrace_items()
+
+
+    def showAnnotation(self, item):
+        # Implement the logic to show the annotation
+        lookup_text = item.text()
+        print(f"Deleting annotation: {lookup_text}")
+
+        if 'line' in lookup_text:
+            for i, annot in enumerate(self.images[self.active_image].meas_line_list):
+                if annot.name == lookup_text:
+                    interest = self.images[self.active_image].meas_line_list[i]
+
+                    # bring data 2d figure
+                    dialog = dia.MeasLineDialog(interest.data_roi)
+                    if dialog.exec_():
+                        pass
+        if 'rect' in lookup_text:
+            for i, annot in enumerate(self.images[self.active_image].meas_rect_list):
+                if annot.name == lookup_text:
+                    interest = self.images[self.active_image].meas_rect_list[i]
+
+                    # bring data 3d figure
+                    rgb_path = os.path.join(self.rgb_folder, self.rgb_imgs[self.active_image])
+                    ir_path = self.dest_path_no_post
+                    coords = interest.get_coord_from_item(interest.main_item)
+                    roi_ir, roi_rgb = interest.compute_data(coords, self.raw_data, rgb_path, ir_path)
+
+                    roi_rgb_path = os.path.join(self.preview_folder, 'roi_rgb.JPG')
+                    roi_ir_path = os.path.join(self.preview_folder, 'roi_ir.JPG')
+                    tt.cv_write_all_path(roi_rgb, roi_rgb_path)
+                    tt.cv_write_all_path(roi_ir, roi_ir_path)
+                    dialog = dia.Meas3dDialog(interest)
+                    dialog.dual_view.load_images_from_path(roi_rgb_path, roi_ir_path)
+                    dialog.surface_from_image_matplot(self.colormap, self.n_colors, self.user_lim_col_low,
+                                                      self.user_lim_col_high)
+                    if dialog.exec_():
+                        pass
+
+
+
+        if 'spot' in lookup_text:
+            for i, annot in enumerate(self.images[self.active_image].meas_point_list):
+                if annot.name == lookup_text:
+                    interest = self.images[self.active_image].meas_point_list[i]
+
+        # show dialog:
+
 
     # GENERAL GUI METHODS __________________________________________________________________________
     def hand_pan(self):
