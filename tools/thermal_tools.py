@@ -6,7 +6,8 @@ from pathlib import Path
 from PIL import Image
 from PIL import ImageFilter
 from PySide6 import QtCore, QtGui, QtWidgets
-
+from PySide6.QtCore import QPointF, QRectF
+from PySide6.QtWidgets import QGraphicsEllipseItem, QGraphicsTextItem
 
 from matplotlib import cm
 from matplotlib import pyplot as plt
@@ -22,7 +23,6 @@ import cv2
 
 # custom libraries
 import resources as res
-import widgets as wid
 
 # PATHS
 sdk_tool_path = Path(res.find('dji/dji_irp.exe'))
@@ -35,7 +35,7 @@ m3t_rgb_xml_path = res.find('other/rgb_cam_calib_m3t_opencv.xml')
 
 # USEFUL CLASSES
 class DroneModel():
-    def __init__(self,name):
+    def __init__(self, name):
         if name == 'MAVIC2-ENTERPRISE-ADVANCED':
             self.rgb_xml_path = m2t_rgb_xml_path
             self.ir_xml_path = m2t_ir_xml_path
@@ -67,6 +67,7 @@ class DroneModel():
             self.x_offset = 49
             self.y_offset = 53
 
+
 class ObjectDetectionCategory:
     """
     Class to describe a segmentation category
@@ -97,25 +98,16 @@ class ProcessedImage_bis:
         self.corresp_cat = []
 
         # for measurements
-        self.nb_meas_rect = 0  # number of rect measurements
+        self.nb_meas_rect = 0  # number of rect measurements (classes)
         self.meas_rect_list = []
-        self.nb_meas_point = 0  # number of spot measurements
+        self.nb_meas_point = 0  # number of spot measurements (classes)
         self.meas_point_list = []
-        self.nb_meas_line = 0  # number of line measurements
+        self.nb_meas_line = 0  # number of line measurements (classes)
         self.meas_line_list = []
 
-        # to_delete
-        self.meas_rect_items = []
-        self.meas_rect_coords = []
-        self.meas_point_items = []
-        self.meas_text_spot_items = []
-        self.meas_line_items = []
-        self.meas_line_values = []
-
-
     def update_colormap_data(self, colormap, n_colors, user_lim_col_high, user_lim_col_low, post_process, tmin, tmax):
-        self.colormap= colormap
-        self.n_colors= n_colors
+        self.colormap = colormap
+        self.n_colors = n_colors
         self.user_lim_col_high = user_lim_col_high
         self.user_lim_col_low = user_lim_col_low
         self.tmin = tmin
@@ -125,9 +117,34 @@ class ProcessedImage_bis:
     def get_colormap_data(self):
         return self.colormap, self.n_colors, self.user_lim_col_high, self.user_lim_col_low, self.tmin, self.tmax
 
+
+class PointMeas:
+    def __int__(self, qpoint):
+        self.qpoint = qpoint
+        self.ellipse_item = None
+        self.text_item = None
+        self.temp = 0
+        self.all_items = []
+
+    def create_items(self):
+        self.ellipse_item = QGraphicsEllipseItem()
+
+        p1 = QPointF(self.qpoint.x() - 2, self.qpoint.y() - 2)
+        p2 = QPointF(self.qpoint.x() + 2, self.qpoint.y() + 2)
+
+        r = QRectF(p1, p2)
+        self.ellipse_item.setRect(r)
+
+        temp = round(self.temp, 2)
+        self.text_item = QGraphicsTextItem()
+        self.text_item.setPos(self.qpoint)
+        self.text_item.setHtml(
+            "<div style='background-color:rgba(255, 255, 255, 0.3);'>" + str(temp) + "</div>")
+
+
 class LineMeas:
-    def __init__(self):
-        self.main_item = None
+    def __init__(self, item):
+        self.main_item = item
         self.spot_items = []
         self.text_items = []
         self.coords = []
@@ -135,91 +152,163 @@ class LineMeas:
 
         self.tmin = 0
         self.tmax = 0
+        self.tmean = 0
 
-    def compute_data(self, img, P1,P2):
-        imageH = img.shape[0]
-        imageW = img.shape[1]
-        P1X = P1[0]
-        P1Y = P1[1]
-        P2X = P2[0]
-        P2Y = P2[1]
+    def compute_data(self, raw_data):
+        start_point = self.main_item.line().p1()
+        end_point = self.main_item.line().p2()
+        P1 = np.array([start_point.x(), start_point.y()])
+        P2 = np.array([end_point.x(), end_point.y()])
 
-        # difference and absolute difference between points
-        # used to calculate slope and relative location between points
-        dX = P2X - P1X
-        dY = P2Y - P1Y
-        dXa = np.abs(dX)
-        dYa = np.abs(dY)
+        imageH, imageW = raw_data.shape
+        P1X, P1Y = P1
+        P2X, P2Y = P2
 
-        # predefine numpy array for output based on distance between points
-        itbuffer = np.empty(shape=(np.maximum(dYa, dXa), 3), dtype=np.float32)
+        # Calculate differences
+        dX, dY = P2X - P1X, P2Y - P1Y
+        dXa, dYa = np.abs(dX), np.abs(dY)
+
+        # Determine the number of steps
+        num_steps = int(np.maximum(dXa, dYa))
+
+        # Initialize the buffer
+        itbuffer = np.empty((num_steps, 3), dtype=np.float32)
         itbuffer.fill(np.nan)
 
-        # Obtain coordinates along the line using a form of Bresenham's algorithm
-        negY = P1Y > P2Y
-        negX = P1X > P2X
-        if P1X == P2X:  # vertical line segment
+        # Calculate the points along the line
+        if P1X == P2X:  # Vertical line
             itbuffer[:, 0] = P1X
-            if negY:
-                itbuffer[:, 1] = np.arange(P1Y - 1, P1Y - dYa - 1, -1)
-            else:
-                itbuffer[:, 1] = np.arange(P1Y + 1, P1Y + dYa + 1)
-        elif P1Y == P2Y:  # horizontal line segment
+            itbuffer[:, 1] = np.linspace(P1Y, P2Y, num=num_steps, endpoint=False)
+        elif P1Y == P2Y:  # Horizontal line
             itbuffer[:, 1] = P1Y
-            if negX:
-                itbuffer[:, 0] = np.arange(P1X - 1, P1X - dXa - 1, -1)
-            else:
-                itbuffer[:, 0] = np.arange(P1X + 1, P1X + dXa + 1)
-        else:  # diagonal line segment
-            steepSlope = dYa > dXa
-            if steepSlope:
-                slope = dX.astype(np.float32) / dY.astype(np.float32)
-                if negY:
-                    itbuffer[:, 1] = np.arange(P1Y - 1, P1Y - dYa - 1, -1)
-                else:
-                    itbuffer[:, 1] = np.arange(P1Y + 1, P1Y + dYa + 1)
-                itbuffer[:, 0] = (slope * (itbuffer[:, 1] - P1Y)).astype(int) + P1X
-            else:
-                slope = dY.astype(np.float32) / dX.astype(np.float32)
-                if negX:
-                    itbuffer[:, 0] = np.arange(P1X - 1, P1X - dXa - 1, -1)
-                else:
-                    itbuffer[:, 0] = np.arange(P1X + 1, P1X + dXa + 1)
-                itbuffer[:, 1] = (slope * (itbuffer[:, 0] - P1X)).astype(int) + P1Y
+            itbuffer[:, 0] = np.linspace(P1X, P2X, num=num_steps, endpoint=False)
+        else:  # Diagonal line
+            itbuffer[:, 0] = np.linspace(P1X, P2X, num=num_steps, endpoint=False)
+            itbuffer[:, 1] = np.linspace(P1Y, P2Y, num=num_steps, endpoint=False)
 
-        # Remove points outside of image
-        colX = itbuffer[:, 0]
-        colY = itbuffer[:, 1]
-        itbuffer = itbuffer[(colX >= 0) & (colY >= 0) & (colX < imageW) & (colY < imageH)]
+        # Remove points outside the image bounds
+        valid = (itbuffer[:, 0] >= 0) & (itbuffer[:, 1] >= 0) & (itbuffer[:, 0] < imageW) & (itbuffer[:, 1] < imageH)
+        itbuffer = itbuffer[valid]
 
-        # Get intensities from img ndarray
-        itbuffer[:, 2] = img[itbuffer[:, 1].astype(int), itbuffer[:, 0].astype(int)]
+        # Get intensities from the image
+        itbuffer[:, 2] = raw_data[itbuffer[:, 1].astype(int), itbuffer[:, 0].astype(int)]
         self.data_roi = itbuffer[:, 2]
 
-    def compute_extrema(self):
+    def compute_highlights(self):
         self.tmax = np.amax(self.data_roi)
         self.tmin = np.amin(self.data_roi)
 
-    def create_all_annex_infos(self):
+    def create_items(self):
         pass
 
+
 class RectMeas:
-    def __init__(self):
-        self.main_item = None
-        self.spot_items = []
+    def __init__(self, item):
+        self.main_item = item
+        self.ellipse_items = []
         self.text_items = []
         self.coords = []
         self.data_roi = []
+        self.th_norm = []
 
         self.tmin = 0
         self.tmax = 0
 
-    def compute_data(self):
-        pass
+    def get_coord_from_item(self, QGraphicsRect):
+        rect = QGraphicsRect.rect()
+        coord = [rect.topLeft(), rect.bottomRight()]
 
-    def compute_extrema(self):
+        return coord
+
+    def compute_data(self, coords, raw_data, rgb_path, ir_path):
+        p1 = coords[0]
+        p2 = coords[1]
+
+        # crop data to last rectangle
+        self.data_roi = raw_data[int(p1.y()):int(p2.y()), int(p1.x()):int(p2.x())]
+
+        cv_rgb = cv_read_all_path(rgb_path)
+        h_rgb, w_rgb, _ = cv_rgb.shape
+        cv_ir = cv_read_all_path(ir_path)
+        h_ir, w_ir, _ = cv_ir.shape
+        roi_ir = cv_ir[int(p1.y()):int(p2.y()), int(p1.x()):int(p2.x())]
+
+        p1 = (p1.x(), p1.y())
+        p2 = (p2.x(), p2.y())
+        scale = w_rgb / w_ir
+        crop_tl, crop_tr = get_corresponding_crop_rectangle(p1, p2, scale)
+
+        roi_rgb = cv_rgb[int(crop_tl[1]):int(crop_tr[1]), int(crop_tl[0]):int(crop_tr[0])]
+
+        return roi_ir, roi_rgb
+
+    def compute_highlights(self):
         self.tmax = np.amax(self.data_roi)
         self.tmin = np.amin(self.data_roi)
+        self.tmean = np.mean(self.data_roi)
+
+        self.area = self.data_roi.shape[0] * self.data_roi.shape[1]
+
+        # normalized data
+        self.th_norm = (self.data_roi - self.tmin) / (self.tmax - self.tmin)
+
+        highlights = [
+            ['Size [pxl²]', self.area],
+            ['Max. Temp. [°C]', str(self.tmax)],
+            ['Min. Temp. [°C]', str(self.tmin)],
+            ['Average Temp. [°C]', str(self.tmean)]
+        ]
+        return highlights
+
+    def create_items(self):
+        initial_coords = self.get_coord_from_item(self.main_item)
+        top_left = initial_coords[0]
+        x_t_l = top_left.x()
+        y_t_l = top_left.y()
+        # find location of minima
+        position_min = np.where(self.data_roi == self.tmin)
+        position_max = np.where(self.data_roi == self.tmax)
+        # Ensure that there are found positions
+        if position_min[0].size > 0 and position_min[1].size > 0:
+            # Take the first occurrence
+            xmin, ymin = position_min[1][0] + x_t_l, position_min[0][0] + y_t_l
+        else:
+            xmin, ymin = None, None  # or some default value
+
+        if position_max[0].size > 0 and position_max[1].size > 0:
+            # Take the first occurrence
+            xmax, ymax = position_max[1][0] + x_t_l, position_max[0][0] + y_t_l
+        else:
+            xmax, ymax = None, None  # or some default value
+
+        print(f'Minimum position: {xmin, ymin}')
+        print(f'Maximum position: {xmax, ymax}')
+
+        temp_min = str(round(self.tmin, 2))
+        temp_max = str(round(self.tmax, 2))
+
+        self.create_labelled_point(xmin, ymin, temp_min)
+        self.create_labelled_point(xmax, ymax, temp_max)
+
+    def create_labelled_point(self, x, y, string):
+        print(x, y)
+        ellipse_item = QGraphicsEllipseItem()
+        qpoint = QPointF(x, y)
+
+        p1 = QPointF(x - 2, y - 2)
+        p2 = QPointF(x + 2, y + 2)
+
+        r = QRectF(p1, p2)
+        ellipse_item.setRect(r)
+
+        text_item = QGraphicsTextItem()
+        text_item.setPos(qpoint)
+        text_item.setHtml(
+            "<div style='background-color:rgba(255, 255, 255, 0.3);'>" + string + "</div>")
+
+        self.text_items.append(text_item)
+        self.ellipse_items.append(ellipse_item)
+
 
 # long tasks runner classes
 # test with runner
@@ -231,7 +320,7 @@ class RunnerSignals(QtCore.QObject):
 
 class RunnerDJI(QtCore.QRunnable):
     def __init__(self, ir_paths, dest_folder, drone_model, param, tmin, tmax, colormap,
-                 color_high, color_low, start, stop, n_colors=256, post_process='none', rgb_paths = ''):
+                 color_high, color_low, start, stop, n_colors=256, post_process='none', rgb_paths=''):
         super().__init__()
         self.ir_paths = ir_paths
         self.dest_folder = dest_folder
@@ -271,16 +360,17 @@ class RunnerDJI(QtCore.QRunnable):
 
             if self.post_process == 'edge (from rgb)':
                 _ = process_one_th_picture(self.param, self.drone_model, img_path, dest_path, self.tmin, self.tmax,
-                                       self.colormap, self.color_high, self.color_low, n_colors=self.n_colors,
-                                       post_process=self.post_process,
-                                       rgb_path=self.rgb_paths[i])
+                                           self.colormap, self.color_high, self.color_low, n_colors=self.n_colors,
+                                           post_process=self.post_process,
+                                           rgb_path=self.rgb_paths[i])
             else:
                 _ = process_one_th_picture(self.param, self.drone_model, img_path, dest_path, self.tmin, self.tmax,
-                                       self.colormap, self.color_high, self. color_low, n_colors=self.n_colors,
-                                       post_process=self.post_process)
+                                           self.colormap, self.color_high, self.color_low, n_colors=self.n_colors,
+                                           post_process=self.post_process)
             if i == len(self.ir_paths) - 1:
                 legend_dest_path = os.path.join(self.dest_folder, 'plot_onlycbar_tight.png')
-                generate_legend(legend_dest_path, self.tmin, self.tmax, self.color_high, self.color_low, self.colormap, self.n_colors)
+                generate_legend(legend_dest_path, self.tmin, self.tmax, self.color_high, self.color_low, self.colormap,
+                                self.n_colors)
 
         self.signals.finished.emit()
 
@@ -326,10 +416,20 @@ class RunnerMiniature(QtCore.QRunnable):
         self.signals.finished.emit()
 
 
+#  PATH FUNCTIONS __________________________________________________
+def cv_read_all_path(path):
+    """
+    Allows reading image from any kind of unicode character (useful for french accents, for example)
+    """
+    img = cv2.imdecode(np.fromfile(path, dtype=np.uint8), cv2.IMREAD_UNCHANGED)
+    return img
 
 
+def cv_write_all_path(img, path):
+    is_success, im_buf_arr = cv2.imencode(".JPG", img)
+    im_buf_arr.tofile(path)
 
-# SIMPLE PATH FUNCTIONS
+
 def path_info(path):
     """
     Function that reads a path and outputs the foler, the complete filename and the filename without file extension
@@ -340,128 +440,6 @@ def path_info(path):
     extension = file[-4:]
     name = file[:-4]
     return folder, file, name, extension
-
-
-# EXIF Readings
-def print_exif(img_path):
-    img = Image.open(img_path)
-    infos = img.getexif()
-    print(infos)
-
-
-def get_drone_model(img_path):
-    img = Image.open(img_path)
-    infos = img.getexif()
-    model = infos[272]
-    return model
-
-
-def get_resolution(img_path):
-    img = Image.open(img_path)
-    infos = img.getexif()
-    res = infos[256]
-    return res
-
-
-# LENS RELATED METHODS (GENERAL)
-def cv_read_all_path(path):
-    """
-    Allows reading image from any kind of unicode character (useful for french accents, for example)
-    """
-    img = cv2.imdecode(np.fromfile(path, dtype=np.uint8), cv2.IMREAD_UNCHANGED)
-    return img
-
-def cv_write_all_path(img, path):
-    is_success, im_buf_arr = cv2.imencode(".JPG", img)
-    im_buf_arr.tofile(path)
-
-def undis(cv_img, xml_path):
-    def read_matrices(xml_path):
-        cv_file = cv2.FileStorage(xml_path, cv2.FILE_STORAGE_READ)
-        K = cv_file.getNode("Camera_Matrix").mat()
-        d = cv_file.getNode("Distortion_Coefficients").mat()
-        cv_file.release()
-
-        return K, d
-
-    h, w = cv_img.shape[:2]
-    K, d = read_matrices(xml_path)
-    newcam, roi = cv2.getOptimalNewCameraMatrix(K, d, (w, h), 1, (w, h))
-    dest = cv2.undistort(cv_img, K, d, None, newcam)
-    x, y, w, h = roi
-    dest = dest[y:y + h, x:x + w]
-
-    sh = dest.shape
-    height = sh[0]
-    width = sh[1]
-    dim = (width, height)
-
-    return dest, dim
-
-
-# LENS RELATED METHODS (DRONE SPECIFIC)
-def match_rgb_custom_parameters(cv_img, drone_model, resized=False):
-    print(cv_img)
-    h2, w2 = cv_img.shape[:2]
-    new_h = h2 * drone_model.aspect_factor
-    ret_x = int(drone_model.extend * w2)
-    ret_y = int(drone_model.extend * new_h)
-    rgb_dest = cv_img[int(h2 / 2 + drone_model.y_offset) - ret_y:int(h2 / 2 + drone_model.y_offset) + ret_y,
-               int(w2 / 2 + drone_model.x_offset) - ret_x:int(w2 / 2 + drone_model.x_offset) + ret_x]
-
-    if resized:
-        rgb_dest = cv2.resize(rgb_dest, drone_model.dim_undis_ir, interpolation=cv2.INTER_AREA)
-
-    return rgb_dest
-
-def add_lines_from_rgb(cv_ir_img, cv_match_rgb_img, drone_model, dest_path, exif=None):
-    img_gray = cv2.cvtColor(cv_match_rgb_img, cv2.COLOR_BGR2GRAY)
-
-    # Blur the image for better edge detection
-    img_blur = cv2.GaussianBlur(img_gray, (3, 3), 0)
-
-    scale = 1
-    delta = 0
-    ddepth = cv2.CV_16S
-    grad_x = cv2.Sobel(img_blur, ddepth, 1, 0, ksize=3, scale=scale, delta=delta, borderType=cv2.BORDER_DEFAULT)
-    grad_y = cv2.Sobel(img_blur, ddepth, 0, 1, ksize=3, scale=scale, delta=delta, borderType=cv2.BORDER_DEFAULT)
-
-    abs_grad_x = cv2.convertScaleAbs(grad_x)
-    abs_grad_y = cv2.convertScaleAbs(grad_y)
-
-    edges = cv2.addWeighted(abs_grad_x, 0.5, abs_grad_y, 0.5, 0)
-
-    pil_edges = Image.fromarray(edges)
-    pil_edges = pil_edges.convert('RGB')
-    pil_edges_rgba = pil_edges.convert('RGBA')
-    foreground = np.array(pil_edges_rgba)
-
-    # resize
-    dim = drone_model.dim_undis_ir
-    foreground = cv2.resize(foreground, dim, interpolation=cv2.INTER_AREA)
-    foreground_float = foreground.astype(float)  # Inputs to blend_modes need to be floats.
-
-    cv_ir_img = cv2.cvtColor(cv_ir_img, cv2.COLOR_BGR2RGB)
-    ir_img = Image.fromarray(cv_ir_img)
-    ir_img = ir_img.convert('RGBA')
-    background = np.array(ir_img)
-    background_float = background.astype(float)
-
-    blended = dodge(background_float, foreground_float, 0.7)
-
-    blended_img = np.uint8(blended)
-    blended_img_raw = Image.fromarray(blended_img)
-    blended_img_raw = blended_img_raw.convert('RGB')
-
-    if exif is None:
-        blended_img_raw.save(dest_path)
-    else:
-        blended_img_raw.save(dest_path, exif=exif)
-
-
-# PATH AND PREPARATION METHODS
-def rename_from_exif(img_folder):
-    pass
 
 
 def find_files_of_type(folder, types=[]):
@@ -595,6 +573,118 @@ def create_rgb_crop_folder(list_rgb_paths, drone_model, scale_percent, dest_crop
         dest_path = os.path.join(dest_crop_folder, new_name)
         cv2.imwrite(dest_path, crop)
 
+
+# EXIF Readings
+def print_exif(img_path):
+    img = Image.open(img_path)
+    infos = img.getexif()
+    print(infos)
+
+
+def get_drone_model(img_path):
+    img = Image.open(img_path)
+    infos = img.getexif()
+    model = infos[272]
+    return model
+
+
+def get_resolution(img_path):
+    img = Image.open(img_path)
+    infos = img.getexif()
+    res = infos[256]
+    return res
+
+
+def rename_from_exif(img_folder):
+    pass
+
+
+# LENS RELATED METHODS (GENERAL) __________________________________________________
+def undis(cv_img, xml_path):
+    def read_matrices(xml_path):
+        cv_file = cv2.FileStorage(xml_path, cv2.FILE_STORAGE_READ)
+        K = cv_file.getNode("Camera_Matrix").mat()
+        d = cv_file.getNode("Distortion_Coefficients").mat()
+        cv_file.release()
+
+        return K, d
+
+    h, w = cv_img.shape[:2]
+    K, d = read_matrices(xml_path)
+    newcam, roi = cv2.getOptimalNewCameraMatrix(K, d, (w, h), 1, (w, h))
+    dest = cv2.undistort(cv_img, K, d, None, newcam)
+    x, y, w, h = roi
+    dest = dest[y:y + h, x:x + w]
+
+    sh = dest.shape
+    height = sh[0]
+    width = sh[1]
+    dim = (width, height)
+
+    return dest, dim
+
+
+# LENS RELATED METHODS (DRONE SPECIFIC)
+def match_rgb_custom_parameters(cv_img, drone_model, resized=False):
+    print(cv_img)
+    h2, w2 = cv_img.shape[:2]
+    new_h = h2 * drone_model.aspect_factor
+    ret_x = int(drone_model.extend * w2)
+    ret_y = int(drone_model.extend * new_h)
+    rgb_dest = cv_img[int(h2 / 2 + drone_model.y_offset) - ret_y:int(h2 / 2 + drone_model.y_offset) + ret_y,
+               int(w2 / 2 + drone_model.x_offset) - ret_x:int(w2 / 2 + drone_model.x_offset) + ret_x]
+
+    if resized:
+        rgb_dest = cv2.resize(rgb_dest, drone_model.dim_undis_ir, interpolation=cv2.INTER_AREA)
+
+    return rgb_dest
+
+
+def add_lines_from_rgb(cv_ir_img, cv_match_rgb_img, drone_model, dest_path, exif=None):
+    img_gray = cv2.cvtColor(cv_match_rgb_img, cv2.COLOR_BGR2GRAY)
+
+    # Blur the image for better edge detection
+    img_blur = cv2.GaussianBlur(img_gray, (3, 3), 0)
+
+    scale = 1
+    delta = 0
+    ddepth = cv2.CV_16S
+    grad_x = cv2.Sobel(img_blur, ddepth, 1, 0, ksize=3, scale=scale, delta=delta, borderType=cv2.BORDER_DEFAULT)
+    grad_y = cv2.Sobel(img_blur, ddepth, 0, 1, ksize=3, scale=scale, delta=delta, borderType=cv2.BORDER_DEFAULT)
+
+    abs_grad_x = cv2.convertScaleAbs(grad_x)
+    abs_grad_y = cv2.convertScaleAbs(grad_y)
+
+    edges = cv2.addWeighted(abs_grad_x, 0.5, abs_grad_y, 0.5, 0)
+
+    pil_edges = Image.fromarray(edges)
+    pil_edges = pil_edges.convert('RGB')
+    pil_edges_rgba = pil_edges.convert('RGBA')
+    foreground = np.array(pil_edges_rgba)
+
+    # resize
+    dim = drone_model.dim_undis_ir
+    foreground = cv2.resize(foreground, dim, interpolation=cv2.INTER_AREA)
+    foreground_float = foreground.astype(float)  # Inputs to blend_modes need to be floats.
+
+    cv_ir_img = cv2.cvtColor(cv_ir_img, cv2.COLOR_BGR2RGB)
+    ir_img = Image.fromarray(cv_ir_img)
+    ir_img = ir_img.convert('RGBA')
+    background = np.array(ir_img)
+    background_float = background.astype(float)
+
+    blended = dodge(background_float, foreground_float, 0.7)
+
+    blended_img = np.uint8(blended)
+    blended_img_raw = Image.fromarray(blended_img)
+    blended_img_raw = blended_img_raw.convert('RGB')
+
+    if exif is None:
+        blended_img_raw.save(dest_path)
+    else:
+        blended_img_raw.save(dest_path, exif=exif)
+
+
 # CROP OPS
 def get_corresponding_crop_rectangle(p1, p2, scale):
     # Scale the coordinates of p1 and p2 to the larger image size
@@ -610,7 +700,7 @@ def get_corresponding_crop_rectangle(p1, p2, scale):
     return crop_tl, crop_br
 
 
-# THERMAL PROCESSING
+# THERMAL PROCESSING _____________________________________________
 # custom colormaps
 def get_custom_cmaps(colormap_name, n_colors):
     colors = [(25, 0, 150), (94, 243, 247), (100, 100, 100), (243, 116, 27), (251, 250, 208)]
@@ -635,6 +725,7 @@ def get_custom_cmaps(colormap_name, n_colors):
 
     return out_colormap
 
+
 def compute_delta(img_path, thermal_param):
     raw_out = img_path[:-4] + '.raw'
     read_dji_image(img_path, raw_out, thermal_param)
@@ -652,6 +743,7 @@ def compute_delta(img_path, thermal_param):
     os.remove(raw_out)
 
     return comp_tmin, comp_tmax
+
 
 def read_dji_image(img_in, raw_out, param={'emissivity': 0.95, 'distance': 5, 'humidity': 50, 'reflection': 25}):
     dist = param['distance']
@@ -759,9 +851,9 @@ def process_one_th_picture(param, drone_model, ir_img_path, dest_path, tmin, tma
 
     return raw_data_temp
 
+
 def get_temp_from_image(image_path, tmin, tmax):
     pass
-
 
 
 def generate_legend(legend_dest_path, tmin, tmax, color_high, color_low, colormap, n_colors):
@@ -808,18 +900,10 @@ def process_all_th_pictures(param, drone_model, ir_paths, dest_folder, tmin, tma
 
         if post_process == 'edge (from rgb)':
             _ = process_one_th_picture(param, drone_model, img_path, dest_path, tmin, tmax, colormap, color_high,
-                                   color_low, n_colors=n_colors, post_process=post_process, rgb_path=rgb_paths[i])
+                                       color_low, n_colors=n_colors, post_process=post_process, rgb_path=rgb_paths[i])
         else:
             _ = process_one_th_picture(param, drone_model, img_path, dest_path, tmin, tmax, colormap, color_high,
-                                   color_low, n_colors=n_colors, post_process=post_process)
+                                       color_low, n_colors=n_colors, post_process=post_process)
         if i == len(ir_paths) - 1:
             legend_dest_path = os.path.join(dest_folder, 'plot_onlycbar_tight.png')
             generate_legend(legend_dest_path, tmin, tmax, color_high, color_low, colormap, n_colors)
-
-
-
-
-
-
-
-

@@ -6,8 +6,6 @@ from PySide6.QtCore import *
 import os
 import json
 
-
-
 # custom libraries
 import widgets as wid
 import resources as res
@@ -138,10 +136,6 @@ class DroneIrWindow(QMainWindow):
         # image iterator to know which image is active
         self.active_image = 0
 
-        # define segmentation categories
-        self.categories = []
-        self.active_category = None
-
         # Create model (for the tree structure)
         self.model = QStandardItemModel()
         self.treeView.setModel(self.model)
@@ -271,50 +265,44 @@ class DroneIrWindow(QMainWindow):
     def image_matching(self):
         pass
 
-    def add_rect_meas(self, nb):
+    # ANNOTATIONS _________________________________________________________________
+    def add_rect_meas(self, rect_item):
         """
         Add a region of interest coming from the rectangle tool
-        :param nb: number of existing roi's
+        :param rect_item: a rectangle item from the viewer
         """
-
-        self.images[self.active_image] = self.viewer.get_current_image()
-
-        # run matplotlib on the roi
-        last_coords = self.images[self.active_image].meas_rect_coords[-1]
-        p1 = last_coords[0]
-        p2 = last_coords[1]
+        # create annotation (object)
+        new_rect_annot = tt.RectMeas(rect_item)
 
         # get image data
         rgb_path = os.path.join(self.rgb_folder, self.rgb_imgs[self.active_image])
         ir_path = self.dest_path_no_post
-
-        # crop data to last rectangle
-        roi_meas = self.raw_data[int(p1.y()):int(p2.y()), int(p1.x()):int(p2.x())]
-
-        cv_rgb = tt.cv_read_all_path(rgb_path)
-        h_rgb, w_rgb, _ = cv_rgb.shape
-        cv_ir = tt.cv_read_all_path(ir_path)
-        h_ir, w_ir, _ = cv_ir.shape
-        roi_ir = cv_ir[int(p1.y()):int(p2.y()), int(p1.x()):int(p2.x())]
-
-        p1 = (p1.x(), p1.y())
-        p2 = (p2.x(), p2.y())
-        scale = w_rgb / w_ir
-        crop_tl, crop_tr = tt.get_corresponding_crop_rectangle(p1, p2, scale)
-
-        roi_rgb = cv_rgb[int(crop_tl[1]):int(crop_tr[1]), int(crop_tl[0]):int(crop_tr[0])]
+        coords = new_rect_annot.get_coord_from_item(rect_item)
+        roi_ir, roi_rgb = new_rect_annot.compute_data(coords, self.raw_data, rgb_path, ir_path)
 
         roi_rgb_path = os.path.join(self.preview_folder, 'roi_rgb.JPG')
         roi_ir_path = os.path.join(self.preview_folder, 'roi_ir.JPG')
         tt.cv_write_all_path(roi_rgb, roi_rgb_path)
         tt.cv_write_all_path(roi_ir, roi_ir_path)
 
+        # add interesting data to viewer
+        new_rect_annot.compute_highlights()
+        new_rect_annot.create_items()
+        for item in new_rect_annot.ellipse_items:
+            self.viewer.add_item_from_annot(item)
+        for item in new_rect_annot.text_items:
+            self.viewer.add_item_from_annot(item)
+
         # bring data 3d figure
-        dialog = dia.Meas3dDialog(roi_meas)
+        dialog = dia.Meas3dDialog(new_rect_annot)
         dialog.dual_view.load_images_from_path(roi_rgb_path, roi_ir_path)
         dialog.surface_from_image_matplot(self.colormap, self.n_colors, self.user_lim_col_low, self.user_lim_col_high)
         if dialog.exec_():
             pass
+
+        # add annotation to the image annotation list
+        self.images[self.active_image].meas_rect_list.append(new_rect_annot)
+        self.images[self.active_image].nb_meas_rect += 1
 
         # create description name
         desc = 'rect_measure_' + str(self.images[self.active_image].nb_meas_rect)
@@ -326,29 +314,39 @@ class DroneIrWindow(QMainWindow):
         # switch back to hand tool
         self.hand_pan()
 
-    def add_line_meas(self):
-        self.images[self.active_image] = self.viewer.get_current_image()
+    def add_line_meas(self, line_item):
+        # create annotation (object)
+        new_line_annot = tt.LineMeas(line_item)
+
+        # compute stuff
+        new_line_annot.compute_data(self.raw_data)
+
+        # add annotation to the image annotation list
+        self.images[self.active_image].meas_line_list.append(new_line_annot)
+        self.images[self.active_image].nb_meas_line += 1
 
         desc = 'line_measure_' + str(self.images[self.active_image].nb_meas_line)
         line_cat = self.model.findItems(LINE_MEAS_NAME)
         self.add_item_in_tree(line_cat[0], desc)
 
-        # get values
-        last_values = self.images[self.active_image].meas_line_values[-1]
-
         # bring data 3d figure
-        dialog = dia.MeasLineDialog(last_values)
+        dialog = dia.MeasLineDialog(new_line_annot.data_roi)
         if dialog.exec_():
             pass
 
         self.hand_pan()
 
-    def add_point_meas(self):
-        img_from_gui = self.viewer.get_current_image()
-        self.images[self.active_image].nb_meas_point = img_from_gui.nb_meas_point
-        self.images[self.active_image].meas_point_items = img_from_gui.meas_point_items
-        self.images[self.active_image].meas_text_spot_items = img_from_gui.meas_text_spot_items
+    def add_point_meas(self, qpointf):
+        # create annotation (object)
+        new_pt_annot = tt.PointMeas()
+        new_pt_annot.temp = self.raw_data[int(qpointf.y()), int(qpointf.x())]
+        new_pt_annot.create_items()
+        self.viewer.add_item_from_annot(new_pt_annot.ellipse_item)
+        self.viewer.add_item_from_annot(new_pt_annot.text_item)
 
+        # add annotation to the image annotation list
+        self.images[self.active_image].meas_point_list.append(new_pt_annot)
+        self.images[self.active_image].nb_meas_point += 1
         # create description name
         desc = 'spot_measure_' + str(self.images[self.active_image].nb_meas_point)
 
@@ -356,14 +354,10 @@ class DroneIrWindow(QMainWindow):
         self.add_item_in_tree(point_cat[0], desc)
         self.hand_pan()
 
-    def hand_pan(self):
-        # switch back to hand tool
-        self.actionHand_selector.setChecked(True)
 
     # measurements methods
     def rectangle_meas(self):
         if self.actionRectangle_meas.isChecked():
-            self.viewer.set_image(self.images[self.active_image])
 
             # activate drawing tool
             self.viewer.rect_meas = True
@@ -371,16 +365,12 @@ class DroneIrWindow(QMainWindow):
 
     def point_meas(self):
         if self.actionSpot_meas.isChecked():
-            self.viewer.set_image(self.images[self.active_image])
-
             # activate drawing tool
             self.viewer.point_meas = True
             self.viewer.toggleDragMode()
 
     def line_meas(self):
         if self.actionLine_meas.isChecked():
-            self.viewer.set_image(self.images[self.active_image])
-
             # activate drawing tool
             self.viewer.line_meas = True
             self.viewer.toggleDragMode()
@@ -607,21 +597,34 @@ class DroneIrWindow(QMainWindow):
 
         point_cat = self.model.findItems(POINT_MEAS_NAME)
         rect_cat = self.model.findItems(RECT_MEAS_NAME)
+        line_cat = self.model.findItems(LINE_MEAS_NAME)
 
-        list_of_items = []
-        for i, item in enumerate(self.images[self.active_image].meas_point_items):
-            list_of_items.append(item)
+        for i, point in enumerate(self.images[self.active_image].meas_point_list):
             desc = 'spot_measure_' + str(i)
             self.add_item_in_tree(point_cat[0], desc)
-        for i, item in enumerate(self.images[self.active_image].meas_rect_items):
-            list_of_items.append(item)
+
+            self.viewer.add_item_from_annot(point.ellipse_item)
+            self.viewer.add_item_from_annot(point.text_item)
+
+        for i, rect in enumerate(self.images[self.active_image].meas_rect_list):
             desc = 'rect_measure_' + str(i)
             self.add_item_in_tree(rect_cat[0], desc)
-        for item in self.images[self.active_image].meas_text_spot_items:
-            list_of_items.append(item)
+
+            self.viewer.add_item_from_annot(rect.main_item)
+            for item in rect.ellipse_items:
+                self.viewer.add_item_from_annot(item)
+            for item in rect.text_items:
+                self.viewer.add_item_from_annot(item)
+
+
+        for i, line in enumerate(self.images[self.active_image].meas_line_list):
+            desc = 'rect_measure_' + str(i)
+            self.add_item_in_tree(line_cat[0], desc)
+
+            self.viewer.add_item_from_annot(line.main_item)
 
         # add measurements and annotations for the new image
-        self.viewer.draw_all_meas(list_of_items)
+        # self.viewer.draw_all_meas(list_of_items) TODO Adapt to class system
 
     # VISUALIZE __________________________________________________________________
     def change_meas_color(self):
@@ -759,9 +762,12 @@ class DroneIrWindow(QMainWindow):
             self.images[self.active_image].thermal_param = self.thermal_param
 
             self.dest_path_no_post = dest_path_no_post
-            self.viewer.set_temperature_data(self.raw_data)
 
     # GENERAL GUI METHODS __________________________________________________________________________
+    def hand_pan(self):
+        # switch back to hand tool
+        self.actionHand_selector.setChecked(True)
+
     def add_item_in_tree(self, parent, line):
         item = QStandardItem(line)
         parent.appendRow(item)
@@ -882,7 +888,7 @@ def main(argv=None):
     window.showMaximized()
 
     # run the application if necessary
-    if (app):
+    if app:
         return app.exec_()
 
     # no errors since we're not running our own event loop

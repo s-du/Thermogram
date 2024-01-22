@@ -381,13 +381,6 @@ border-radius: 10px;
    <widget class="QWidget" name="dockWidgetContents">
     <layout class="QVBoxLayout" name="verticalLayout_2">
      <item>
-      <widget class="QPushButton" name="pushButton_test">
-       <property name="text">
-        <string>PushButton</string>
-       </property>
-      </widget>
-     </item>
-     <item>
       <widget class="QPushButton" name="pushButton_advanced">
        <property name="enabled">
         <bool>false</bool>
@@ -555,7 +548,7 @@ border-radius: 10px;
         <bool>false</bool>
        </property>
        <property name="text">
-        <string>Match RGB/IR</string>
+        <string>Align RGB/IR</string>
        </property>
       </widget>
      </item>

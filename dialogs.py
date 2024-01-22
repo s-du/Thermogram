@@ -124,15 +124,17 @@ class MeasLineDialog(QtWidgets.QDialog):
         uifile = os.path.join(basepath, 'ui/%s.ui' % basename)
         wid.loadUi(uifile, self)
 
-        self.verticalLayout_2.setContentsMargins(0, 0, 0, 0)  # Reset margins
-        self.verticalLayout_2.setSpacing(0)
 
         self.data = data
-        self.y_values = data[:, 2]
+        self.y_values = data
         self.x_values = np.arange(len(self.y_values))
 
+        # Assuming a DPI of 100
+        dpi = 100
+        width, height = 600 / dpi, 400 / dpi  # Convert pixel dimensions to inches
+
         # Plotting Area
-        self.figure = Figure()
+        self.figure = Figure(figsize=(width, height), dpi=dpi)
         self.canvas = FigureCanvas(self.figure)
         self.verticalLayout_2.addWidget(self.canvas)
 
@@ -150,7 +152,6 @@ class MeasLineDialog(QtWidgets.QDialog):
         ax.yaxis.set_ticks_position('left')
 
         ax.grid(True, linestyle='--', which='both', zorder=0)
-        self.figure.tight_layout()
 
         self.highlights = self.create_highlights()
 
@@ -189,7 +190,7 @@ class MeasLineDialog(QtWidgets.QDialog):
 
 
 class Meas3dDialog(QtWidgets.QDialog):
-    def __init__(self, data):
+    def __init__(self, rect_annot):
         QtWidgets.QDialog.__init__(self)
         basepath = os.path.dirname(__file__)
         basename = 'meas_dialog_3d'
@@ -202,8 +203,8 @@ class Meas3dDialog(QtWidgets.QDialog):
         self.ax.view_init(elev=70, azim=-45, roll=0)
         self.ax.set_zlabel('Temperature [°C]')
 
-        self.data = data
-        self.highlights = self.create_highlights()
+        self.data = rect_annot.data_roi
+        self.highlights = rect_annot.compute_highlights()
 
         # create dualviewer
         self.dual_view = wid.DualViewer()
@@ -226,24 +227,6 @@ class Meas3dDialog(QtWidgets.QDialog):
 
     def create_connections(self):
         pass
-
-    def create_highlights(self):
-        # extrema
-        self.area = self.data.shape[0] * self.data.shape[1]
-        self.tmax = np.amax(self.data)
-        self.tmin = np.amin(self.data)
-        self.tmean = np.mean(self.data)
-
-        # normalized data
-        self.th_norm = (self.data - self.tmin) / (self.tmax - self.tmin)
-
-        highlights = [
-            ['Size [pxl²]', self.area],
-            ['Max. Temp. [°C]', str(self.tmax)],
-            ['Min. Temp. [°C]', str(self.tmin)],
-            ['Average Temp. [°C]', str(self.tmean)]
-        ]
-        return highlights
 
     def surface_from_image_matplot(self, colormap, n_colors, col_low, col_high):
         # colormap operation

@@ -195,81 +195,6 @@ def QPixmapToArray(pixmap):
 
 
 # DUAL IMAGE VIEWER
-def createLineIterator(P1, P2, img):
-    """
-    Source: https://stackoverflow.com/questions/32328179/opencv-3-0-lineiterator
-    Produces and array that consists of the coordinates and intensities of each pixel in a line between two points
-
-    Parameters:
-        -P1: a numpy array that consists of the coordinate of the first point (x,y)
-        -P2: a numpy array that consists of the coordinate of the second point (x,y)
-        -img: the image being processed
-
-    Returns:
-        -it: a numpy array that consists of the coordinates and intensities of each pixel in the radii (shape: [numPixels, 3], row = [x,y,intensity])
-    """
-    # define local variables for readability
-    imageH = img.shape[0]
-    imageW = img.shape[1]
-    P1X = P1[0]
-    P1Y = P1[1]
-    P2X = P2[0]
-    P2Y = P2[1]
-
-    # difference and absolute difference between points
-    # used to calculate slope and relative location between points
-    dX = P2X - P1X
-    dY = P2Y - P1Y
-    dXa = np.abs(dX)
-    dYa = np.abs(dY)
-
-    # predefine numpy array for output based on distance between points
-    itbuffer = np.empty(shape=(np.maximum(dYa, dXa), 3), dtype=np.float32)
-    itbuffer.fill(np.nan)
-
-    # Obtain coordinates along the line using a form of Bresenham's algorithm
-    negY = P1Y > P2Y
-    negX = P1X > P2X
-    if P1X == P2X:  # vertical line segment
-        itbuffer[:, 0] = P1X
-        if negY:
-            itbuffer[:, 1] = np.arange(P1Y - 1, P1Y - dYa - 1, -1)
-        else:
-            itbuffer[:, 1] = np.arange(P1Y + 1, P1Y + dYa + 1)
-    elif P1Y == P2Y:  # horizontal line segment
-        itbuffer[:, 1] = P1Y
-        if negX:
-            itbuffer[:, 0] = np.arange(P1X - 1, P1X - dXa - 1, -1)
-        else:
-            itbuffer[:, 0] = np.arange(P1X + 1, P1X + dXa + 1)
-    else:  # diagonal line segment
-        steepSlope = dYa > dXa
-        if steepSlope:
-            slope = dX.astype(np.float32) / dY.astype(np.float32)
-            if negY:
-                itbuffer[:, 1] = np.arange(P1Y - 1, P1Y - dYa - 1, -1)
-            else:
-                itbuffer[:, 1] = np.arange(P1Y + 1, P1Y + dYa + 1)
-            itbuffer[:, 0] = (slope * (itbuffer[:, 1] - P1Y)).astype(int) + P1X
-        else:
-            slope = dY.astype(np.float32) / dX.astype(np.float32)
-            if negX:
-                itbuffer[:, 0] = np.arange(P1X - 1, P1X - dXa - 1, -1)
-            else:
-                itbuffer[:, 0] = np.arange(P1X + 1, P1X + dXa + 1)
-            itbuffer[:, 1] = (slope * (itbuffer[:, 0] - P1X)).astype(int) + P1Y
-
-    # Remove points outside of image
-    colX = itbuffer[:, 0]
-    colY = itbuffer[:, 1]
-    itbuffer = itbuffer[(colX >= 0) & (colY >= 0) & (colX < imageW) & (colY < imageH)]
-
-    # Get intensities from img ndarray
-    itbuffer[:, 2] = img[itbuffer[:, 1].astype(int), itbuffer[:, 0].astype(int)]
-
-    return itbuffer
-
-
 class DualViewer(QWidget):
     def __init__(self):
         super().__init__()
@@ -390,9 +315,9 @@ class DualViewer(QWidget):
 class PhotoViewer(QGraphicsView):
     photoClicked = Signal(QPoint)
     endDrawing_brush_meas = Signal(int)
-    endDrawing_rect_meas = Signal(int)
-    endDrawing_point_meas = Signal()
-    endDrawing_line_meas = Signal()
+    endDrawing_rect_meas = Signal(QGraphicsRectItem)
+    endDrawing_point_meas = Signal(QPointF)
+    endDrawing_line_meas = Signal(QGraphicsLineItem)
 
     def __init__(self, parent):
         super(PhotoViewer, self).__init__(parent)
@@ -455,10 +380,6 @@ class PhotoViewer(QGraphicsView):
     def showEvent(self, event):
         self.fitInView()
         super(PhotoViewer, self).showEvent(event)
-
-    def set_temperature_data(self, temp):
-        self.temperatures = temp
-        print(np.shape(np.array(temp)))
 
     def fitInView(self, scale=True):
         rect = QRectF(self._photo.pixmap().rect())
@@ -526,12 +447,11 @@ class PhotoViewer(QGraphicsView):
     def get_current_image(self):
         return self.active_image
 
-    def get_coord(self, QGraphicsRect):
-        rect = QGraphicsRect.rect()
-        coord = [rect.topLeft(), rect.bottomRight()]
-        print(coord)
+    def add_item_from_annot(self, item):
+        if not isinstance(item, QGraphicsTextItem):
+            item.setPen(self.pen_meas)
 
-        return coord
+        self._scene.addItem(item)
 
     # mouse events
     def wheelEvent(self, event):
@@ -549,25 +469,6 @@ class PhotoViewer(QGraphicsView):
                 self.fitInView()
             else:
                 self._zoom = 0
-
-    def set_image(self, active_im):
-        self.active_image = active_im
-
-    def draw_box(self, color, coord1, coord2):
-        self.pen_meas.setColor(color)
-        box = QGraphicsRectItem()
-        box.setPen(self.pen_meas)
-
-        r = QRectF(coord1, coord2)
-        box.setRect(r)
-
-        self._scene.addItem(box)
-
-    def draw_box_from_r(self, rect_item, color):
-        self.pen_meas.setColor(color)
-
-        rect_item.setPen(self.pen_meas)
-        self._scene.addItem(rect_item)
 
     def mousePressEvent(self, event):
         if self.rect_meas:
@@ -590,28 +491,7 @@ class PhotoViewer(QGraphicsView):
             self._current_line_item.setLine(QLineF(self.origin, self.origin))
 
         elif self.point_meas:
-            self._current_ellipse_item = QGraphicsEllipseItem()
-            # self._current_ellipse_item.setFlag(QGraphicsItem.ItemIsSelectable)
-            self._current_ellipse_item.setPen(self.pen_meas)
-
-            self._scene.addItem(self._current_ellipse_item)
-
             self.origin = self.mapToScene(event.pos())
-            p1 = QPointF(self.origin.x() - 2, self.origin.y() - 2)
-            p2 = QPointF(self.origin.x() + 2, self.origin.y() + 2)
-
-            r = QRectF(p1, p2)
-            self._current_ellipse_item.setRect(r)
-
-            # add temperature label
-            print(int(self.origin.x()), int(self.origin.y()))
-            clicked_temp = self.temperatures[int(self.origin.y()), int(self.origin.x())]
-            clicked_temp = round(clicked_temp, 2)
-            self._current_text_item = QGraphicsTextItem()
-            self._current_text_item.setPos(self.origin)
-            self._current_text_item.setHtml(
-                "<div style='background-color:rgba(255, 255, 255, 0.3);'>" + str(clicked_temp) + "</div>")
-            self._scene.addItem(self._current_text_item)
 
         else:
             if self._photo.isUnderMouse():
@@ -643,34 +523,20 @@ class PhotoViewer(QGraphicsView):
             self.rect_meas = False
             self.origin = QPoint()
             if self._current_rect_item is not None:
-                coord = self.get_coord(self._current_rect_item)
-
-                # save measurement to image metadata
-                self.active_image.meas_rect_items.append(self._current_rect_item)
-                self.active_image.meas_rect_coords.append(coord)
-                self.active_image.nb_meas_rect += 1
-
                 # emit signal (end of measure)
-                self.endDrawing_rect_meas.emit(self.active_image.nb_meas_rect)
-                print('rectangle ROI added: ' + str(coord))
+                self.endDrawing_rect_meas.emit(self._current_rect_item)
+                print('rectangle ROI added')
             self._current_rect_item = None
             self.toggleDragMode()
+
         elif self.line_meas:
             self.line_meas = False
 
             if self._current_line_item is not None:
                 # save measurement to image metadata
-                self.active_image.meas_line_items.append(self._current_line_item)
-                self.active_image.nb_meas_line += 1
-
-                # compute line limits
-                p1 = np.array([int(self.origin.x()), int(self.origin.y())])
-                p2 = np.array([int(self.new_coord.x()), int(self.new_coord.y())])
-                line_values = createLineIterator(p1, p2, self.temperatures)
-                self.active_image.meas_line_values.append(line_values)
 
                 # emit signal (end of measure)
-                self.endDrawing_line_meas.emit()
+                self.endDrawing_line_meas.emit(self._current_line_item)
                 print('Line meas. added')
 
             self.origin = QPoint()
@@ -679,12 +545,8 @@ class PhotoViewer(QGraphicsView):
 
         elif self.point_meas:
             # emit signal (end of measure)
-            self.endDrawing_point_meas.emit()
+            self.endDrawing_point_meas.emit(self.origin)
 
-            # save measurement to image metadata
-            self.active_image.meas_point_items.append(self._current_ellipse_item)
-            self.active_image.meas_text_spot_items.append(self._current_text_item)
-            self.active_image.nb_meas_point += 1
             self._current_ellipse_item = None
             self.toggleDragMode()
             self.origin = QPoint()
