@@ -10,10 +10,15 @@ from PIL import Image
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
+from matplotlib.colors import to_hex
+from matplotlib import cm
+
+
 
 import os
 import numpy as np
 import resources as res
+from tools import thermal_tools as tt
 
 SCRIPT_DIRECTORY = os.path.dirname(os.path.abspath(__file__))
 
@@ -127,6 +132,122 @@ def loadUi(uifile, baseinstance=None, customWidgets=None,
     widget = loader.load(uifile)
     QMetaObject.connectSlotsByName(widget)
     return widget
+
+
+class QRangeSlider(QSlider):
+    lowerValueChanged = Signal(int)
+    upperValueChanged = Signal(int)
+
+    def __init__(self, colormap_name='', parent=None):
+        super(QRangeSlider, self).__init__(Qt.Horizontal, parent)
+
+        self._lowerValue = self.minimum()
+        self._upperValue = self.maximum()
+
+        self._lowerPressed = False
+        self._upperPressed = False
+        self.handleSize = 15
+        self.back_color = QColor(200, 200, 200)
+
+        # Initialize handle colors
+        self.lowerHandleColor = QColor(100,100,100)
+        self.upperHandleColor = QColor(100,100,100)
+
+        if colormap_name:
+            self.setHandleColorsFromColormap(colormap_name)
+
+    def setHandleColors(self, lowerColor, upperColor):
+        self.lowerHandleColor = QColor(lowerColor)
+        self.upperHandleColor = QColor(upperColor)
+        self.update()  # Refresh the widget
+
+    def setHandleColorsFromColormap(self, colormap_name):
+        if colormap_name == 'Artic' or colormap_name == 'Iron' or colormap_name == 'Rainbow':
+            custom_cmap = tt.get_custom_cmaps(colormap_name, 256)
+        else:
+            custom_cmap = cm.get_cmap(colormap_name, 256)
+        lower_color = to_hex(custom_cmap(0.0))  # Color at the start of the colormap
+        upper_color = to_hex(custom_cmap(1.0))  # Color at the end of the colormap
+
+        self.setHandleColors(lower_color, upper_color)
+
+    def lowerValue(self):
+        return self._lowerValue
+
+    def upperValue(self):
+        return self._lowerValue
+
+    def setLowerValue(self, value):
+        self._lowerValue = value
+        self.lowerValueChanged.emit(value)
+        self.update()
+
+    def upperValue(self):
+        return self._upperValue
+
+    def setUpperValue(self, value):
+        self._upperValue = value
+        self.upperValueChanged.emit(value)
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+
+        # Draw the slider track
+        rect = QRect(0, (self.height() - self.handleSize) // 2, self.width(), self.handleSize)
+        painter.setBrush(QBrush(self.back_color))
+        painter.drawRect(rect)
+
+        # Draw the lower handle with the specified color
+        lower_handle_rect = self.handleRect(self._lowerValue)
+        painter.setBrush(QBrush(self.lowerHandleColor))
+        painter.drawRect(lower_handle_rect)
+
+        # Draw the upper handle with the specified color
+        upper_handle_rect = self.handleRect(self._upperValue)
+        painter.setBrush(QBrush(self.upperHandleColor))
+        painter.drawRect(upper_handle_rect)
+
+    def handleRect(self, value):
+        xPos = self.scalePosition(value)
+        return QRect(xPos - self.handleSize // 2, (self.height() - self.handleSize) // 2, self.handleSize,
+                     self.handleSize)
+
+    def scalePosition(self, value):
+        return ((value - self.minimum()) / (self.maximum() - self.minimum())) * self.width()
+
+    def mousePressEvent(self, event):
+        if self.handleRect(self._lowerValue).contains(event.pos()):
+            self._lowerPressed = True
+        elif self.handleRect(self._upperValue).contains(event.pos()):
+            self._upperPressed = True
+
+    def mouseMoveEvent(self, event):
+        posValue = self.pixelPosToRangeValue(event.pos())
+
+        if self._lowerPressed:
+            # Constrain the lower handle
+            if posValue < self.minimum():
+                posValue = self.minimum()
+            elif posValue > self._upperValue:
+                posValue = self._upperValue
+            self.setLowerValue(posValue)
+
+        elif self._upperPressed:
+            # Constrain the upper handle
+            if posValue > self.maximum():
+                posValue = self.maximum()
+            elif posValue < self._lowerValue:
+                posValue = self._lowerValue
+            self.setUpperValue(posValue)
+
+    def mouseReleaseEvent(self, event):
+        self._lowerPressed = False
+        self._upperPressed = False
+
+    def pixelPosToRangeValue(self, pos):
+        return int(((pos.x() / self.width()) * (self.maximum() - self.minimum())) + self.minimum())
 
 
 class MplCanvas_project3d(FigureCanvasQTAgg):

@@ -3,14 +3,25 @@ from PySide6 import QtCore, QtGui, QtWidgets
 import logging
 import sys
 import traceback
+
+from PySide6.QtCore import QRectF
+from PySide6.QtGui import QPixmap, QPainter, QImage, QColor
+from PySide6.QtWidgets import QDialog, QVBoxLayout, QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QComboBox, \
+    QSlider, QGraphicsItem
 from matplotlib import cm
 from matplotlib.backends.backend_qt5agg import (
    FigureCanvasQTAgg as FigureCanvas,
    NavigationToolbar2QT)
 from matplotlib.figure import Figure
 
+import qimage2ndarray
+
+from PIL import Image
+from matplotlib import cm
+
+
+
 import numpy as np
-import cv2
 
 # custom libraries
 import widgets as wid
@@ -91,6 +102,247 @@ class AboutDialog(QtWidgets.QDialog):
         self.layout.addWidget(logos2, alignment=QtCore.Qt.AlignCenter)
 
         self.setLayout(self.layout)
+
+class CustomGraphicsItem(QGraphicsItem):
+    def __init__(self, pixmap, target_size=None, parent=None):
+        super().__init__(parent)
+        self.pixmap = pixmap
+        self.opacity = 1.0
+        self.composition_mode = QPainter.CompositionMode_SourceOver
+        self.target_size = target_size
+
+        if self.target_size:
+            self.pixmap = self.pixmap.scaled(self.target_size, QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation)
+
+    def boundingRect(self):
+        return QRectF(self.pixmap.rect())
+
+    def paint(self, painter, option, widget=None):
+        painter.setOpacity(self.opacity)
+        painter.setCompositionMode(self.composition_mode)
+        painter.drawPixmap(0, 0, self.pixmap)
+
+    def setPixmap(self, pixmap):
+        self.pixmap = pixmap
+        self.pixmap = self.pixmap.scaled(self.target_size, QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation)
+        self.update()
+
+class ImageFusionDialog(QtWidgets.QDialog):
+    """
+    Dialog that allows the user to choose advances thermography options
+    """
+
+    def __init__(self, rgb_path, ir_path, temperatures, colormap_name, n_colors, dest_path_preview):
+        super().__init__()
+        basepath = os.path.dirname(__file__)
+        basename = 'fusion'
+        uifile = os.path.join(basepath, 'ui/%s.ui' % basename)
+        wid.loadUi(uifile, self)
+
+        self.colormap_name = colormap_name
+        self.n_colors = n_colors
+        self.dest_path_preview = dest_path_preview
+        self.scene = QGraphicsScene()
+        self.view.setScene(self.scene)
+
+        self.ir_path = ir_path
+        self.temperatures = temperatures
+
+        min_temp_scaled = self.scale_temperature(np.min(temperatures))
+        max_temp_scaled = self.scale_temperature(np.max(temperatures))
+
+        # range slider for shown data
+        self.range_slider_shown = wid.QRangeSlider()
+        self.range_slider_shown.handleSize = 10
+        self.range_slider_shown.back_color = QColor(220, 220, 220)
+        self.range_slider_shown.setLowerValue(min_temp_scaled)
+        self.range_slider_shown.setUpperValue(max_temp_scaled)
+        self.range_slider_shown.setMinimum(min_temp_scaled)
+        self.range_slider_shown.setMaximum(max_temp_scaled)
+
+        # range slider for palette
+        self.range_slider_map = wid.QRangeSlider(colormap_name)
+        self.range_slider_map.setLowerValue(min_temp_scaled)
+        self.range_slider_map.setUpperValue(max_temp_scaled)
+        self.range_slider_map.setMinimum(min_temp_scaled)
+        self.range_slider_map.setMaximum(max_temp_scaled)
+
+        self.range_slider_shown.lowerValueChanged.connect(self.updateIRImage)
+        self.range_slider_shown.upperValueChanged.connect(self.updateIRImage)
+
+        self.range_slider_map.lowerValueChanged.connect(self.recolorIRImage)
+        self.range_slider_map.upperValueChanged.connect(self.recolorIRImage)
+
+        # edit labels
+        self.label_max.setText(f'{str(max_temp_scaled/100)} °C')
+        self.label_min.setText(f'{str(min_temp_scaled/100)} °C')
+
+        # edit labels
+        self.label_max_2.setText(f'{str(max_temp_scaled / 100)} °C')
+        self.label_min_2.setText(f'{str(min_temp_scaled / 100)} °C')
+
+        # new label
+        self.verticalLayout_2.addWidget(self.range_slider_shown)
+        self.verticalLayout_2.addWidget(self.range_slider_map)
+
+        # Load images
+        colorPixmap = QPixmap(rgb_path)
+        thermalPixmap = QPixmap(ir_path)
+
+        # Create custom graphics items
+        self.colorImageItem = CustomGraphicsItem(colorPixmap)
+        self.thermalImageItem = CustomGraphicsItem(thermalPixmap, target_size=colorPixmap.size())
+
+        # Add items to scene
+        self.scene.addItem(self.colorImageItem)
+        self.scene.addItem(self.thermalImageItem)
+
+        # Fusion Mode ComboBox
+        modes = ['Screen',
+                 'SourceOver',
+                 'Multiply',
+                 'Overlay',
+                 'Darken',
+                 'Lighten',
+                 'ColorBurn',
+                 'HardLight',
+                 'SoftLight',
+                 ]
+        for mode in modes:
+            self.modeComboBox.addItem(mode)
+        self.modeComboBox.currentTextChanged.connect(self.changeFusionMode)
+
+        self.opacitySlider.setRange(0, 100)
+        self.opacitySlider.setValue(100)
+        self.opacitySlider.valueChanged.connect(self.changeOpacity)
+
+        self.changeFusionMode(self.modeComboBox.currentText())
+        self.changeOpacity(self.opacitySlider.value())
+
+        # button actions
+        self.buttonBox.accepted.connect(self.accept)
+        self.buttonBox.rejected.connect(self.reject)
+
+    def changeFusionMode(self, mode):
+        mode_complete = 'CompositionMode_' + mode
+        blend_mode = QPainter.CompositionMode.__members__[mode_complete]
+        self.thermalImageItem.composition_mode = blend_mode
+        self.thermalImageItem.update()
+
+    def changeOpacity(self, value):
+        self.thermalImageItem.opacity = value / 100.0
+        self.thermalImageItem.update()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.fitItemsInView()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.fitItemsInView()
+
+    def fitItemsInView(self):
+        # Disable scrollbars
+        self.view.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        self.view.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+
+        # Get the size of the view
+        view_rect = self.view.viewport().rect()
+        view_width = view_rect.width()
+        view_height = view_rect.height()
+
+        # Assuming colorPixmap is the pixmap of the color image item
+        pixmap_size = self.colorImageItem.pixmap.size()
+        pixmap_width = pixmap_size.width()
+        pixmap_height = pixmap_size.height()
+
+        # Calculate scale factors for width and height
+        scale_factor_width = view_width / pixmap_width
+        scale_factor_height = view_height / pixmap_height
+
+        # Use the smaller scale factor to keep the aspect ratio
+        scale_factor = min(scale_factor_width, scale_factor_height)
+
+        # Apply the scale factor to both pixmap items
+        self.colorImageItem.setScale(scale_factor)
+        self.thermalImageItem.setScale(scale_factor)
+
+        # Adjust the scene size to the scaled pixmap size
+        scaled_width = pixmap_width * scale_factor
+        scaled_height = pixmap_height * scale_factor
+        self.scene.setSceneRect(0, 0, scaled_width, scaled_height)
+
+        # Center the items in the view
+        self.colorImageItem.setPos((view_width - scaled_width) / 2, (view_height - scaled_height) / 2)
+        self.thermalImageItem.setPos((view_width - scaled_width) / 2, (view_height - scaled_height) / 2)
+
+    def recolorIRImage(self, value):
+        min_temp = self.range_slider_map.lowerValue() / 100.0  # Adjust if you used scaling
+        max_temp = self.range_slider_map.upperValue() / 100.0
+
+        # edit labels
+        self.label_max_2.setText(f'{str(max_temp)} °C')
+        self.label_min_2.setText(f'{str(min_temp)} °C')
+
+        # compute new normalized temperature
+        thermal_normalized = (self.temperatures - min_temp) / (max_temp - min_temp)
+
+        # get colormap
+        if self.colormap_name == 'Artic' or self.colormap_name == 'Iron' or self.colormap_name == 'Rainbow':
+            custom_cmap = tt.get_custom_cmaps(self.colormap_name, self.n_colors)
+        else:
+            custom_cmap = cm.get_cmap(self.colormap_name, self.n_colors)
+
+        thermal_cmap = custom_cmap(thermal_normalized)
+        thermal_cmap = np.uint8(thermal_cmap * 255)
+
+        img_thermal = Image.fromarray(thermal_cmap[:, :, [0, 1, 2]])
+        img_thermal.save(self.dest_path_preview)
+        self.ir_path = self.dest_path_preview
+
+        self.updateIRImage(0)
+
+    def updateIRImage(self, value):
+        min_temp = self.range_slider_shown.lowerValue() / 100.0  # Adjust if you used scaling
+        max_temp = self.range_slider_shown.upperValue() / 100.0
+
+        # edit labels
+        self.label_max.setText(f'{str(max_temp)} °C')
+        self.label_min.setText(f'{str(min_temp)} °C')
+
+        # Load the IR image and convert to NumPy array
+        ir_image = QImage(self.ir_path)
+        ir_image = ir_image.convertToFormat(QImage.Format_ARGB32)
+        # Convert QImage to a 4-channel NumPy array (RGBA)
+        ir_array = qimage2ndarray.byte_view(ir_image)
+
+        # Ensure that the array has 4 channels (RGBA)
+        if ir_array.shape[2] == 3:
+            # Add an alpha channel if it's missing
+            alpha_channel = np.full((ir_array.shape[0], ir_array.shape[1], 1), 255, dtype=np.uint8)
+            ir_array = np.concatenate((ir_array, alpha_channel), axis=2)
+
+        elif ir_array.shape[2] == 4:
+            # Swap red and blue channels
+            ir_array = ir_array[..., [2, 1, 0, 3]]  # BGR to RGB
+
+        # Create a mask where temperatures are outside the range
+        mask = ~((self.temperatures >= min_temp) & (self.temperatures <= max_temp))
+
+        # Apply the mask to the alpha channel, setting those pixels to transparent
+        ir_array[..., 3] = np.where(mask, 0, ir_array[..., 3])
+
+        # Convert the modified array back to QImage and then to QPixmap
+        updated_image = qimage2ndarray.array2qimage(ir_array, normalize=False)
+        updated_pixmap = QPixmap.fromImage(updated_image)
+
+        # Update the item
+        self.thermalImageItem.setPixmap(updated_pixmap)
+        self.thermalImageItem.update()
+
+    def scale_temperature(self, temp):
+        return int(temp * 100)  # Scaling factor of 100
+
 
 
 class DialogThParams(QtWidgets.QDialog):

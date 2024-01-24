@@ -42,7 +42,7 @@ OUT_LIM_MATPLOT = ['k', 'w', 'r']
 POST_PROCESS = ['none', 'smooth', 'sharpen', 'sharpen strong', 'edge (simple)', 'edge (from rgb)']
 COLORMAPS = ['coolwarm', 'Artic', 'Iron', 'Rainbow', 'Greys_r', 'Greys', 'plasma', 'inferno', 'jet',
              'Spectral_r', 'cividis', 'viridis', 'gnuplot2']
-VIEWS = ['th. undistorted', 'RGB crop']
+VIEWS = ['th. undistorted', 'RGB crop', 'PicInPic']
 
 
 # USEFUL CLASSES
@@ -183,6 +183,8 @@ class DroneIrWindow(QMainWindow):
         self.actionInfo.triggered.connect(self.show_info)
         self.actionSave_Image.triggered.connect(self.save_image)
         self.actionProcess_all.triggered.connect(self.process_all_images)
+        self.action3D_temperature.triggered.connect(self.show_viz_threed)
+        self.actionCompose.triggered.connect(self.compose_pic)
 
         self.viewer.endDrawing_rect_meas.connect(self.add_rect_meas)
         self.viewer.endDrawing_point_meas.connect(self.add_point_meas)
@@ -190,7 +192,6 @@ class DroneIrWindow(QMainWindow):
 
         self.pushButton_left.clicked.connect(lambda: self.update_img_to_preview('minus'))
         self.pushButton_right.clicked.connect(lambda: self.update_img_to_preview('plus'))
-        self.pushButton_temp_viz.clicked.connect(self.show_viz_threed)
         self.pushButton_estimate.clicked.connect(self.estimate_temp)
         self.pushButton_advanced.clicked.connect(self.define_options)
         self.pushButton_meas_color.clicked.connect(self.viewer.change_meas_color)
@@ -517,7 +518,6 @@ class DroneIrWindow(QMainWindow):
         #   image navigation
         self.dockWidget.setEnabled(True)
         self.pushButton_right.setEnabled(True)
-        self.pushButton_temp_viz.setEnabled(True)
         self.comboBox_view.setEnabled(True)
         self.comboBox_img.setEnabled(True)
 
@@ -528,6 +528,8 @@ class DroneIrWindow(QMainWindow):
         self.actionRectangle_meas.setEnabled(True)
         self.actionSpot_meas.setEnabled(True)
         self.actionLine_meas.setEnabled(True)
+        self.actionCompose.setEnabled(True)
+        self.action3D_temperature.setEnabled(True)
 
     def go_save(self):
         """
@@ -633,12 +635,19 @@ class DroneIrWindow(QMainWindow):
 
             self.viewer.add_item_from_annot(line.main_item)
 
-
-
     # VISUALIZE __________________________________________________________________
     def change_meas_color(self):
         self.viewer.change_meas_color()
         self.switch_image_data()
+
+    def compose_pic(self):
+        rgb_path = os.path.join(self.rgb_folder, self.rgb_imgs[self.active_image])
+        ir_path = self.dest_path_no_post
+
+        dest_path_temp = self.dest_path_no_post[:-4] + '_temp.png'
+        dialog = dia.ImageFusionDialog(rgb_path, ir_path, self.raw_data, self.colormap, self.n_colors, dest_path_temp)
+        if dialog.exec_():
+            pass
 
     def compile_user_values(self):
         # colormap
@@ -723,6 +732,9 @@ class DroneIrWindow(QMainWindow):
             self.viewer.setPhoto(QPixmap(rgb_path))
             self.viewer.clean_scene()
 
+        elif v == 2:  # picture-in-picture
+            pass
+
         else:
             self.compile_user_values()
 
@@ -771,7 +783,6 @@ class DroneIrWindow(QMainWindow):
             self.images[self.active_image].thermal_param = self.thermal_param
 
             self.dest_path_no_post = dest_path_no_post
-
 
     # CONTEXT MENU _________________________________________________
     def onContextMenu(self, point):
@@ -828,11 +839,8 @@ class DroneIrWindow(QMainWindow):
             if remove_index != -1:
                 self.images[self.active_image].meas_point_list.pop(remove_index)
 
-
-
         # retrace items
         self.retrace_items()
-
 
     def showAnnotation(self, item):
         # Implement the logic to show the annotation
@@ -870,15 +878,12 @@ class DroneIrWindow(QMainWindow):
                     if dialog.exec_():
                         pass
 
-
-
         if 'spot' in lookup_text:
             for i, annot in enumerate(self.images[self.active_image].meas_point_list):
                 if annot.name == lookup_text:
                     interest = self.images[self.active_image].meas_point_list[i]
 
         # show dialog:
-
 
     # GENERAL GUI METHODS __________________________________________________________________________
     def hand_pan(self):
@@ -923,6 +928,8 @@ class DroneIrWindow(QMainWindow):
         self.add_icon(res.find('img/info.png'), self.actionInfo)
         self.add_icon(res.find('img/point.png'), self.actionSpot_meas)
         self.add_icon(res.find('img/line.png'), self.actionLine_meas)
+        self.add_icon(res.find('img/compare.png'), self.actionCompose)
+        self.add_icon(res.find('img/3d.png'), self.action3D_temperature)
 
     def full_reset_parameters(self):
         """
