@@ -42,7 +42,7 @@ OUT_LIM_MATPLOT = ['k', 'w', 'r']
 POST_PROCESS = ['none', 'smooth', 'sharpen', 'sharpen strong', 'edge (simple)', 'edge (from rgb)']
 COLORMAPS = ['coolwarm', 'Artic', 'Iron', 'Rainbow', 'Greys_r', 'Greys', 'plasma', 'inferno', 'jet',
              'Spectral_r', 'cividis', 'viridis', 'gnuplot2']
-VIEWS = ['th. undistorted', 'RGB crop', 'PicInPic']
+VIEWS = ['th. undistorted', 'RGB crop', 'Custom']
 
 
 # USEFUL CLASSES
@@ -122,6 +122,17 @@ class DroneIrWindow(QMainWindow):
         self.comboBox_view.addItems(self.view_list)
 
         self.advanced_options = False
+
+        # create double slider
+        self.range_slider = wid.QRangeSlider(COLORMAPS[0])
+        self.range_slider.setEnabled(False)
+        self.range_slider.setLowerValue(0)
+        self.range_slider.setUpperValue(20)
+        self.range_slider.setMinimum(0)
+        self.range_slider.setMaximum(20)
+
+        # add to layout
+        self.horizontalLayout_slider.addWidget(self.range_slider)
 
         # create validator for qlineedit
         onlyInt = QIntValidator()
@@ -344,7 +355,7 @@ class DroneIrWindow(QMainWindow):
 
     def add_point_meas(self, qpointf):
         # create annotation (object)
-        new_pt_annot = tt.PointMeas()
+        new_pt_annot = tt.PointMeas(qpointf)
         new_pt_annot.temp = self.raw_data[int(qpointf.y()), int(qpointf.x())]
         new_pt_annot.create_items()
         self.viewer.add_item_from_annot(new_pt_annot.ellipse_item)
@@ -381,6 +392,7 @@ class DroneIrWindow(QMainWindow):
             self.viewer.line_meas = True
             self.viewer.toggleDragMode()
 
+    # THERMAL-RELATED FUNCTIONS __________________________________________________________________________
     def define_options(self):
         dialog = dia.DialogThParams(self.thermal_param)
         dialog.setWindowTitle("Choose advanced thermal options")
@@ -410,6 +422,9 @@ class DroneIrWindow(QMainWindow):
                     self.thermal_param['reflection'] = refl_temp
 
                 self.update_img_preview()
+
+                # update all annotation data TODO
+
 
             except ValueError:
                 QMessageBox.warning(self, "Warning",
@@ -514,6 +529,7 @@ class DroneIrWindow(QMainWindow):
         self.comboBox_colors_low.setEnabled(True)
         self.comboBox_colors_high.setEnabled(True)
         self.comboBox_post.setEnabled(True)
+        self.range_slider.setEnabled(True)
 
         #   image navigation
         self.dockWidget.setEnabled(True)
@@ -530,13 +546,6 @@ class DroneIrWindow(QMainWindow):
         self.actionLine_meas.setEnabled(True)
         self.actionCompose.setEnabled(True)
         self.action3D_temperature.setEnabled(True)
-
-    def go_save(self):
-        """
-        Save measurements
-        """
-        # load image
-        pass
 
     def save_image(self):
         # Create a QImage with the size of the viewport
@@ -595,6 +604,7 @@ class DroneIrWindow(QMainWindow):
         # clean measurements and annotations
         self.retrace_items()
 
+    # VISUALIZE __________________________________________________________________
     def retrace_items(self):
         self.viewer.clean_scene()
 
@@ -635,7 +645,6 @@ class DroneIrWindow(QMainWindow):
 
             self.viewer.add_item_from_annot(line.main_item)
 
-    # VISUALIZE __________________________________________________________________
     def change_meas_color(self):
         self.viewer.change_meas_color()
         self.switch_image_data()
@@ -731,6 +740,7 @@ class DroneIrWindow(QMainWindow):
         if v == 1:  # if rgb view
             self.viewer.setPhoto(QPixmap(rgb_path))
             self.viewer.clean_scene()
+            self.viewer.toggleLegendVisibility()
 
         elif v == 2:  # picture-in-picture
             pass
@@ -754,6 +764,9 @@ class DroneIrWindow(QMainWindow):
             tt.cv_write_all_path(undis, dest_path_no_post)
             self.viewer.setPhoto(QPixmap(dest_path_no_post))
 
+            self.viewer.setupLegendLabel(self.colormap, self.n_colors, self.tmin, self.tmax)
+
+
             # set left and right views (in dual viewer)
             self.dual_viewer.load_images_from_path(rgb_path, dest_path_no_post)
 
@@ -771,6 +784,8 @@ class DroneIrWindow(QMainWindow):
                     tt.cv_write_all_path(undis, dest_path_post)
 
                 self.viewer.setPhoto(QPixmap(dest_path_post))
+
+
                 # set left and right views
                 self.dual_viewer.load_images_from_path(rgb_path, dest_path_post)
 
@@ -784,7 +799,7 @@ class DroneIrWindow(QMainWindow):
 
             self.dest_path_no_post = dest_path_no_post
 
-    # CONTEXT MENU _________________________________________________
+    # CONTEXT MENU IN TREEVIEW _________________________________________________
     def onContextMenu(self, point):
         # Get the index of the item that was clicked
         index = self.treeView.indexAt(point)
@@ -917,6 +932,12 @@ class DroneIrWindow(QMainWindow):
             elif self.progressBar.isHidden():
                 self.progressBar.setVisible(True)
 
+    def add_icon(self, img_source, pushButton_object):
+        """
+        Function to add an icon to a pushButton
+        """
+        pushButton_object.setIcon(QIcon(img_source))
+
     def add_all_icons(self):
         # self.add_icon(res.find('img/label.png'), self.pushButton_addCat)
         self.add_icon(res.find('img/folder.png'), self.actionLoad_folder)
@@ -952,9 +973,6 @@ class DroneIrWindow(QMainWindow):
         # clean graphicscene
         self.viewer.clean_scene()
 
-        # clean combobox
-        self.comboBox_cat.clear()
-
     def reset_roi(self):
         # clean tree view
         self.model = QStandardItemModel()
@@ -971,12 +989,6 @@ class DroneIrWindow(QMainWindow):
 
         # clean graphicscene
         self.viewer.clean_scene()
-
-    def add_icon(self, img_source, pushButton_object):
-        """
-        Function to add an icon to a pushButton
-        """
-        pushButton_object.setIcon(QIcon(img_source))
 
 
 def main(argv=None):

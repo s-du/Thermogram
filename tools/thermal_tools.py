@@ -119,7 +119,7 @@ class ProcessedImage_bis:
 
 
 class PointMeas:
-    def __int__(self, qpoint):
+    def __init__(self, qpoint):
         self.name = ''
         self.qpoint = qpoint
         self.ellipse_item = None

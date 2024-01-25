@@ -432,6 +432,63 @@ class DualViewer(QWidget):
                 # Reset the pan origin
                 self.pan_origin = QPointF()
 
+class LegendContainer(QGraphicsRectItem):
+    def __init__(self, width, height, radius, parent=None):
+        super().__init__(parent)
+        self.setRect(0, 0, width, height)
+        self.radius = radius
+
+    def paint(self, painter, option, widget=None):
+        painter.setBrush(QColor(255, 255, 255, 128))  # Semi-transparent white
+        painter.setPen(Qt.NoPen)
+        painter.drawRoundedRect(self.rect(), self.radius, self.radius)
+
+class ColorMapLegendItem(QGraphicsPixmapItem):
+    def __init__(self, colormap_name, n_colors, min_temp, max_temp, parent=None):
+        super().__init__(parent)
+
+        if colormap_name == 'Artic' or colormap_name == 'Iron' or colormap_name == 'Rainbow':
+            custom_cmap = tt.get_custom_cmaps(colormap_name, n_colors)
+        else:
+            custom_cmap = cm.get_cmap(colormap_name, n_colors)
+        self.colormap = custom_cmap
+        self.min_temp = min_temp
+        self.max_temp = max_temp
+        self.createLegendPixmap()
+
+    def addLabels(self, scene, num_ticks=5):
+        label_height = self.boundingRect().height()
+        temp_range = self.max_temp - self.min_temp
+
+        for i in range(num_ticks):
+            temp_fraction = i / (num_ticks - 1)
+            temp = self.min_temp + temp_fraction * temp_range
+            y_pos = self.y() + label_height - (temp_fraction * label_height)
+
+            label = QGraphicsTextItem()
+            label.setHtml(f"<div style='background-color:rgba(255, 255, 255, 0.3);'><b>{temp:.2f}</b></div>")
+            label.setPos(self.x() + 40, y_pos - label.boundingRect().height() / 2)
+            scene.addItem(label)
+    def createLegendPixmap(self):
+        height = 200
+        width = 20
+        pixmap = QPixmap(width, height)
+        pixmap.fill(Qt.transparent)
+        painter = QPainter(pixmap)
+        num_colors = 256
+
+        for i in range(num_colors):
+            temp_fraction = i / (num_colors - 1)
+            rgba = self.colormap(temp_fraction)
+            color = QColor.fromRgbF(*rgba)
+            painter.setPen(color)
+            painter.setBrush(color)
+            y = height - (i * (height / num_colors)) - (height / num_colors)
+            painter.drawRect(0, y, width, height / num_colors)
+
+        painter.end()
+        self.setPixmap(pixmap)
+
 
 class PhotoViewer(QGraphicsView):
     photoClicked = Signal(QPoint)
@@ -454,6 +511,7 @@ class PhotoViewer(QGraphicsView):
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
         self.setBackgroundBrush(QBrush(QColor(255, 255, 255)))
         self.setFrameShape(QFrame.NoFrame)
+        self.setRenderHints(QPainter.Antialiasing | QPainter.SmoothPixmapTransform)
 
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
@@ -487,10 +545,121 @@ class PhotoViewer(QGraphicsView):
         self.pen_meas.setCapStyle(Qt.RoundCap)
         self.pen_meas.setJoinStyle(Qt.RoundJoin)
 
+        self.legendContainer = QLabel(self)
+        self.legendLabel = QLabel(self)
+        self.tickLabels = []  # List to store tick labels
+        self.has_legend = False
+
         self.categories = None
         self.images = None
         self.active_image = None
+    def setupLegendLabel(self, colormap_name, num_colors, tmin, tmax):
+        # Clear existing legend and tick labels
+        self.clearLegend()
 
+        # Setup for new legend
+        if colormap_name == 'Artic' or colormap_name == 'Iron' or colormap_name == 'Rainbow':
+            custom_cmap = tt.get_custom_cmaps(colormap_name, num_colors)
+        else:
+            custom_cmap = cm.get_cmap(colormap_name, num_colors)
+
+        legendPixmap = self.createLegendPixmap(custom_cmap, num_colors)
+        self.legendLabel = QLabel(self)  # Re-create the legend label
+        self.legendLabel.setPixmap(legendPixmap)
+        self.legendLabel.move(50, 50)  # Adjust position
+        self.legendLabel.show()
+
+        # Calculate the height of each tick label's position
+        tick_interval = legendPixmap.height() / 4
+
+        # Add new labels for ticks
+        for i, temp in enumerate(self.generateTicks(tmin, tmax, 5)):
+            tick_label = QLabel(f"{temp:.2f}°C", self)
+            # Adjust the y-position so that max temp is at the top
+            tick_label_pos_y = 45 + (4 - i) * tick_interval
+            tick_label_pos_x = 50 + legendPixmap.width() + 10
+
+            tick_label.move(tick_label_pos_x, tick_label_pos_y)
+            tick_label.setFont(QFont("Calibri", 10, QFont.Bold))
+            tick_label.setStyleSheet("background-color: rgba(255, 255, 255, 128);")
+            tick_label.show()
+            self.tickLabels.append(tick_label)
+
+    def createLegendPixmap(self, colormap, num_colors):
+        height = 300
+        width = 15
+        pixmap = QPixmap(width, height)
+        pixmap.fill(Qt.transparent)
+        painter = QPainter(pixmap)
+
+        for i in range(num_colors):
+            temp_fraction = i / (num_colors - 1)
+            rgba = colormap(temp_fraction)
+            color = QColor.fromRgbF(*rgba)
+            painter.setPen(color)
+            painter.setBrush(color)
+            y = height - (i * (height / num_colors)) - (height / num_colors)
+            painter.drawRect(0, y, width, height / num_colors)
+
+        painter.end()
+        return pixmap
+
+    def generateTicks(self, min_temp, max_temp, num_ticks):
+        temp_range = max_temp - min_temp
+        return [min_temp + i * (temp_range / (num_ticks - 1)) for i in range(num_ticks)]
+
+    def setupLegendContainer(self):
+        self.has_legend = True
+        containerWidth = 110
+        containerHeight = 350
+        radius = 7
+
+        # Create a QPixmap with rounded corners
+        pixmap = QPixmap(containerWidth, containerHeight)
+        pixmap.fill(Qt.transparent)
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setBrush(QColor(120, 120, 120, 75))
+        painter.setPen(Qt.NoPen)
+        rectPath = QPainterPath()
+        rectPath.addRoundedRect(QRectF(0, 0, containerWidth, containerHeight), radius, radius)
+        painter.drawPath(rectPath)
+        painter.end()
+
+        self.legendContainer.setPixmap(pixmap)
+        self.legendContainer.setFixedSize(pixmap.size())
+
+        self.legendContainer.move(10, 10)  # Adjust position
+
+        print(f"Container Size: {self.legendContainer.width()}x{self.legendContainer.height()}")
+        print(f"Container Position: {self.legendContainer.pos()}")
+
+    def toggleLegendVisibility(self):
+        # Toggle the visibility of the legend and tick labels
+        isVisible = not self.legendLabel.isVisible()
+        self.legendLabel.setVisible(isVisible)
+        # self.legendContainer.setVisible(isVisible)
+        for label in self.tickLabels:
+            label.setVisible(isVisible)
+
+    def clearLegend(self):
+        if self.legendLabel:
+            self.legendLabel.hide()
+            self.legendLabel.deleteLater()
+            self.legendLabel = None
+
+        if self.legendContainer:
+            self.legendContainer.hide()
+            self.legendContainer.deleteLater()
+            self.legendContainer = None
+
+            # Hide and remove all tick labels
+        for tick_label in self.tickLabels:
+            if tick_label:
+                tick_label.hide()
+                tick_label.deleteLater()
+
+        self.tickLabels.clear()
     def has_photo(self):
         return not self._empty
 

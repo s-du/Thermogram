@@ -946,7 +946,10 @@ border-radius: 10px;
     <bool>false</bool>
    </property>
    <property name="text">
-    <string>Compose</string>
+    <string>Customize</string>
+   </property>
+   <property name="toolTip">
+    <string>Compose advanced custom images</string>
    </property>
   </action>
   <action name="action3D_temperature">
