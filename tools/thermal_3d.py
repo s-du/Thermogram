@@ -2,16 +2,13 @@ import open3d as o3d
 import open3d.visualization.gui as gui
 import open3d.visualization.rendering as rendering
 from matplotlib import cm
-from matplotlib import pyplot as plt
-import matplotlib.colors as mcol
+
 import numpy as np
-import os
-import subprocess
 from pathlib import Path
-from PIL import Image
 
 #custom libraries
 import resources as res
+from tools import thermal_tools as tt
 
 OUT_LIM_MATPLOT = ['k', 'w', 'r']
 POST_PROCESS = ['none', 'smooth', 'sharpen', 'sharpen strong', 'edge (simple)', 'edge (from rgb)']
@@ -197,8 +194,8 @@ class Custom3dView:
             self.voxel_grids.append(voxel_grid)
 
         # show one geometry
-        self.widget3d.scene.add_geometry('PC 2', self.voxel_grids[2], self.mat)
-        self.current_index = 2
+        self.widget3d.scene.add_geometry('PC 0', self.voxel_grids[0], self.mat)
+        self.current_index = 0
 
 
         self.widget3d.scene.show_geometry("Point Cloud IR 0", True)
@@ -462,33 +459,9 @@ def filter_point_cloud_by_intensity(point_cloud, lower_threshold, upper_threshol
     return filtered_point_cloud
 
 
-def get_custom_cmaps(colormap_name, n_colors):
-    colors = [(25, 0, 150), (94, 243, 247), (100, 100, 100), (243, 116, 27), (251, 250, 208)]
-    colors_scaled = [np.array(x).astype(np.float32) / 255 for x in colors]
-    artic_cmap = mcol.LinearSegmentedColormap.from_list('my_colormap', colors_scaled, N=n_colors)
-
-    colors = [(0, 0, 0), (144, 15, 170), (230, 88, 65), (248, 205, 35), (255, 255, 255)]
-    colors_scaled = [np.array(x).astype(np.float32) / 255 for x in colors]
-    ironbow_cmap = mcol.LinearSegmentedColormap.from_list('my_colormap', colors_scaled, N=n_colors)
-
-    colors = [(8, 0, 75), (43, 80, 203), (119, 185, 31), (240, 205, 35), (245, 121, 47), (236, 64, 100),
-              (240, 222, 203)]
-    colors_scaled = [np.array(x).astype(np.float32) / 255 for x in colors]
-    rainbow_cmap = mcol.LinearSegmentedColormap.from_list('my_colormap', colors_scaled, N=n_colors)
-
-    if colormap_name == 'Artic':
-        out_colormap = artic_cmap
-    elif colormap_name == 'Iron':
-        out_colormap = ironbow_cmap
-    elif colormap_name == 'Rainbow':
-        out_colormap = rainbow_cmap
-
-    return out_colormap
-
-
 def colorize_pc_height(pc, colormap, col_high, col_low, n_colors):
-    if colormap == 'Artic' or colormap == 'Iron' or colormap == 'Rainbow':
-        custom_cmap = get_custom_cmaps(colormap, n_colors)
+    if colormap in tt.LIST_CUSTOM_CMAPS:
+        custom_cmap = tt.get_custom_cmaps(colormap, n_colors)
     else:
         custom_cmap = cm.get_cmap(colormap, n_colors)
 
@@ -527,8 +500,8 @@ def colorize_pc_height(pc, colormap, col_high, col_low, n_colors):
 
 
 def surface_from_image(data, colormap, n_colors, col_low, col_high):
-    if colormap == 'Artic' or colormap == 'Iron' or colormap == 'Rainbow':
-        custom_cmap = get_custom_cmaps(colormap, n_colors)
+    if colormap in tt.LIST_CUSTOM_CMAPS:
+        custom_cmap = tt.get_custom_cmaps(colormap, n_colors)
     else:
         custom_cmap = cm.get_cmap(colormap, n_colors)
 

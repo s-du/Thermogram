@@ -122,9 +122,10 @@ class CustomGraphicsItem(QGraphicsItem):
         painter.setCompositionMode(self.composition_mode)
         painter.drawPixmap(0, 0, self.pixmap)
 
-    def setPixmap(self, pixmap):
+    def setPixmap(self, pixmap, rescale = True):
         self.pixmap = pixmap
-        self.pixmap = self.pixmap.scaled(self.target_size, QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation)
+        if rescale:
+            self.pixmap = self.pixmap.scaled(self.target_size, QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation)
         self.update()
 
 class ImageFusionDialog(QtWidgets.QDialog):
@@ -140,6 +141,7 @@ class ImageFusionDialog(QtWidgets.QDialog):
         wid.loadUi(uifile, self)
 
         self.ir_path = ir_img_path
+        self.img_object = img_object
         self.colormap_name = img_object.colormap
         self.n_colors = img_object.n_colors
         self.temperatures = img_object.raw_data_undis
@@ -224,6 +226,8 @@ class ImageFusionDialog(QtWidgets.QDialog):
         # button actions
         self.buttonBox.accepted.connect(self.accept)
         self.buttonBox.rejected.connect(self.reject)
+
+        self.grayscaleCheckbox.stateChanged.connect(self.toggleGrayscale)
 
         self.updateIRImage(0)
 
@@ -346,6 +350,17 @@ class ImageFusionDialog(QtWidgets.QDialog):
 
     def scale_temperature(self, temp):
         return int(temp * 100)  # Scaling factor of 100
+
+    def toggleGrayscale(self):
+        if self.grayscaleCheckbox.isChecked():
+            # Convert to grayscale
+            gray_pixmap = self.colorImageItem.pixmap.toImage().convertToFormat(QImage.Format_Grayscale8)
+            self.colorImageItem.setPixmap(QPixmap.fromImage(gray_pixmap), rescale=False)
+        else:
+            # Restore original color image
+            colorPixmap = QPixmap(self.img_object.rgb_path)  # Assuming img_object is accessible
+            self.colorImageItem.setPixmap(colorPixmap, rescale=False)
+        self.colorImageItem.update()
 
 
 

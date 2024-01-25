@@ -598,6 +598,8 @@ class DroneIrWindow(QMainWindow):
         self.range_slider.setMinimum(self.tmin* 100)
         self.range_slider.setMaximum(self.tmax * 100)
 
+        self.range_slider.setHandleColorsFromColormap(self.colormap)
+
 
         # clean measurements and annotations
         self.retrace_items()
@@ -644,7 +646,9 @@ class DroneIrWindow(QMainWindow):
             self.viewer.add_item_from_annot(line.main_item)
 
     def show_viz_threed(self):
-        t3d.run_viz_app(self.work_image.raw_data_undis, self.colormap, self.user_lim_col_high, self.user_lim_col_low, self.n_colors)
+        t3d.run_viz_app(self.work_image.raw_data_undis, self.work_image.colormap,
+                        self.work_image.user_lim_col_high, self.work_image.user_lim_col_low, self.work_image.n_colors)
+
 
     def change_meas_color(self):
         self.viewer.change_meas_color()
@@ -747,6 +751,7 @@ class DroneIrWindow(QMainWindow):
             dest_path_post = os.path.join(self.preview_folder, 'preview_post.JPG')
             img = self.work_image
             tt.process_raw_data(img, dest_path_post)
+            self.range_slider.setHandleColorsFromColormap(self.work_image.colormap)
 
             # add legend
             self.viewer.setPhoto(QPixmap(dest_path_post))

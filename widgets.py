@@ -162,7 +162,7 @@ class QRangeSlider(QSlider):
         self.update()  # Refresh the widget
 
     def setHandleColorsFromColormap(self, colormap_name):
-        if colormap_name == 'Artic' or colormap_name == 'Iron' or colormap_name == 'Rainbow':
+        if colormap_name in tt.LIST_CUSTOM_CMAPS:
             custom_cmap = tt.get_custom_cmaps(colormap_name, 256)
         else:
             custom_cmap = cm.get_cmap(colormap_name, 256)
