@@ -25,7 +25,7 @@ img_path = Path(res.find('img/M2EA_IR.JPG'))
 
 
 class Custom3dView:
-    def __init__(self, img_path, colormap, col_high, col_low, n_colors):
+    def __init__(self, data, colormap, col_high, col_low, n_colors):
         self.colormap = colormap
         self.col_high = col_high
         self.col_low = col_low
@@ -68,7 +68,7 @@ class Custom3dView:
         self.create_layout()
 
         # load image
-        self.load(img_path)
+        self.load(data)
 
         # default autorescale on
         self.auto_rescale = True
@@ -168,8 +168,8 @@ class Custom3dView:
         self.widget3d.scene.add_geometry(f"PC {self.current_index}", self.voxel_grids[self.current_index], self.mat)
         self.widget3d.force_redraw()
 
-    def load(self, img_path):
-        self.data = process_one_th_picture(img_path)
+    def load(self, data):
+        self.data = data
         self.pc_ir, self.points, self.tmax, self.tmin, loc_tmax, loc_tmin, self.factor = surface_from_image(self.data, self.colormap, self.n_colors, self.col_low, self.col_high)
 
         # store basic properties
@@ -425,11 +425,11 @@ class Custom3dView:
             return gui.Widget.EventCallbackResult.HANDLED
         return gui.Widget.EventCallbackResult.IGNORED
 
-def run_viz_app(img_path, colormap, high, low, n):
+def run_viz_app(data, colormap, high, low, n):
     app_vis = gui.Application.instance
     app_vis.initialize()
 
-    viz = Custom3dView(img_path, colormap, high, low, n)
+    viz = Custom3dView(data, colormap, high, low, n)
     app_vis.run()
 
 
@@ -460,47 +460,6 @@ def filter_point_cloud_by_intensity(point_cloud, lower_threshold, upper_threshol
     filtered_point_cloud = point_cloud[valid_indices]
 
     return filtered_point_cloud
-
-def read_dji_image(img_in, raw_out, param={'emissivity': 0.95, 'distance': 5, 'humidity': 50, 'reflection': 25}):
-    dist = param['distance']
-    rh = param['humidity']
-    refl_temp = param['reflection']
-    em = param['emissivity']
-
-    subprocess.run(
-        [str(SDK_PATH), "-s", f"{img_in}", "-a", "measure", "-o", f"{raw_out}", "--measurefmt",
-         "float32", "--distance", f"{dist}", "--humidity", f"{rh}", "--reflection", f"{refl_temp}",
-         "--emissivity", f"{em}"],
-        universal_newlines=True,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.STDOUT,
-        shell=True
-    )
-
-    image = Image.open(img_in)
-    exif = image.info['exif']
-
-    return exif
-
-
-def process_one_th_picture(ir_img_path):
-    _, filename = os.path.split(str(ir_img_path))
-    new_raw_path = Path(str(ir_img_path)[:-4] + '.raw')
-
-    exif = read_dji_image(str(ir_img_path), str(new_raw_path))
-
-    # read raw dji output
-    fd = open(new_raw_path, 'rb')
-    rows = 512
-    cols = 640
-    f = np.fromfile(fd, dtype='<f4', count=rows * cols)
-    im = f.reshape((rows, cols))  # notice row, column format
-    fd.close()
-
-    # remove raw file
-    os.remove(new_raw_path)
-
-    return im
 
 
 def get_custom_cmaps(colormap_name, n_colors):

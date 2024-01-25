@@ -32,6 +32,7 @@ m2t_rgb_xml_path = res.find('other/rgb_cam_calib_m2t_opencv.xml')
 m3t_ir_xml_path = res.find('other/cam_calib_m3t_opencv.xml')
 m3t_rgb_xml_path = res.find('other/rgb_cam_calib_m3t_opencv.xml')
 
+LIST_CUSTOM_CMAPS = ['Artic','Iron','Rainbow','FIJI_Temp','BlueWhiteRed']
 
 # USEFUL CLASSES
 class DroneModel():
@@ -79,19 +80,28 @@ class ObjectDetectionCategory:
 
 
 class ProcessedImage_bis:
-    def __init__(self, path):
+    def __init__(self, path, rgb_path):
+        # general infos
         self.path = path
+        self.rgb_path = rgb_path
+        self.preview_path = ''
+        self.exif = extract_exif(self.path)
+        self.drone_model_name = get_drone_model_from_exif(self.exif)
         # colormap infos
         self.colormap = 'coolwarm'
         self.n_colors = 256
+
         # ir infos
         self.thermal_param = {'emissivity': 0.95, 'distance': 5, 'humidity': 50, 'reflection': 25}
-        self.tmin, self.tmax = compute_delta(path, self.thermal_param)
+        self.raw_data, self.raw_data_undis = extract_raw_data(self.thermal_param, self.path)
+        self.tmin = np.amin(self.raw_data)
+        self.tmax = np.amax(self.raw_data)
+        self.tmin_shown = self.tmin
+        self.tmax_shown = self.tmax
 
         self.user_lim_col_low = 'w'
         self.user_lim_col_high = 'w'
-
-        self.post_process = ''
+        self.post_process = 'none'
 
         # for annotations
         self.annot_rect_items = []
@@ -105,6 +115,12 @@ class ProcessedImage_bis:
         self.nb_meas_line = 0  # number of line measurements (classes)
         self.meas_line_list = []
 
+    def update_data(self, new_params):
+        self.thermal_param = new_params
+        self.raw_data, self.raw_data_undis = extract_raw_data(self.thermal_param, self.path)
+        self.tmin = np.amin(self.raw_data)
+        self.tmax = np.amax(self.raw_data)
+
     def update_colormap_data(self, colormap, n_colors, user_lim_col_high, user_lim_col_low, post_process, tmin, tmax):
         self.colormap = colormap
         self.n_colors = n_colors
@@ -115,7 +131,15 @@ class ProcessedImage_bis:
         self.post_process = post_process
 
     def get_colormap_data(self):
-        return self.colormap, self.n_colors, self.user_lim_col_high, self.user_lim_col_low, self.tmin, self.tmax
+        return (self.colormap,
+                self.n_colors,
+                self.user_lim_col_high,
+                self.user_lim_col_low,
+                self.tmin,
+                self.tmax,
+                self.tmin_shown,
+                self.tmax_shown,
+                self.post_process)
 
 
 class PointMeas:
@@ -435,7 +459,7 @@ def cv_write_all_path(img, path):
 
 def path_info(path):
     """
-    Function that reads a path and outputs the foler, the complete filename and the filename without file extension
+    Function that reads a path and outputs the folder, the complete filename and the filename without file extension
     @ parameters:
         path -- input path (string)
     """
@@ -583,11 +607,20 @@ def print_exif(img_path):
     infos = img.getexif()
     print(infos)
 
+def extract_exif(img_path):
+    img = Image.open(img_path)
+    infos = img.getexif()
 
+    return infos
 def get_drone_model(img_path):
     img = Image.open(img_path)
     infos = img.getexif()
     model = infos[272]
+    return model
+
+
+def get_drone_model_from_exif(exifs):
+    model = exifs[272]
     return model
 
 
@@ -719,12 +752,27 @@ def get_custom_cmaps(colormap_name, n_colors):
     colors_scaled = [np.array(x).astype(np.float32) / 255 for x in colors]
     rainbow_cmap = mcol.LinearSegmentedColormap.from_list('my_colormap', colors_scaled, N=n_colors)
 
+    colors = [(70, 0, 115), (70, 0, 151), (70, 0, 217), (57, 27, 255),
+              (14, 136, 251), (0, 245, 235), (76, 255, 247), (206, 255, 254),
+              (251, 254, 243), (178, 255, 163), (57, 255, 51), (37, 255, 1),
+              (162, 255, 21), (242, 241, 43), (255, 175, 37), (255, 70, 16), (255, 0, 0)]
+    colors_scaled = [np.array(x).astype(np.float32) / 255 for x in colors]
+    fiji_cmap = mcol.LinearSegmentedColormap.from_list('my_colormap', colors_scaled, N=256)
+
+    colors = [(0, 0, 255), (255, 255, 255), (255, 0, 0)]
+    colors_scaled = [np.array(x).astype(np.float32) / 255 for x in colors]
+    bwr_cmap = mcol.LinearSegmentedColormap.from_list('my_colormap', colors_scaled, N=256)
+
     if colormap_name == 'Artic':
         out_colormap = artic_cmap
     elif colormap_name == 'Iron':
         out_colormap = ironbow_cmap
     elif colormap_name == 'Rainbow':
         out_colormap = rainbow_cmap
+    elif colormap_name == 'FIJI_Temp':
+        out_colormap = fiji_cmap
+    elif colormap_name == 'BlueWhiteRed':
+        out_colormap = bwr_cmap
 
     return out_colormap
 
@@ -768,6 +816,106 @@ def read_dji_image(img_in, raw_out, param={'emissivity': 0.95, 'distance': 5, 'h
     exif = image.info['exif']
 
     return exif
+
+
+def extract_raw_data(param, ir_img_path):
+    # Read img infos
+    exif = extract_exif(ir_img_path)
+    drone_model_name = get_drone_model_from_exif(exif)
+    drone_model = DroneModel(drone_model_name)
+
+    # create raw file
+    _, filename = os.path.split(str(ir_img_path))
+    new_raw_path = Path(str(ir_img_path)[:-4] + '.raw')
+
+    _ = read_dji_image(str(ir_img_path), str(new_raw_path), param=param)
+    ir_xml_path = drone_model.ir_xml_path
+
+    # read raw dji output
+    fd = open(new_raw_path, 'rb')
+    rows = 512
+    cols = 640
+    f = np.fromfile(fd, dtype='<f4', count=rows * cols)
+    im = f.reshape((rows, cols))  # notice row, column format
+    fd.close()
+
+    # create an undistort version of the temperature map
+    undis_im, _ = undis(im, ir_xml_path)
+
+    # remove raw file
+    os.remove(new_raw_path)
+
+    return im, undis_im
+
+
+def process_raw_data(img_object, dest_path):
+
+    im = img_object.raw_data_undis
+    tmin = img_object.tmin_shown
+    tmax = img_object.tmax_shown
+    colormap = img_object.colormap
+    n_colors = img_object.n_colors
+    col_high = img_object.user_lim_col_high
+    col_low = img_object.user_lim_col_low
+    exif = img_object.exif
+    post_process = img_object.post_process
+
+    # compute new normalized temperature
+    thermal_normalized = (im - tmin) / (tmax - tmin)
+
+    # get colormap
+    if colormap in LIST_CUSTOM_CMAPS:
+        custom_cmap = get_custom_cmaps(colormap, n_colors)
+    else:
+        custom_cmap = cm.get_cmap(colormap, n_colors)
+    if col_high != 'c':
+        custom_cmap.set_over(col_high)
+    if col_low != 'c':
+        custom_cmap.set_under(col_low)
+
+    thermal_cmap = custom_cmap(thermal_normalized)
+    thermal_cmap = np.uint8(thermal_cmap * 255)
+
+    img_thermal = Image.fromarray(thermal_cmap[:, :, [0, 1, 2]])
+
+    if post_process == 'none':
+        img_thermal.save(dest_path, exif=exif)
+    elif post_process == 'sharpen':
+        img_th_sharpened = img_thermal.filter(ImageFilter.SHARPEN)
+        img_th_sharpened.save(dest_path, exif=exif)
+    elif post_process == 'sharpen strong':
+        img_th_sharpened = img_thermal.filter(ImageFilter.SHARPEN)
+        img_th_sharpened2 = img_th_sharpened.filter(ImageFilter.SHARPEN)
+        img_th_sharpened2.save(dest_path, exif=exif)
+    elif post_process == 'edge (simple)':
+        img_th_smooth = img_thermal.filter(ImageFilter.SMOOTH)
+        img_th_findedge = img_th_smooth.filter(ImageFilter.Kernel((3, 3), (-1, -1, -1, -1, 8,
+                                                                           -1, -1, -1, -1), 1, 0))
+        img_th_findedge = img_th_findedge.convert('RGBA')
+        img_thermal = img_thermal.convert('RGBA')
+        foreground = np.array(img_th_findedge)  # Inputs to blend_modes need to be numpy arrays.
+
+        foreground_float = foreground.astype(float)  # Inputs to blend_modes need to be floats.
+        background = np.array(img_thermal)
+        background_float = background.astype(float)
+        blended = dodge(background_float, foreground_float, 0.5)
+
+        blended_img = np.uint8(blended)
+        blended_img_raw = Image.fromarray(blended_img)
+        blended_img_raw = blended_img_raw.convert('RGB')
+        blended_img_raw.save(dest_path, exif=exif)
+    elif post_process == 'smooth':
+        img_th_smooth = img_thermal.filter(ImageFilter.SMOOTH)
+        img_th_smooth.save(dest_path, exif=exif)
+    elif post_process == 'edge (from rgb)':
+        drone_model_name = get_drone_model_from_exif(exif)
+        drone_model = DroneModel(drone_model_name)
+        cv_match_rgb_img = cv_read_all_path(img_object.rgb_path)
+        add_lines_from_rgb(thermal_cmap[:, :, [2, 1, 0]], cv_match_rgb_img, drone_model, dest_path, exif=exif)
+
+    # elif post_process == 'superpixel':
+    #    img_th_fz = superpixel(img_thermal)
+    #    img_th_fz.save(thermal_filename)
 
 
 def process_one_th_picture(param, drone_model, ir_img_path, dest_path, tmin, tmax, colormap, color_high,
@@ -855,16 +1003,12 @@ def process_one_th_picture(param, drone_model, ir_img_path, dest_path, tmin, tma
     return raw_data_temp
 
 
-def get_temp_from_image(image_path, tmin, tmax):
-    pass
-
-
 def generate_legend(legend_dest_path, tmin, tmax, color_high, color_low, colormap, n_colors):
     fig, ax = plt.subplots()
     data = np.clip(np.random.randn(10, 10) * 100, tmin, tmax)
     print(data)
 
-    if colormap == 'Artic' or colormap == 'Iron' or colormap == 'Rainbow':
+    if colormap in LIST_CUSTOM_CMAPS:
         custom_cmap = get_custom_cmaps(colormap, n_colors)
     else:
         custom_cmap = cm.get_cmap(colormap, n_colors)

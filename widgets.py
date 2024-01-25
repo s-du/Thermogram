@@ -553,17 +553,18 @@ class PhotoViewer(QGraphicsView):
         self.categories = None
         self.images = None
         self.active_image = None
-    def setupLegendLabel(self, colormap_name, num_colors, tmin, tmax):
+    def setupLegendLabel(self, img_object):
         # Clear existing legend and tick labels
         self.clearLegend()
 
-        # Setup for new legend
-        if colormap_name == 'Artic' or colormap_name == 'Iron' or colormap_name == 'Rainbow':
-            custom_cmap = tt.get_custom_cmaps(colormap_name, num_colors)
-        else:
-            custom_cmap = cm.get_cmap(colormap_name, num_colors)
 
-        legendPixmap = self.createLegendPixmap(custom_cmap, num_colors)
+        # Setup for new legend
+        if img_object.colormap in tt.LIST_CUSTOM_CMAPS:
+            custom_cmap = tt.get_custom_cmaps(img_object.colormap, 256)
+        else:
+            custom_cmap = cm.get_cmap(img_object.colormap, 256)
+
+        legendPixmap = self.createLegendPixmap(custom_cmap, img_object.n_colors)
         self.legendLabel = QLabel(self)  # Re-create the legend label
         self.legendLabel.setPixmap(legendPixmap)
         self.legendLabel.move(50, 50)  # Adjust position
@@ -573,7 +574,7 @@ class PhotoViewer(QGraphicsView):
         tick_interval = legendPixmap.height() / 4
 
         # Add new labels for ticks
-        for i, temp in enumerate(self.generateTicks(tmin, tmax, 5)):
+        for i, temp in enumerate(self.generateTicks(img_object.tmin_shown, img_object.tmax_shown, 5)):
             tick_label = QLabel(f"{temp:.2f}°C", self)
             # Adjust the y-position so that max temp is at the top
             tick_label_pos_y = 45 + (4 - i) * tick_interval

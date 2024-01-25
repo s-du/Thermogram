@@ -132,38 +132,40 @@ class ImageFusionDialog(QtWidgets.QDialog):
     Dialog that allows the user to choose advances thermography options
     """
 
-    def __init__(self, rgb_path, ir_path, temperatures, colormap_name, n_colors, dest_path_preview):
+    def __init__(self, img_object, ir_img_path, dest_path_preview):
         super().__init__()
         basepath = os.path.dirname(__file__)
         basename = 'fusion'
         uifile = os.path.join(basepath, 'ui/%s.ui' % basename)
         wid.loadUi(uifile, self)
 
-        self.colormap_name = colormap_name
-        self.n_colors = n_colors
+        self.ir_path = ir_img_path
+        self.colormap_name = img_object.colormap
+        self.n_colors = img_object.n_colors
+        self.temperatures = img_object.raw_data_undis
+
         self.dest_path_preview = dest_path_preview
         self.scene = QGraphicsScene()
         self.view.setScene(self.scene)
 
-        self.ir_path = ir_path
-        self.temperatures = temperatures
-
-        min_temp_scaled = self.scale_temperature(np.min(temperatures))
-        max_temp_scaled = self.scale_temperature(np.max(temperatures))
+        min_temp_scaled = self.scale_temperature(img_object.tmin)
+        max_temp_scaled = self.scale_temperature(img_object.tmax)
+        min_shown_temp_scaled = self.scale_temperature(img_object.tmin_shown)
+        max_shown_temp_scaled = self.scale_temperature(img_object.tmax_shown)
 
         # range slider for shown data
         self.range_slider_shown = wid.QRangeSlider()
         self.range_slider_shown.handleSize = 10
         self.range_slider_shown.back_color = QColor(220, 220, 220)
-        self.range_slider_shown.setLowerValue(min_temp_scaled)
-        self.range_slider_shown.setUpperValue(max_temp_scaled)
+        self.range_slider_shown.setLowerValue(min_shown_temp_scaled)
+        self.range_slider_shown.setUpperValue(max_shown_temp_scaled)
         self.range_slider_shown.setMinimum(min_temp_scaled)
         self.range_slider_shown.setMaximum(max_temp_scaled)
 
         # range slider for palette
-        self.range_slider_map = wid.QRangeSlider(colormap_name)
-        self.range_slider_map.setLowerValue(min_temp_scaled)
-        self.range_slider_map.setUpperValue(max_temp_scaled)
+        self.range_slider_map = wid.QRangeSlider(self.colormap_name)
+        self.range_slider_map.setLowerValue(min_shown_temp_scaled)
+        self.range_slider_map.setUpperValue(max_shown_temp_scaled)
         self.range_slider_map.setMinimum(min_temp_scaled)
         self.range_slider_map.setMaximum(max_temp_scaled)
 
@@ -174,20 +176,20 @@ class ImageFusionDialog(QtWidgets.QDialog):
         self.range_slider_map.upperValueChanged.connect(self.recolorIRImage)
 
         # edit labels
-        self.label_max.setText(f'{str(max_temp_scaled/100)} °C')
-        self.label_min.setText(f'{str(min_temp_scaled/100)} °C')
+        self.label_max.setText(f'{str(min_shown_temp_scaled/100)} °C')
+        self.label_min.setText(f'{str(max_shown_temp_scaled/100)} °C')
 
         # edit labels
-        self.label_max_2.setText(f'{str(max_temp_scaled / 100)} °C')
-        self.label_min_2.setText(f'{str(min_temp_scaled / 100)} °C')
+        self.label_max_2.setText(f'{str(max_shown_temp_scaled / 100)} °C')
+        self.label_min_2.setText(f'{str(min_shown_temp_scaled / 100)} °C')
 
         # new label
         self.verticalLayout_2.addWidget(self.range_slider_shown)
         self.verticalLayout_2.addWidget(self.range_slider_map)
 
         # Load images
-        colorPixmap = QPixmap(rgb_path)
-        thermalPixmap = QPixmap(ir_path)
+        colorPixmap = QPixmap(img_object.rgb_path)
+        thermalPixmap = QPixmap(self.ir_path)
 
         # Create custom graphics items
         self.colorImageItem = CustomGraphicsItem(colorPixmap)
@@ -222,6 +224,8 @@ class ImageFusionDialog(QtWidgets.QDialog):
         # button actions
         self.buttonBox.accepted.connect(self.accept)
         self.buttonBox.rejected.connect(self.reject)
+
+        self.updateIRImage(0)
 
     def changeFusionMode(self, mode):
         mode_complete = 'CompositionMode_' + mode
@@ -288,7 +292,7 @@ class ImageFusionDialog(QtWidgets.QDialog):
         thermal_normalized = (self.temperatures - min_temp) / (max_temp - min_temp)
 
         # get colormap
-        if self.colormap_name == 'Artic' or self.colormap_name == 'Iron' or self.colormap_name == 'Rainbow':
+        if self.colormap_name in tt.LIST_CUSTOM_CMAPS:
             custom_cmap = tt.get_custom_cmaps(self.colormap_name, self.n_colors)
         else:
             custom_cmap = cm.get_cmap(self.colormap_name, self.n_colors)
@@ -482,7 +486,7 @@ class Meas3dDialog(QtWidgets.QDialog):
 
     def surface_from_image_matplot(self, colormap, n_colors, col_low, col_high):
         # colormap operation
-        if colormap == 'Artic' or colormap == 'Iron' or colormap == 'Rainbow':
+        if colormap in tt.LIST_CUSTOM_CMAPS:
             custom_cmap = tt.get_custom_cmaps(colormap, n_colors)
         else:
             custom_cmap = cm.get_cmap(colormap, n_colors)
