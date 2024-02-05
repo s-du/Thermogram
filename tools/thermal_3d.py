@@ -22,11 +22,13 @@ img_path = Path(res.find('img/M2EA_IR.JPG'))
 
 
 class Custom3dView:
-    def __init__(self, data, colormap, col_high, col_low, n_colors):
+    def __init__(self, data, colormap, col_high, col_low, n_colors, tmin_shown, tmax_shown):
         self.colormap = colormap
         self.col_high = col_high
         self.col_low = col_low
         self.n_colors = n_colors
+        self.tmin_shown = tmin_shown
+        self.tmax_shown = tmax_shown
 
         app = gui.Application.instance
         self.window = app.create_window("Open3D - Infrared voxels", 1800, 900)
@@ -167,7 +169,7 @@ class Custom3dView:
 
     def load(self, data):
         self.data = data
-        self.pc_ir, self.points, self.tmax, self.tmin, loc_tmax, loc_tmin, self.factor = surface_from_image(self.data, self.colormap, self.n_colors, self.col_low, self.col_high)
+        self.pc_ir, self.points, self.tmax, self.tmin, loc_tmax, loc_tmin, self.factor = surface_from_image(self.data, self.colormap, self.n_colors, self.col_low, self.col_high, self.tmin_shown, self.tmax_shown)
 
         # store basic properties
         bound = self.pc_ir.get_axis_aligned_bounding_box()
@@ -422,11 +424,11 @@ class Custom3dView:
             return gui.Widget.EventCallbackResult.HANDLED
         return gui.Widget.EventCallbackResult.IGNORED
 
-def run_viz_app(data, colormap, high, low, n):
+def run_viz_app(data, colormap, high, low, n, tmin_shown, tmax_shown):
     app_vis = gui.Application.instance
     app_vis.initialize()
 
-    viz = Custom3dView(data, colormap, high, low, n)
+    viz = Custom3dView(data, colormap, high, low, n, tmin_shown, tmax_shown)
     app_vis.run()
 
 
@@ -499,7 +501,7 @@ def colorize_pc_height(pc, colormap, col_high, col_low, n_colors):
     return color_array
 
 
-def surface_from_image(data, colormap, n_colors, col_low, col_high):
+def surface_from_image(data, colormap, n_colors, col_low, col_high, tmin_shown, tmax_shown):
     if colormap in tt.LIST_CUSTOM_CMAPS:
         custom_cmap = tt.get_custom_cmaps(colormap, n_colors)
     else:
@@ -524,7 +526,7 @@ def surface_from_image(data, colormap, n_colors, col_low, col_high):
         loc_tmin = np.array([-indices_min[1][0], indices_min[0][0]])
 
     # normalized data
-    thermal_normalized = (data - tmin) / (tmax - tmin)
+    thermal_normalized = (data - tmin_shown) / (tmax_shown - tmin_shown)
 
     thermal_cmap = custom_cmap(thermal_normalized)
     # thermal_cmap = np.uint8(thermal_cmap)

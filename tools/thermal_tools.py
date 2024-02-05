@@ -12,7 +12,7 @@ from PySide6.QtWidgets import QGraphicsEllipseItem, QGraphicsTextItem
 from matplotlib import cm
 from matplotlib import pyplot as plt
 import matplotlib.colors as mcol
-from blend_modes import dodge
+from blend_modes import dodge, multiply
 import fileinput
 import shutil
 # from skimage.segmentation import felzenszwalb, slic --> Removed superpixel for the moment
@@ -347,7 +347,7 @@ class RunnerSignals(QtCore.QObject):
 
 class RunnerDJI(QtCore.QRunnable):
     def __init__(self, ir_paths, dest_folder, drone_model, param, tmin, tmax, colormap,
-                 color_high, color_low, start, stop, n_colors=256, post_process='none', rgb_paths=''):
+                 color_high, color_low, start, stop, n_colors=256, post_process='none', export_tif = False):
         super().__init__()
         self.ir_paths = ir_paths
         self.dest_folder = dest_folder
@@ -360,7 +360,9 @@ class RunnerDJI(QtCore.QRunnable):
         self.color_high = color_high
         self.color_low = color_low
         self.n_colors = n_colors
-        self.rgb_paths = rgb_paths
+
+        self.export_tif = export_tif
+
         self.start = start
         self.stop = stop
 
@@ -385,15 +387,10 @@ class RunnerDJI(QtCore.QRunnable):
             _, filename = os.path.split(str(img_path))
             dest_path = os.path.join(self.dest_folder, f'thermal_{prefix}{i}.JPG')
 
-            if self.post_process == 'edge (from rgb)':
-                _ = process_one_th_picture(self.param, self.drone_model, img_path, dest_path, self.tmin, self.tmax,
+            process_one_th_picture(self.param, self.drone_model, img_path, dest_path, self.tmin, self.tmax,
                                            self.colormap, self.color_high, self.color_low, n_colors=self.n_colors,
-                                           post_process=self.post_process,
-                                           rgb_path=self.rgb_paths[i])
-            else:
-                _ = process_one_th_picture(self.param, self.drone_model, img_path, dest_path, self.tmin, self.tmax,
-                                           self.colormap, self.color_high, self.color_low, n_colors=self.n_colors,
-                                           post_process=self.post_process)
+                                           post_process=self.post_process, export_tif = self.export_tif)
+
             if i == len(self.ir_paths) - 1:
                 legend_dest_path = os.path.join(self.dest_folder, 'plot_onlycbar_tight.png')
                 generate_legend(legend_dest_path, self.tmin, self.tmax, self.color_high, self.color_low, self.colormap,
@@ -676,27 +673,57 @@ def match_rgb_custom_parameters(cv_img, drone_model, resized=False):
     return rgb_dest
 
 
-def add_lines_from_rgb(cv_ir_img, cv_match_rgb_img, drone_model, dest_path, exif=None):
+def add_lines_from_rgb(cv_ir_img, cv_match_rgb_img, drone_model, dest_path, exif=None, mode=1):
     img_gray = cv2.cvtColor(cv_match_rgb_img, cv2.COLOR_BGR2GRAY)
 
-    # Blur the image for better edge detection
-    img_blur = cv2.GaussianBlur(img_gray, (3, 3), 0)
+    if mode==1:
+        # Blur the image for better edge detection
+        img_blur = cv2.GaussianBlur(img_gray, (3, 3), 0)
 
-    scale = 1
-    delta = 0
-    ddepth = cv2.CV_16S
-    grad_x = cv2.Sobel(img_blur, ddepth, 1, 0, ksize=3, scale=scale, delta=delta, borderType=cv2.BORDER_DEFAULT)
-    grad_y = cv2.Sobel(img_blur, ddepth, 0, 1, ksize=3, scale=scale, delta=delta, borderType=cv2.BORDER_DEFAULT)
+        scale = 1
+        delta = 0
+        ddepth = cv2.CV_16S
+        grad_x = cv2.Sobel(img_blur, ddepth, 1, 0, ksize=3, scale=scale, delta=delta, borderType=cv2.BORDER_DEFAULT)
+        grad_y = cv2.Sobel(img_blur, ddepth, 0, 1, ksize=3, scale=scale, delta=delta, borderType=cv2.BORDER_DEFAULT)
 
-    abs_grad_x = cv2.convertScaleAbs(grad_x)
-    abs_grad_y = cv2.convertScaleAbs(grad_y)
+        abs_grad_x = cv2.convertScaleAbs(grad_x)
+        abs_grad_y = cv2.convertScaleAbs(grad_y)
 
-    edges = cv2.addWeighted(abs_grad_x, 0.5, abs_grad_y, 0.5, 0)
+        edges = cv2.addWeighted(abs_grad_x, 0.5, abs_grad_y, 0.5, 0)
 
-    pil_edges = Image.fromarray(edges)
-    pil_edges = pil_edges.convert('RGB')
-    pil_edges_rgba = pil_edges.convert('RGBA')
-    foreground = np.array(pil_edges_rgba)
+        pil_edges = Image.fromarray(edges)
+        pil_edges = pil_edges.convert('RGB')
+        pil_edges_rgba = pil_edges.convert('RGBA')
+        foreground = np.array(pil_edges_rgba)
+
+    elif mode==2:
+        image_pil = Image.fromarray(img_gray)
+        pil_edges = image_pil.filter(ImageFilter.Kernel((3, 3), (-1, -1, -1, -1, 8,
+                                          -1, -1, -1, -1), 1, 0))
+        pil_edges = pil_edges.convert('RGB')
+        pil_edges_rgba = pil_edges.convert('RGBA')
+        foreground = np.array(pil_edges_rgba)
+
+    elif mode==3:
+        # Blur the image for better edge detection
+        img_blur = cv2.GaussianBlur(img_gray, (3, 3), 0)
+        image_pil = Image.fromarray(img_blur)
+        pil_edges = image_pil.filter(ImageFilter.Kernel((3, 3), (-1, -1, -1, -1, 8,
+                                          -1, -1, -1, -1), 1, 0))
+        pil_edges = pil_edges.convert('RGB')
+        pil_edges_rgba = pil_edges.convert('RGBA')
+        foreground = np.array(pil_edges_rgba)
+
+    elif mode==4:
+        edges = cv2.Canny(img_gray, 100, 200, L2gradient = True)
+        inverted_edges = cv2.bitwise_not(edges)
+
+        # Scale down the intensity of the white pixels
+        # edges_less_contrasty = np.where(inverted_edges == 0, 155, edges)
+        pil_edges = Image.fromarray(inverted_edges)
+        pil_edges = pil_edges.convert('RGB')
+        pil_edges_rgba = pil_edges.convert('RGBA')
+        foreground = np.array(pil_edges_rgba)
 
     # resize
     dim = drone_model.dim_undis_ir
@@ -709,7 +736,10 @@ def add_lines_from_rgb(cv_ir_img, cv_match_rgb_img, drone_model, dest_path, exif
     background = np.array(ir_img)
     background_float = background.astype(float)
 
-    blended = dodge(background_float, foreground_float, 0.7)
+    if mode != 4:
+        blended = dodge(background_float, foreground_float, 0.7)
+    else:
+        blended = multiply(background_float, foreground_float, 0.7)
 
     blended_img = np.uint8(blended)
     blended_img_raw = Image.fromarray(blended_img)
@@ -907,11 +937,20 @@ def process_raw_data(img_object, dest_path):
     elif post_process == 'smooth':
         img_th_smooth = img_thermal.filter(ImageFilter.SMOOTH)
         img_th_smooth.save(dest_path, exif=exif)
-    elif post_process == 'edge (from rgb)':
+    elif post_process.startswith('edge (from rgb -'):
+        # Extract mode number from the post_process string, removing non-numeric characters
+        mode_str = post_process.split('-')[-1].strip()
+        # Remove any non-digit characters from the mode_str to avoid ValueError
+        mode_str_cleaned = ''.join(filter(str.isdigit, mode_str))
+        mode = int(mode_str_cleaned)
+
         drone_model_name = get_drone_model_from_exif(exif)
         drone_model = DroneModel(drone_model_name)
         cv_match_rgb_img = cv_read_all_path(img_object.rgb_path)
-        add_lines_from_rgb(thermal_cmap[:, :, [2, 1, 0]], cv_match_rgb_img, drone_model, dest_path, exif=exif)
+
+        # Use the extracted mode directly
+        add_lines_from_rgb(thermal_cmap[:, :, [2, 1, 0]], cv_match_rgb_img, drone_model, dest_path, exif=exif,
+                           mode=mode)
 
     # elif post_process == 'superpixel':
     #    img_th_fz = superpixel(img_thermal)
@@ -919,12 +958,11 @@ def process_raw_data(img_object, dest_path):
 
 
 def process_one_th_picture(param, drone_model, ir_img_path, dest_path, tmin, tmax, colormap, color_high,
-                           color_low, n_colors=256, post_process='none', rgb_path=''):
+                           color_low, n_colors=256, post_process='none', export_tif = False):
     _, filename = os.path.split(str(ir_img_path))
     new_raw_path = Path(str(ir_img_path)[:-4] + '.raw')
 
     exif = read_dji_image(str(ir_img_path), str(new_raw_path), param=param)
-    ir_xml_path = drone_model.ir_xml_path
 
     # read raw dji output
     fd = open(new_raw_path, 'rb')
@@ -934,73 +972,39 @@ def process_one_th_picture(param, drone_model, ir_img_path, dest_path, tmin, tma
     im = f.reshape((rows, cols))  # notice row, column format
     fd.close()
 
-    # compute new normalized temperature
-    thermal_normalized = (im - tmin) / (tmax - tmin)
-
-    # get colormap
-    if colormap == 'Artic' or colormap == 'Iron' or colormap == 'Rainbow':
-        custom_cmap = get_custom_cmaps(colormap, n_colors)
-    else:
-        custom_cmap = cm.get_cmap(colormap, n_colors)
-
-    custom_cmap.set_over(color_high)
-    custom_cmap.set_under(color_low)
-
-    thermal_cmap = custom_cmap(thermal_normalized)
-    thermal_cmap = np.uint8(thermal_cmap * 255)
-
-    img_thermal = Image.fromarray(thermal_cmap[:, :, [0, 1, 2]])
-
-    if post_process == 'none':
+    if export_tif:
+        dest_path = dest_path[:-4] + '.tiff'
+        img_thermal = Image.fromarray(im)
         img_thermal.save(dest_path, exif=exif)
-    elif post_process == 'sharpen':
-        img_th_sharpened = img_thermal.filter(ImageFilter.SHARPEN)
-        img_th_sharpened.save(dest_path, exif=exif)
-    elif post_process == 'sharpen strong':
-        img_th_sharpened = img_thermal.filter(ImageFilter.SHARPEN)
-        img_th_sharpened2 = img_th_sharpened.filter(ImageFilter.SHARPEN)
-        img_th_sharpened2.save(dest_path, exif=exif)
-    elif post_process == 'edge (simple)':
-        img_th_smooth = img_thermal.filter(ImageFilter.SMOOTH)
-        img_th_findedge = img_th_smooth.filter(ImageFilter.Kernel((3, 3), (-1, -1, -1, -1, 8,
-                                                                           -1, -1, -1, -1), 1, 0))
-        img_th_findedge = img_th_findedge.convert('RGBA')
-        img_thermal = img_thermal.convert('RGBA')
-        foreground = np.array(img_th_findedge)  # Inputs to blend_modes need to be numpy arrays.
 
-        foreground_float = foreground.astype(float)  # Inputs to blend_modes need to be floats.
-        background = np.array(img_thermal)
-        background_float = background.astype(float)
-        print(background_float.shape)
-        print(foreground_float.shape)
-        blended = dodge(background_float, foreground_float, 0.5)
+    else:
+        # compute new normalized temperature
+        thermal_normalized = (im - tmin) / (tmax - tmin)
 
-        blended_img = np.uint8(blended)
-        blended_img_raw = Image.fromarray(blended_img)
-        blended_img_raw = blended_img_raw.convert('RGB')
-        blended_img_raw.save(dest_path, exif=exif)
-    elif post_process == 'smooth':
-        img_th_smooth = img_thermal.filter(ImageFilter.SMOOTH)
-        img_th_smooth.save(dest_path, exif=exif)
-    elif post_process == 'edge (from rgb)':
-        img_thermal.save(dest_path)
-        cv_ir_img = cv_read_all_path(dest_path)
+        # get colormap
+        if colormap in LIST_CUSTOM_CMAPS:
+            custom_cmap = get_custom_cmaps(colormap, n_colors)
+        else:
+            custom_cmap = cm.get_cmap(colormap, n_colors)
 
-        cv_ir_img, _ = undis(cv_ir_img, ir_xml_path)
-        cv_match_rgb_img = cv_read_all_path(rgb_path)
-        add_lines_from_rgb(cv_ir_img, cv_match_rgb_img, drone_model, dest_path, exif=exif)
+        if color_high != 'c':
+            custom_cmap.set_over(color_high)
+        if color_low != 'c':
+            custom_cmap.set_under(color_low)
 
-    # elif post_process == 'superpixel':
-    #    img_th_fz = superpixel(img_thermal)
-    #    img_th_fz.save(thermal_filename)
+        thermal_cmap = custom_cmap(thermal_normalized)
+        thermal_cmap = np.uint8(thermal_cmap * 255)
 
-    # create an undistort version of the temperature map
-    raw_data_temp, _ = undis(im, ir_xml_path)
+        img_thermal = Image.fromarray(thermal_cmap[:, :, [0, 1, 2]])
 
-    # remove raw file
-    os.remove(new_raw_path)
-
-    return raw_data_temp
+        if post_process == 'none':
+            img_thermal.save(dest_path, exif=exif)
+        elif post_process == 'sharpen':
+            img_th_sharpened = img_thermal.filter(ImageFilter.SHARPEN)
+            img_th_sharpened.save(dest_path, exif=exif)
+        elif post_process == 'smooth':
+            img_th_smooth = img_thermal.filter(ImageFilter.SMOOTH)
+            img_th_smooth.save(dest_path, exif=exif)
 
 
 def generate_legend(legend_dest_path, tmin, tmax, color_high, color_low, colormap, n_colors):
@@ -1029,7 +1033,7 @@ def generate_legend(legend_dest_path, tmin, tmax, color_high, color_low, colorma
 
 def process_all_th_pictures(param, drone_model, ir_paths, dest_folder, tmin, tmax, colormap, color_high, color_low,
                             n_colors=256,
-                            post_process='none', rgb_paths=''):
+                            post_process='none'):
     """
     this function process all thermal pictures in a folder
     """
@@ -1045,12 +1049,9 @@ def process_all_th_pictures(param, drone_model, ir_paths, dest_folder, tmin, tma
         _, filename = os.path.split(str(img_path))
         dest_path = os.path.join(dest_folder, f'thermal_{prefix}{i}.JPG')
 
-        if post_process == 'edge (from rgb)':
-            _ = process_one_th_picture(param, drone_model, img_path, dest_path, tmin, tmax, colormap, color_high,
-                                       color_low, n_colors=n_colors, post_process=post_process, rgb_path=rgb_paths[i])
-        else:
-            _ = process_one_th_picture(param, drone_model, img_path, dest_path, tmin, tmax, colormap, color_high,
-                                       color_low, n_colors=n_colors, post_process=post_process)
+        process_one_th_picture(param, drone_model, img_path, dest_path, tmin, tmax, colormap, color_high,
+                                   color_low, n_colors=n_colors, post_process=post_process)
+
         if i == len(ir_paths) - 1:
             legend_dest_path = os.path.join(dest_folder, 'plot_onlycbar_tight.png')
             generate_legend(legend_dest_path, tmin, tmax, color_high, color_low, colormap, n_colors)

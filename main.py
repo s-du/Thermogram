@@ -16,7 +16,7 @@ from tools import thermal_3d as t3d
 """
 TODO:
 - Allow to import only thermal pictures
-- Implement improved drone data
+- Implement 'context' dialog --> Drone info + location
 
 """
 
@@ -35,7 +35,7 @@ LINE_MEAS_NAME = 'Line measurements'
 
 OUT_LIM = ['continuous', 'black', 'white', 'red']
 OUT_LIM_MATPLOT = ['c', 'k', 'w', 'r']
-POST_PROCESS = ['none', 'smooth', 'sharpen', 'sharpen strong', 'edge (simple)', 'edge (from rgb)']
+POST_PROCESS = ['none', 'smooth', 'sharpen', 'sharpen strong', 'edge (simple)', 'edge (from rgb - 1)', 'edge (from rgb - 2)', 'edge (from rgb - 3)', 'edge (from rgb - 4)']
 COLORMAPS = ['coolwarm', 'Artic', 'Iron', 'Rainbow', 'FIJI_Temp', 'BlueWhiteRed', 'Greys_r', 'Greys', 'plasma', 'inferno', 'jet',
              'Spectral_r', 'cividis', 'viridis', 'gnuplot2']
 VIEWS = ['th. undistorted', 'RGB crop', 'Custom']
@@ -84,6 +84,8 @@ class DroneIrWindow(QMainWindow):
         self.ir_imgs = ''
         self.rgb_imgs = ''
         self.n_imgs = len(self.ir_imgs)
+
+        self.nb_sets = 0
 
         # list images classes (where to store all measurements and annotations)
         self.images = []
@@ -563,7 +565,45 @@ class DroneIrWindow(QMainWindow):
                 image.save(file_path)  # PNG is lossless by default
 
     def process_all_images(self):
-        pass
+        qm = QMessageBox
+        reply = qm.question(self, '', "Are you sure to process all pictures with the current parameters?", qm.Yes | qm.No)
+
+        # get parameters
+        self.colormap, self.n_colors, self.user_lim_col_high, self.user_lim_col_low, self.tmin, self.tmax, self.tmin_shown, self.tmax_shown, self.post_process = self.work_image.get_colormap_data()
+
+        self.nb_sets += 1
+
+        if reply == qm.Yes:
+            qm = QMessageBox
+            reply = qm.question(self, '', "Do you want to output TIF files (Pix4D processing)?",
+                                qm.Yes | qm.No)
+
+            if reply == qm.No:
+                desc = f'{PROC_TH_FOLDER}_{self.colormap}_{str(round(self.tmin_shown, 0))}_{str(round(self.tmax_shown, 0))}_{self.post_process}_image-set_{self.nb_sets}'
+                tif_output = False
+            else:
+                desc = f'{PROC_TH_FOLDER}_tiff_{str(round(self.tmin_shown, 0))}_{str(round(self.tmax_shown, 0))}_image-set_{self.nb_sets}'
+                tif_output = True
+
+            # create output folder
+            out_folder = os.path.join(self.app_folder, desc)
+            if not os.path.exists(out_folder):
+                os.mkdir(out_folder)
+
+            worker_1 = tt.RunnerDJI(self.list_ir_paths, out_folder, self.drone_model,
+                                    self.thermal_param, self.tmin_shown, self.tmax_shown, self.colormap,
+                                    self.user_lim_col_high, self.user_lim_col_low,
+                                    5, 100,
+                                    n_colors=self.n_colors, post_process=self.post_process,
+                                    export_tif=tif_output)
+            worker_1.signals.progressed.connect(lambda value: self.update_progress(value))
+            worker_1.signals.messaged.connect(lambda string: self.update_progress(text=string))
+
+            self.__pool.start(worker_1)
+            worker_1.signals.finished.connect(self.process_all_phase2)
+
+    def process_all_phase2(self):
+        self.update_progress(nb=100, text="Status: Continue analyses!")
 
     def switch_image_data(self):
         """
@@ -647,7 +687,7 @@ class DroneIrWindow(QMainWindow):
 
     def show_viz_threed(self):
         t3d.run_viz_app(self.work_image.raw_data_undis, self.work_image.colormap,
-                        self.work_image.user_lim_col_high, self.work_image.user_lim_col_low, self.work_image.n_colors)
+                        self.work_image.user_lim_col_high, self.work_image.user_lim_col_low, self.work_image.n_colors, self.work_image.tmin_shown, self.work_image.tmax_shown)
 
 
     def change_meas_color(self):
