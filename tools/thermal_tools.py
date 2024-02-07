@@ -79,7 +79,7 @@ class ObjectDetectionCategory:
         self.name = ''
 
 
-class ProcessedImage_bis:
+class ProcessedIm:
     def __init__(self, path, rgb_path):
         # general infos
         self.path = path
@@ -452,74 +452,6 @@ def cv_read_all_path(path):
 def cv_write_all_path(img, path):
     is_success, im_buf_arr = cv2.imencode(".JPG", img)
     im_buf_arr.tofile(path)
-
-
-def path_info(path):
-    """
-    Function that reads a path and outputs the folder, the complete filename and the filename without file extension
-    @ parameters:
-        path -- input path (string)
-    """
-    folder, file = os.path.split(path)
-    extension = file[-4:]
-    name = file[:-4]
-    return folder, file, name, extension
-
-
-def find_files_of_type(folder, types=[]):
-    files = [os.path.join(folder, file) for file in os.listdir(folder)]
-    output = []
-
-    for file in files:
-        for type in types:
-            if file.endswith(type):
-                output.append(file)
-
-    return output
-
-
-def sort_image_method1(img_folder, dest_rgb_folder, dest_th_folder, string_to_search):
-    """
-    this function is adapted to sort all images from a folder, where those images are a mix between thermal and corresponding rgb
-    """
-    # Sorting images in new folders
-
-    count = 0
-
-    for file in os.listdir(img_folder):
-        if count < 9:
-            prefix = '000'
-        elif 9 < count < 99:
-            prefix = '00'
-        elif 99 < count < 999:
-            prefix = '000'
-        if file.endswith('.jpg') or file.endswith('.JPG'):
-            if string_to_search in str(file):
-                new_file = 'image_' + prefix + str(count) + '.jpg'
-                copyfile(os.path.join(img_folder, file), os.path.join(dest_th_folder, new_file))
-                count += 1
-            else:
-                if count == 0:
-                    count += 1
-                new_file = 'image_' + prefix + str(count) + '.jpg'
-                copyfile(os.path.join(img_folder, file), os.path.join(dest_rgb_folder, new_file))
-
-
-def list_th_rgb_images_from_exif(img_folder):
-    list_rgb_paths = []
-    list_ir_paths = []
-    for file in os.listdir(img_folder):
-
-        path = os.path.join(img_folder, file)
-        print(path)
-        if file.endswith('.jpg') or file.endswith('.JPG'):
-            res = get_resolution(path)
-            if res == 640:
-                list_ir_paths.append(path)
-            else:
-                list_rgb_paths.append(path)
-
-    return list_rgb_paths, list_ir_paths
 
 
 def list_th_rgb_images_from_res(img_folder):
@@ -1029,6 +961,78 @@ def generate_legend(legend_dest_path, tmin, tmax, color_high, color_low, colorma
     ax.remove()
 
     plt.savefig(legend_dest_path, bbox_inches='tight')
+
+
+"""
+°-°-°-°JUNK°-°-°-°
+"""
+
+def path_info(path):
+    """
+    Function that reads a path and outputs the folder, the complete filename and the filename without file extension
+    @ parameters:
+        path -- input path (string)
+    """
+    folder, file = os.path.split(path)
+    extension = file[-4:]
+    name = file[:-4]
+    return folder, file, name, extension
+
+
+def find_files_of_type(folder, types=[]):
+    files = [os.path.join(folder, file) for file in os.listdir(folder)]
+    output = []
+
+    for file in files:
+        for type in types:
+            if file.endswith(type):
+                output.append(file)
+
+    return output
+
+
+def sort_image_method1(img_folder, dest_rgb_folder, dest_th_folder, string_to_search):
+    """
+    this function is adapted to sort all images from a folder, where those images are a mix between thermal and corresponding rgb
+    """
+    # Sorting images in new folders
+
+    count = 0
+
+    for file in os.listdir(img_folder):
+        if count < 9:
+            prefix = '000'
+        elif 9 < count < 99:
+            prefix = '00'
+        elif 99 < count < 999:
+            prefix = '000'
+        if file.endswith('.jpg') or file.endswith('.JPG'):
+            if string_to_search in str(file):
+                new_file = 'image_' + prefix + str(count) + '.jpg'
+                copyfile(os.path.join(img_folder, file), os.path.join(dest_th_folder, new_file))
+                count += 1
+            else:
+                if count == 0:
+                    count += 1
+                new_file = 'image_' + prefix + str(count) + '.jpg'
+                copyfile(os.path.join(img_folder, file), os.path.join(dest_rgb_folder, new_file))
+
+
+def list_th_rgb_images_from_exif(img_folder):
+    list_rgb_paths = []
+    list_ir_paths = []
+    for file in os.listdir(img_folder):
+
+        path = os.path.join(img_folder, file)
+        print(path)
+        if file.endswith('.jpg') or file.endswith('.JPG'):
+            res = get_resolution(path)
+            if res == 640:
+                list_ir_paths.append(path)
+            else:
+                list_rgb_paths.append(path)
+
+    return list_rgb_paths, list_ir_paths
 
 
 def process_all_th_pictures(param, drone_model, ir_paths, dest_folder, tmin, tmax, colormap, color_high, color_low,

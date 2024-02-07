@@ -195,6 +195,16 @@ border-radius: 10px;
             </property>
            </widget>
           </item>
+          <item>
+           <widget class="QCheckBox" name="checkBox_legend">
+            <property name="text">
+             <string>Show legend</string>
+            </property>
+            <property name="checked">
+             <bool>true</bool>
+            </property>
+           </widget>
+          </item>
          </layout>
         </item>
        </layout>
@@ -744,6 +754,13 @@ border-radius: 10px;
         </widget>
        </item>
       </layout>
+     </item>
+     <item>
+      <widget class="QPushButton" name="pushButton_edge_options">
+       <property name="text">
+        <string>Edge detection options</string>
+       </property>
+      </widget>
      </item>
      <item>
       <spacer name="verticalSpacer_3">

@@ -36,6 +36,7 @@ LINE_MEAS_NAME = 'Line measurements'
 OUT_LIM = ['continuous', 'black', 'white', 'red']
 OUT_LIM_MATPLOT = ['c', 'k', 'w', 'r']
 POST_PROCESS = ['none', 'smooth', 'sharpen', 'sharpen strong', 'edge (simple)', 'edge (from rgb - 1)', 'edge (from rgb - 2)', 'edge (from rgb - 3)', 'edge (from rgb - 4)']
+POST_PROCESS_NO_RGB = ['none', 'smooth', 'sharpen', 'sharpen strong', 'edge (simple)']
 COLORMAPS = ['coolwarm', 'Artic', 'Iron', 'Rainbow', 'FIJI_Temp', 'BlueWhiteRed', 'Greys_r', 'Greys', 'plasma', 'inferno', 'jet',
              'Spectral_r', 'cividis', 'viridis', 'gnuplot2']
 VIEWS = ['th. undistorted', 'RGB crop', 'Custom']
@@ -69,6 +70,7 @@ class DroneIrWindow(QMainWindow):
         self.__pool.setMaxThreadCount(3)
 
         # set variables
+        self.has_rgb = True
         self.rgb_shown = False
 
         # set options
@@ -93,7 +95,7 @@ class DroneIrWindow(QMainWindow):
         # comboboxes content
         self.out_of_lim = OUT_LIM
         self.out_of_matp = OUT_LIM_MATPLOT
-        self.img_post = POST_PROCESS
+
         self.colormap_list = COLORMAPS
         self.view_list = VIEWS
 
@@ -106,7 +108,7 @@ class DroneIrWindow(QMainWindow):
         self.comboBox_colors_low.setCurrentIndex(0)
         self.comboBox_colors_high.addItems(self.out_of_lim)
         self.comboBox_colors_high.setCurrentIndex(0)
-        self.comboBox_post.addItems(self.img_post)
+
         self.comboBox_view.addItems(self.view_list)
 
         self.advanced_options = False
@@ -198,6 +200,7 @@ class DroneIrWindow(QMainWindow):
         self.pushButton_advanced.clicked.connect(self.define_options)
         self.pushButton_meas_color.clicked.connect(self.viewer.change_meas_color)
         self.pushButton_match.clicked.connect(self.image_matching)
+        self.pushButton_edge_options.clicked.connect(self.edge_options)
 
         # Dropdowns
         self.comboBox.currentIndexChanged.connect(self.update_img_preview)
@@ -207,30 +210,43 @@ class DroneIrWindow(QMainWindow):
         self.comboBox_img.currentIndexChanged.connect(lambda: self.update_img_to_preview('other'))
         self.comboBox_view.currentIndexChanged.connect(self.update_img_preview)
 
+
         # Line edits
         self.lineEdit_min_temp.editingFinished.connect(self.update_img_preview)
         self.lineEdit_max_temp.editingFinished.connect(self.update_img_preview)
         self.lineEdit_colors.editingFinished.connect(self.update_img_preview)
+
+        # Checkboxes
+        self.checkBox_legend.stateChanged.connect(self.toggle_legend)
 
     def update_img_list(self):
         """
         Save information about the number of images and add processed images classes
         """
         self.ir_folder = self.original_th_img_folder
-        self.rgb_folder = self.rgb_crop_img_folder
+        if self.has_rgb:
+            self.rgb_folder = self.rgb_crop_img_folder
+            self.rgb_imgs = os.listdir(self.rgb_folder)
 
         # list thermal images
         self.ir_imgs = os.listdir(self.ir_folder)
-        self.rgb_imgs = os.listdir(self.rgb_folder)
         self.n_imgs = len(self.ir_imgs)
 
         if self.n_imgs > 1:
             self.pushButton_right.setEnabled(True)
 
+        # update progress
+        self.update_progress(nb=5, text='Creating image objects....')
+
         # add classes
         for i, im in enumerate(self.ir_imgs):
-            image = tt.ProcessedImage_bis(os.path.join(self.ir_folder, im),
-                                          os.path.join(self.rgb_folder, self.rgb_imgs[i]))
+            self.update_progress(nb=5+95*(self.n_imgs-i) , text=f'Creating image object {i}/{self.n_imgs}')
+            if self.has_rgb:
+                image = tt.ProcessedIm(os.path.join(self.ir_folder, im),
+                                   os.path.join(self.rgb_folder, self.rgb_imgs[i]))
+            else:
+                image = tt.ProcessedIm(os.path.join(self.ir_folder, im),
+                                       os.path.join(self.rgb_folder, ''))
             self.images.append(image)
 
         self.active_image = 0
@@ -254,6 +270,9 @@ class DroneIrWindow(QMainWindow):
 
         self.update_img_preview()
         self.comboBox_img.addItems(self.ir_imgs)
+
+        # final progress
+        self.update_progress(nb=100, text='Ready')
 
     def show_info(self):
         dialog = dia.AboutDialog()
@@ -458,22 +477,20 @@ class DroneIrWindow(QMainWindow):
             # update json path
             self.json_file = os.path.join(self.app_folder, 'data.json')
 
+            # update status
+            text_status = 'loading images...'
+            self.update_progress(nb=0, text=text_status)
+
+            # Identify content of the folder
+            self.list_rgb_paths, self.list_ir_paths = tt.list_th_rgb_images_from_res(self.main_folder)
+
             # create some sub folders for storing images
             self.original_th_img_folder = os.path.join(self.app_folder, ORIGIN_TH_FOLDER)
-            self.rgb_crop_img_folder = os.path.join(self.app_folder, RGB_CROPPED_FOLDER)
-
             # if the sub folders do not exist, create them
             if not os.path.exists(self.app_folder):
                 os.mkdir(self.app_folder)
             if not os.path.exists(self.original_th_img_folder):
                 os.mkdir(self.original_th_img_folder)
-            if not os.path.exists(self.rgb_crop_img_folder):
-                os.mkdir(self.rgb_crop_img_folder)
-
-            # update status
-            text_status = 'loading images...'
-            self.update_progress(nb=0, text=text_status)
-            self.list_rgb_paths, self.list_ir_paths = tt.list_th_rgb_images_from_res(self.main_folder)
 
             # get drone model
             drone_name = tt.get_drone_model(self.list_ir_paths[0])
@@ -494,18 +511,30 @@ class DroneIrWindow(QMainWindow):
 
             # duplicate thermal images
             tt.copy_list_dest(self.list_ir_paths, self.original_th_img_folder)
-            # create folder for cropped/resized rgb
 
-            text_status = 'creating rgb miniatures...'
-            self.update_progress(nb=20, text=text_status)
+            # does it have RGB?
+            if not self.list_rgb_paths:
+                print('No RGB here!')
+                self.has_rgb = False
+                self.img_post = POST_PROCESS_NO_RGB
+                self.load_folder_phase2()
 
-            worker_1 = tt.RunnerMiniature(self.list_rgb_paths, self.drone_model, 20, self.rgb_crop_img_folder, 20,
-                                          100)
-            worker_1.signals.progressed.connect(lambda value: self.update_progress(value))
-            worker_1.signals.messaged.connect(lambda string: self.update_progress(text=string))
+            else:
+                self.img_post = POST_PROCESS
+                self.rgb_crop_img_folder = os.path.join(self.app_folder, RGB_CROPPED_FOLDER)
+                if not os.path.exists(self.rgb_crop_img_folder):
+                    os.mkdir(self.rgb_crop_img_folder)
 
-            self.__pool.start(worker_1)
-            worker_1.signals.finished.connect(self.load_folder_phase2)
+                    text_status = 'creating rgb miniatures...'
+                    self.update_progress(nb=20, text=text_status)
+
+                    worker_1 = tt.RunnerMiniature(self.list_rgb_paths, self.drone_model, 20, self.rgb_crop_img_folder, 20,
+                                                  100)
+                    worker_1.signals.progressed.connect(lambda value: self.update_progress(value))
+                    worker_1.signals.messaged.connect(lambda string: self.update_progress(text=string))
+
+                    self.__pool.start(worker_1)
+                    worker_1.signals.finished.connect(self.load_folder_phase2)
 
     def load_folder_phase2(self):
         self.update_progress(nb=100, text="Status: You can now process thermal images!")
@@ -518,12 +547,13 @@ class DroneIrWindow(QMainWindow):
         self.lineEdit_max_temp.setEnabled(True)
         self.lineEdit_min_temp.setEnabled(True)
         self.pushButton_estimate.setEnabled(True)
-        self.pushButton_match.setEnabled(True)
+
         self.comboBox.setEnabled(True)
         self.lineEdit_colors.setEnabled(True)
         self.comboBox_colors_low.setEnabled(True)
         self.comboBox_colors_high.setEnabled(True)
         self.comboBox_post.setEnabled(True)
+        self.comboBox_post.addItems(self.img_post)
         self.range_slider.setEnabled(True)
 
         #   image navigation
@@ -539,8 +569,16 @@ class DroneIrWindow(QMainWindow):
         self.actionRectangle_meas.setEnabled(True)
         self.actionSpot_meas.setEnabled(True)
         self.actionLine_meas.setEnabled(True)
-        self.actionCompose.setEnabled(True)
         self.action3D_temperature.setEnabled(True)
+
+        # RGB condition
+        if self.has_rgb:
+            self.actionCompose.setEnabled(True)
+            self.pushButton_match.setEnabled(True)
+            self.tab_2.setEnabled(True)
+
+
+        print('all action enabled!')
 
     def save_image(self):
         # Create a QImage with the size of the viewport
@@ -645,6 +683,12 @@ class DroneIrWindow(QMainWindow):
         self.retrace_items()
 
     # VISUALIZE __________________________________________________________________
+    def edge_options(self):
+        pass
+
+    def toggle_legend(self):
+        self.viewer.toggleLegendVisibility()
+
     def retrace_items(self):
         self.viewer.clean_scene()
 
@@ -783,7 +827,7 @@ class DroneIrWindow(QMainWindow):
             self.viewer.clean_scene()
             self.viewer.toggleLegendVisibility()
 
-        elif v == 2:  # picture-in-picture
+        elif v == 2:  # picture-in-picture (or custom)
             pass
 
         else: # IR picture
@@ -798,7 +842,8 @@ class DroneIrWindow(QMainWindow):
             self.viewer.setupLegendLabel(self.work_image)
 
             # set left and right views (in dual viewer)
-            self.dual_viewer.load_images_from_path(self.work_image.rgb_path, dest_path_post)
+            if self.has_rgb:
+                self.dual_viewer.load_images_from_path(self.work_image.rgb_path, dest_path_post)
             self.dest_path_post = dest_path_post
 
 

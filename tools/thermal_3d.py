@@ -507,8 +507,10 @@ def surface_from_image(data, colormap, n_colors, col_low, col_high, tmin_shown, 
     else:
         custom_cmap = cm.get_cmap(colormap, n_colors)
 
-    custom_cmap.set_over(col_high)
-    custom_cmap.set_under(col_low)
+    if col_high != 'c':
+        custom_cmap.set_over(col_high)
+    if col_low != 'c':
+        custom_cmap.set_under(col_low)
 
     # get extreme values from data
     tmax = np.amax(data)
