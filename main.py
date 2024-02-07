@@ -35,7 +35,7 @@ LINE_MEAS_NAME = 'Line measurements'
 
 OUT_LIM = ['continuous', 'black', 'white', 'red']
 OUT_LIM_MATPLOT = ['c', 'k', 'w', 'r']
-POST_PROCESS = ['none', 'smooth', 'sharpen', 'sharpen strong', 'edge (simple)', 'edge (from rgb - 1)', 'edge (from rgb - 2)', 'edge (from rgb - 3)', 'edge (from rgb - 4)']
+POST_PROCESS = ['none', 'smooth', 'sharpen', 'sharpen strong', 'edge (simple)', 'edge (from rgb)']
 POST_PROCESS_NO_RGB = ['none', 'smooth', 'sharpen', 'sharpen strong', 'edge (simple)']
 COLORMAPS = ['coolwarm', 'Artic', 'Iron', 'Rainbow', 'FIJI_Temp', 'BlueWhiteRed', 'Greys_r', 'Greys', 'plasma', 'inferno', 'jet',
              'Spectral_r', 'cividis', 'viridis', 'gnuplot2']
@@ -70,7 +70,7 @@ class DroneIrWindow(QMainWindow):
         self.__pool.setMaxThreadCount(3)
 
         # set variables
-        self.has_rgb = True
+        self.has_rgb = True # does the dataset have RGB image
         self.rgb_shown = False
 
         # set options
@@ -98,6 +98,13 @@ class DroneIrWindow(QMainWindow):
 
         self.colormap_list = COLORMAPS
         self.view_list = VIEWS
+
+        # edge options
+        self.edge_color = 'white'
+        self.edge_blur = True
+        self.edge_blur_size = 3
+        self.edge_method = 1
+        self.edge_opacity = 0.7
 
         # add content to comboboxes
         self.comboBox.addItems(self.colormap_list)
@@ -198,7 +205,7 @@ class DroneIrWindow(QMainWindow):
         self.pushButton_right.clicked.connect(lambda: self.update_img_to_preview('plus'))
         self.pushButton_estimate.clicked.connect(self.estimate_temp)
         self.pushButton_advanced.clicked.connect(self.define_options)
-        self.pushButton_meas_color.clicked.connect(self.viewer.change_meas_color)
+        self.pushButton_meas_color.clicked.connect(self.change_meas_color)
         self.pushButton_match.clicked.connect(self.image_matching)
         self.pushButton_edge_options.clicked.connect(self.edge_options)
 
@@ -272,7 +279,7 @@ class DroneIrWindow(QMainWindow):
         self.comboBox_img.addItems(self.ir_imgs)
 
         # final progress
-        self.update_progress(nb=100, text='Ready')
+        self.update_progress(nb=100, text="Status: You can now process thermal images!")
 
     def show_info(self):
         dialog = dia.AboutDialog()
@@ -425,10 +432,8 @@ class DroneIrWindow(QMainWindow):
 
                 # update image data
                 self.work_image.update_data(self.thermal_param)
-
+                self.switch_image_data()
                 self.update_img_preview()
-
-                # update all annotation data TODO
 
 
             except ValueError:
@@ -537,7 +542,6 @@ class DroneIrWindow(QMainWindow):
                     worker_1.signals.finished.connect(self.load_folder_phase2)
 
     def load_folder_phase2(self):
-        self.update_progress(nb=100, text="Status: You can now process thermal images!")
         # get list to main window
         self.update_img_list()
         # activate buttons and options
@@ -684,7 +688,39 @@ class DroneIrWindow(QMainWindow):
 
     # VISUALIZE __________________________________________________________________
     def edge_options(self):
-        pass
+        """
+        # edge options
+        self.edge_color = 'white'
+        self.edge_blur = True
+        self.edge_blur_size = 3
+        self.edge_method = 1
+        self.edge_opacity = 0.7
+
+        """
+
+        # lauch dialog
+        edge_params = [self.edge_method, self.edge_color, self.edge_blur, self.edge_blur_size, self.edge_opacity]
+        parameters = {
+            'method': edge_params[0],
+            'color': edge_params[1],
+            'blur_size': edge_params[3],
+            # Assuming edge_blur simply enables/disables the blur size combo box and not a value
+            'slider_value': edge_params[4]  # Assuming you have a slider for opacity or similar
+        }
+
+        dialog = dia.DialogEdgeOptions(edge_params)
+        if dialog.exec_():
+
+            self.edge_color = dialog.comboBox_color.currentText()
+            self.edge_method = dialog.comboBox_method.currentIndex()
+            self.edge_blur = dialog.checkBox.isChecked()
+            self.edge_blur_size = int(dialog.comboBox_blur_size.currentText())
+            self.edge_opacity = dialog.horizontalSlider.value() / 100
+
+            print(f'new edge parameters \n {self.edge_color} \n {self.edge_method} \n {self.edge_blur} \n {self.edge_blur_size}')
+
+            # update preview
+            self.update_img_preview()
 
     def toggle_legend(self):
         self.viewer.toggleLegendVisibility()
@@ -834,7 +870,10 @@ class DroneIrWindow(QMainWindow):
             self.compile_user_values() # store combobox choices in img data
             dest_path_post = os.path.join(self.preview_folder, 'preview_post.JPG')
             img = self.work_image
-            tt.process_raw_data(img, dest_path_post)
+            # get edge detection parameters
+            edge_params = [self.edge_method, self.edge_color, self.edge_blur, self.edge_blur_size, self.edge_opacity]
+
+            tt.process_raw_data(img, dest_path_post, edge_params)
             self.range_slider.setHandleColorsFromColormap(self.work_image.colormap)
 
             # add legend

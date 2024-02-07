@@ -364,6 +364,61 @@ class ImageFusionDialog(QtWidgets.QDialog):
 
 
 
+class DialogEdgeOptions(QtWidgets.QDialog):
+    """
+    Dialog that allows the user to choose advances thermography options
+    """
+
+    def __init__(self, parameters, parent=None):
+        QtWidgets.QDialog.__init__(self)
+        basepath = os.path.dirname(__file__)
+        basename = 'edge_options'
+        uifile = os.path.join(basepath, 'ui/%s.ui' % basename)
+        wid.loadUi(uifile, self)
+        self.comboBox_blur_size.addItems([str(3),str(5),str(7)])
+        self.comboBox_color.addItems(['white', 'black'])
+        self.comboBox_method.addItems(['Sobel A', 'Kernel 1','Kernel 2', 'Canny', 'Canny-L2'])
+
+        # button actions
+        self.buttonBox.accepted.connect(self.accept)
+        self.buttonBox.rejected.connect(self.reject)
+
+        self.checkBox.stateChanged.connect(self.toggle_combo)
+
+        # set initial parameters
+        self.parameters = parameters
+        self.set_ini_param()
+
+    def set_ini_param(self):
+        # Set initial values for combo boxes if parameters are provided
+        self.comboBox_method.setCurrentIndex(self.parameters[0])
+
+        index = self.comboBox_color.findText(self.parameters[1], QtCore.Qt.MatchFixedString)
+        if index >= 0:
+            self.comboBox_color.setCurrentIndex(index)
+
+        if self.parameters[2]:
+            self.checkBox.setChecked(True)
+        else:
+            self.checkBox.setChecked(False)
+
+        index = self.comboBox_blur_size.findText(str(self.parameters[3]), QtCore.Qt.MatchFixedString)
+        if index >= 0:
+            self.comboBox_blur_size.setCurrentIndex(index)
+
+        op_value = self.parameters[4]
+        self.horizontalSlider.setValue(op_value*100)
+
+
+
+
+
+    def toggle_combo(self):
+        if self.checkBox.isChecked():
+            self.comboBox_blur_size.setEnabled(True)
+        else:
+            self.comboBox_blur_size.setEnabled(False)
+
 class DialogThParams(QtWidgets.QDialog):
     """
     Dialog that allows the user to choose advances thermography options

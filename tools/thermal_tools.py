@@ -3,8 +3,7 @@ from shutil import copyfile, copytree
 import numpy as np
 import subprocess
 from pathlib import Path
-from PIL import Image
-from PIL import ImageFilter
+from PIL import Image, ImageOps, ImageFilter
 from PySide6 import QtCore, QtGui, QtWidgets
 from PySide6.QtCore import QPointF, QRectF
 from PySide6.QtWidgets import QGraphicsEllipseItem, QGraphicsTextItem
@@ -120,6 +119,8 @@ class ProcessedIm:
         self.raw_data, self.raw_data_undis = extract_raw_data(self.thermal_param, self.path)
         self.tmin = np.amin(self.raw_data)
         self.tmax = np.amax(self.raw_data)
+        self.tmin_shown = self.tmin
+        self.tmax_shown = self.tmax
 
     def update_colormap_data(self, colormap, n_colors, user_lim_col_high, user_lim_col_low, post_process, tmin, tmax):
         self.colormap = colormap
@@ -605,18 +606,22 @@ def match_rgb_custom_parameters(cv_img, drone_model, resized=False):
     return rgb_dest
 
 
-def add_lines_from_rgb(cv_ir_img, cv_match_rgb_img, drone_model, dest_path, exif=None, mode=1):
+def add_lines_from_rgb(cv_ir_img, cv_match_rgb_img, drone_model, dest_path,
+                       exif=None, mode=1, color='white', blur=True, blur_size=3, opacity=0.7):
+
     img_gray = cv2.cvtColor(cv_match_rgb_img, cv2.COLOR_BGR2GRAY)
 
-    if mode==1:
-        # Blur the image for better edge detection
-        img_blur = cv2.GaussianBlur(img_gray, (3, 3), 0)
+    if blur:
+        img_gray = cv2.GaussianBlur(img_gray, (blur_size, blur_size), 0)
 
+    if mode==0:
         scale = 1
         delta = 0
+        k_size = 3
         ddepth = cv2.CV_16S
-        grad_x = cv2.Sobel(img_blur, ddepth, 1, 0, ksize=3, scale=scale, delta=delta, borderType=cv2.BORDER_DEFAULT)
-        grad_y = cv2.Sobel(img_blur, ddepth, 0, 1, ksize=3, scale=scale, delta=delta, borderType=cv2.BORDER_DEFAULT)
+
+        grad_x = cv2.Sobel(img_gray, ddepth, 1, 0, ksize=k_size, scale=scale, delta=delta, borderType=cv2.BORDER_DEFAULT)
+        grad_y = cv2.Sobel(img_gray, ddepth, 0, 1, ksize=k_size, scale=scale, delta=delta, borderType=cv2.BORDER_DEFAULT)
 
         abs_grad_x = cv2.convertScaleAbs(grad_x)
         abs_grad_y = cv2.convertScaleAbs(grad_y)
@@ -624,38 +629,31 @@ def add_lines_from_rgb(cv_ir_img, cv_match_rgb_img, drone_model, dest_path, exif
         edges = cv2.addWeighted(abs_grad_x, 0.5, abs_grad_y, 0.5, 0)
 
         pil_edges = Image.fromarray(edges)
-        pil_edges = pil_edges.convert('RGB')
-        pil_edges_rgba = pil_edges.convert('RGBA')
-        foreground = np.array(pil_edges_rgba)
 
-    elif mode==2:
+    elif mode==1:
         image_pil = Image.fromarray(img_gray)
         pil_edges = image_pil.filter(ImageFilter.Kernel((3, 3), (-1, -1, -1, -1, 8,
                                           -1, -1, -1, -1), 1, 0))
-        pil_edges = pil_edges.convert('RGB')
-        pil_edges_rgba = pil_edges.convert('RGBA')
-        foreground = np.array(pil_edges_rgba)
+
+    elif mode==2:
+        image_pil = Image.fromarray(img_gray)
+        pil_edges = image_pil.filter(ImageFilter.Kernel((3, 3), (0, -1, 0, -1, 4,
+                                          -1, 0, -1, 0), 1, 0))
 
     elif mode==3:
-        # Blur the image for better edge detection
-        img_blur = cv2.GaussianBlur(img_gray, (3, 3), 0)
-        image_pil = Image.fromarray(img_blur)
-        pil_edges = image_pil.filter(ImageFilter.Kernel((3, 3), (-1, -1, -1, -1, 8,
-                                          -1, -1, -1, -1), 1, 0))
-        pil_edges = pil_edges.convert('RGB')
-        pil_edges_rgba = pil_edges.convert('RGBA')
-        foreground = np.array(pil_edges_rgba)
+        edges = cv2.Canny(img_gray, 100, 200)
+        pil_edges = Image.fromarray(edges)
 
     elif mode==4:
         edges = cv2.Canny(img_gray, 100, 200, L2gradient = True)
-        inverted_edges = cv2.bitwise_not(edges)
+        pil_edges = Image.fromarray(edges)
 
-        # Scale down the intensity of the white pixels
-        # edges_less_contrasty = np.where(inverted_edges == 0, 155, edges)
-        pil_edges = Image.fromarray(inverted_edges)
-        pil_edges = pil_edges.convert('RGB')
-        pil_edges_rgba = pil_edges.convert('RGBA')
-        foreground = np.array(pil_edges_rgba)
+    if color == 'black':
+        pil_edges = ImageOps.invert(pil_edges)
+
+    pil_edges = pil_edges.convert('RGB')
+    pil_edges_rgba = pil_edges.convert('RGBA')
+    foreground = np.array(pil_edges_rgba)
 
     # resize
     dim = drone_model.dim_undis_ir
@@ -668,10 +666,10 @@ def add_lines_from_rgb(cv_ir_img, cv_match_rgb_img, drone_model, dest_path, exif
     background = np.array(ir_img)
     background_float = background.astype(float)
 
-    if mode != 4:
-        blended = dodge(background_float, foreground_float, 0.7)
+    if color != 'black':
+        blended = dodge(background_float, foreground_float, opacity)
     else:
-        blended = multiply(background_float, foreground_float, 0.7)
+        blended = multiply(background_float, foreground_float, opacity)
 
     blended_img = np.uint8(blended)
     blended_img_raw = Image.fromarray(blended_img)
@@ -810,7 +808,9 @@ def extract_raw_data(param, ir_img_path):
     return im, undis_im
 
 
-def process_raw_data(img_object, dest_path):
+def process_raw_data(img_object, dest_path, edge_params):
+
+    ed_met, ed_col, ed_blur, ed_bl_sz, ed_op = edge_params
 
     im = img_object.raw_data_undis
     tmin = img_object.tmin_shown
@@ -869,20 +869,14 @@ def process_raw_data(img_object, dest_path):
     elif post_process == 'smooth':
         img_th_smooth = img_thermal.filter(ImageFilter.SMOOTH)
         img_th_smooth.save(dest_path, exif=exif)
-    elif post_process.startswith('edge (from rgb -'):
-        # Extract mode number from the post_process string, removing non-numeric characters
-        mode_str = post_process.split('-')[-1].strip()
-        # Remove any non-digit characters from the mode_str to avoid ValueError
-        mode_str_cleaned = ''.join(filter(str.isdigit, mode_str))
-        mode = int(mode_str_cleaned)
-
+    elif post_process.startswith('edge (from rgb)'):
         drone_model_name = get_drone_model_from_exif(exif)
         drone_model = DroneModel(drone_model_name)
         cv_match_rgb_img = cv_read_all_path(img_object.rgb_path)
 
         # Use the extracted mode directly
         add_lines_from_rgb(thermal_cmap[:, :, [2, 1, 0]], cv_match_rgb_img, drone_model, dest_path, exif=exif,
-                           mode=mode)
+                           mode=ed_met, color=ed_col, blur=ed_blur, blur_size=ed_bl_sz, opacity=ed_op)
 
     # elif post_process == 'superpixel':
     #    img_th_fz = superpixel(img_thermal)
