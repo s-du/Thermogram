@@ -15,8 +15,10 @@ from tools import thermal_3d as t3d
 
 """
 TODO:
-- Allow to import only thermal pictures
+- Allow to import only thermal pictures - OK
 - Implement 'context' dialog --> Drone info + location
+- Allow the user to define a custom folder
+- Implement save/load project folder
 
 """
 
@@ -35,8 +37,7 @@ LINE_MEAS_NAME = 'Line measurements'
 
 OUT_LIM = ['continuous', 'black', 'white', 'red']
 OUT_LIM_MATPLOT = ['c', 'k', 'w', 'r']
-POST_PROCESS = ['none', 'smooth', 'sharpen', 'sharpen strong', 'edge (simple)', 'edge (from rgb)']
-POST_PROCESS_NO_RGB = ['none', 'smooth', 'sharpen', 'sharpen strong', 'edge (simple)']
+POST_PROCESS = ['none', 'smooth', 'sharpen', 'sharpen strong', 'edge (simple)', 'superpixel']
 COLORMAPS = ['coolwarm', 'Artic', 'Iron', 'Rainbow', 'FIJI_Temp', 'BlueWhiteRed', 'Greys_r', 'Greys', 'plasma', 'inferno', 'jet',
              'Spectral_r', 'cividis', 'viridis', 'gnuplot2']
 VIEWS = ['th. undistorted', 'RGB crop', 'Custom']
@@ -74,7 +75,7 @@ class DroneIrWindow(QMainWindow):
         self.rgb_shown = False
 
         # set options
-        self.save_colormap_info = True  # if True, the colormap and temperature options will be stored for each picture
+        self.save_colormap_info = True  # TODO make use of it... if True, the colormap and temperature options will be stored for each picture
 
         self.list_rgb_paths = ''
         self.list_ir_paths = ''
@@ -86,20 +87,20 @@ class DroneIrWindow(QMainWindow):
         self.ir_imgs = ''
         self.rgb_imgs = ''
         self.n_imgs = len(self.ir_imgs)
-
         self.nb_sets = 0
 
         # list images classes (where to store all measurements and annotations)
         self.images = []
 
         # comboboxes content
-        self.out_of_lim = OUT_LIM
-        self.out_of_matp = OUT_LIM_MATPLOT
+        self._out_of_lim = OUT_LIM
+        self._out_of_matp = OUT_LIM_MATPLOT
 
-        self.colormap_list = COLORMAPS
-        self.view_list = VIEWS
+        self._colormap_list = COLORMAPS
+        self._view_list = VIEWS
 
         # edge options
+        self.edges = False
         self.edge_color = 'white'
         self.edge_blur = True
         self.edge_blur_size = 3
@@ -107,18 +108,23 @@ class DroneIrWindow(QMainWindow):
         self.edge_opacity = 0.7
 
         # add content to comboboxes
-        self.comboBox.addItems(self.colormap_list)
+        self.comboBox.addItems(self._colormap_list)
         self.comboBox.setCurrentIndex(0)
         self.comboBox_img.addItems(self.ir_imgs)
 
-        self.comboBox_colors_low.addItems(self.out_of_lim)
+        self.comboBox_colors_low.addItems(self._out_of_lim)
         self.comboBox_colors_low.setCurrentIndex(0)
-        self.comboBox_colors_high.addItems(self.out_of_lim)
+        self.comboBox_colors_high.addItems(self._out_of_lim)
         self.comboBox_colors_high.setCurrentIndex(0)
 
-        self.comboBox_view.addItems(self.view_list)
+        self.comboBox_view.addItems(self._view_list)
 
-        self.advanced_options = False
+        self._img_post = POST_PROCESS
+        self.comboBox_post.addItems(self._img_post)
+
+
+        self.advanced_options = False # TODO: see if use
+        self.skip_update = False
 
         # create double slider
         self.range_slider = wid.QRangeSlider(COLORMAPS[0])
@@ -190,10 +196,11 @@ class DroneIrWindow(QMainWindow):
         self.actionRectangle_meas.triggered.connect(self.rectangle_meas)
         self.actionSpot_meas.triggered.connect(self.point_meas)
         self.actionLine_meas.triggered.connect(self.line_meas)
-        self.actionReset_all.triggered.connect(self.reset_roi)
+        self.actionReset_all.triggered.connect(self.full_reset)
         self.actionInfo.triggered.connect(self.show_info)
         self.actionSave_Image.triggered.connect(self.save_image)
         self.actionProcess_all.triggered.connect(self.process_all_images)
+        self.actionConvert_to_RAW_TIFF.triggered.connect(self.generate_raw_tiff)
         self.action3D_temperature.triggered.connect(self.show_viz_threed)
         self.actionCompose.triggered.connect(self.compose_pic)
 
@@ -217,7 +224,6 @@ class DroneIrWindow(QMainWindow):
         self.comboBox_img.currentIndexChanged.connect(lambda: self.update_img_to_preview('other'))
         self.comboBox_view.currentIndexChanged.connect(self.update_img_preview)
 
-
         # Line edits
         self.lineEdit_min_temp.editingFinished.connect(self.update_img_preview)
         self.lineEdit_max_temp.editingFinished.connect(self.update_img_preview)
@@ -225,6 +231,7 @@ class DroneIrWindow(QMainWindow):
 
         # Checkboxes
         self.checkBox_legend.stateChanged.connect(self.toggle_legend)
+        self.checkBox_edges.stateChanged.connect(self.activate_edges)
 
     def update_img_list(self):
         """
@@ -258,10 +265,6 @@ class DroneIrWindow(QMainWindow):
 
         self.active_image = 0
         self.work_image = self.images[self.active_image]
-
-        # choose first image for preview
-        test_img = self.ir_imgs[self.active_image]
-        self.test_img_path = os.path.join(self.ir_folder, test_img)
 
         # create temporary folder
         self.preview_folder = os.path.join(self.ir_folder, 'preview')
@@ -472,10 +475,11 @@ class DroneIrWindow(QMainWindow):
 
             if reply == qm.Yes:
                 # reset all data
-                self.reset_project()
+                self.full_reset()
 
         # sort images
         if not folder == '':  # if user cancel selection, stop function
+
             self.main_folder = folder
             self.app_folder = os.path.join(folder, APP_FOLDER)
 
@@ -491,6 +495,7 @@ class DroneIrWindow(QMainWindow):
 
             # create some sub folders for storing images
             self.original_th_img_folder = os.path.join(self.app_folder, ORIGIN_TH_FOLDER)
+
             # if the sub folders do not exist, create them
             if not os.path.exists(self.app_folder):
                 os.mkdir(self.app_folder)
@@ -521,11 +526,9 @@ class DroneIrWindow(QMainWindow):
             if not self.list_rgb_paths:
                 print('No RGB here!')
                 self.has_rgb = False
-                self.img_post = POST_PROCESS_NO_RGB
                 self.load_folder_phase2()
 
             else:
-                self.img_post = POST_PROCESS
                 self.rgb_crop_img_folder = os.path.join(self.app_folder, RGB_CROPPED_FOLDER)
                 if not os.path.exists(self.rgb_crop_img_folder):
                     os.mkdir(self.rgb_crop_img_folder)
@@ -557,7 +560,6 @@ class DroneIrWindow(QMainWindow):
         self.comboBox_colors_low.setEnabled(True)
         self.comboBox_colors_high.setEnabled(True)
         self.comboBox_post.setEnabled(True)
-        self.comboBox_post.addItems(self.img_post)
         self.range_slider.setEnabled(True)
 
         #   image navigation
@@ -577,10 +579,11 @@ class DroneIrWindow(QMainWindow):
 
         # RGB condition
         if self.has_rgb:
+            self.checkBox_edges.setEnabled(True)
+            self.pushButton_edge_options.setEnabled(True)
             self.actionCompose.setEnabled(True)
             self.pushButton_match.setEnabled(True)
             self.tab_2.setEnabled(True)
-
 
         print('all action enabled!')
 
@@ -606,6 +609,32 @@ class DroneIrWindow(QMainWindow):
             else:
                 image.save(file_path)  # PNG is lossless by default
 
+    def generate_raw_tiff(self):
+        qm = QMessageBox
+        reply = qm.question(self, '', "Do you want to output TIFF files (Pix4D processing)?",
+                            qm.Yes | qm.No)
+
+        if reply == qm.Yes:
+            desc = f'{PROC_TH_FOLDER}_tiff_{str(round(self.tmin_shown, 0))}_{str(round(self.tmax_shown, 0))}_image-set_{self.nb_sets}'
+            tif_output = True
+
+            # create output folder
+            out_folder = os.path.join(self.app_folder, desc)
+            if not os.path.exists(out_folder):
+                os.mkdir(out_folder)
+
+            worker_1 = tt.RunnerDJI(self.list_ir_paths, out_folder, self.drone_model,
+                                    self.thermal_param, self.tmin_shown, self.tmax_shown, self.colormap,
+                                    self.user_lim_col_high, self.user_lim_col_low,
+                                    5, 100,
+                                    n_colors=self.n_colors, post_process=self.post_process,
+                                    export_tif=tif_output)
+            worker_1.signals.progressed.connect(lambda value: self.update_progress(value))
+            worker_1.signals.messaged.connect(lambda string: self.update_progress(text=string))
+
+            self.__pool.start(worker_1)
+            worker_1.signals.finished.connect(self.process_all_phase2)
+
     def process_all_images(self):
         qm = QMessageBox
         reply = qm.question(self, '', "Are you sure to process all pictures with the current parameters?", qm.Yes | qm.No)
@@ -616,16 +645,8 @@ class DroneIrWindow(QMainWindow):
         self.nb_sets += 1
 
         if reply == qm.Yes:
-            qm = QMessageBox
-            reply = qm.question(self, '', "Do you want to output TIF files (Pix4D processing)?",
-                                qm.Yes | qm.No)
-
-            if reply == qm.No:
-                desc = f'{PROC_TH_FOLDER}_{self.colormap}_{str(round(self.tmin_shown, 0))}_{str(round(self.tmax_shown, 0))}_{self.post_process}_image-set_{self.nb_sets}'
-                tif_output = False
-            else:
-                desc = f'{PROC_TH_FOLDER}_tiff_{str(round(self.tmin_shown, 0))}_{str(round(self.tmax_shown, 0))}_image-set_{self.nb_sets}'
-                tif_output = True
+            desc = f'{PROC_TH_FOLDER}_{self.colormap}_{str(round(self.tmin_shown, 0))}_{str(round(self.tmax_shown, 0))}_{self.post_process}_image-set_{self.nb_sets}'
+            tif_output = False
 
             # create output folder
             out_folder = os.path.join(self.app_folder, desc)
@@ -647,46 +668,16 @@ class DroneIrWindow(QMainWindow):
     def process_all_phase2(self):
         self.update_progress(nb=100, text="Status: Continue analyses!")
 
-    def switch_image_data(self):
-        """
-        When the shown picture is change (adapt measurements and user colormap for this picture)
-        """
-        # load stored data
-        self.work_image = self.images[self.active_image]
-        self.colormap, self.n_colors, self.user_lim_col_high, self.user_lim_col_low, self.tmin, self.tmax, self.tmin_shown, self.tmax_shown, self.post_process = self.work_image.get_colormap_data()
 
-        # find correspondances in comboboxes
-        a = self.colormap_list.index(self.colormap)
-        b = self.out_of_matp.index(self.user_lim_col_high)
-        c = self.out_of_matp.index(self.user_lim_col_low)
-        d = self.img_post.index(self.post_process)
-
-        # adapt combos
-        self.comboBox.setCurrentIndex(a)
-        self.comboBox_colors_high.setCurrentIndex(b)
-        self.comboBox_colors_low.setCurrentIndex(c)
-        self.comboBox_post.setCurrentIndex(d)
-
-        # fill values lineedits
-        self.lineEdit_colors.setText(str(self.n_colors))
-        self.lineEdit_min_temp.setText(str(round(self.tmin_shown, 2)))
-        self.lineEdit_max_temp.setText(str(round(self.tmax_shown, 2)))
-
-        self.thermal_param = self.work_image.thermal_param
-
-        # update double slider TODO
-        self.range_slider.setLowerValue(self.tmin_shown * 100)
-        self.range_slider.setUpperValue(self.tmax_shown * 100)
-        self.range_slider.setMinimum(self.tmin* 100)
-        self.range_slider.setMaximum(self.tmax * 100)
-
-        self.range_slider.setHandleColorsFromColormap(self.colormap)
-
-
-        # clean measurements and annotations
-        self.retrace_items()
 
     # VISUALIZE __________________________________________________________________
+    def activate_edges(self):
+        if self.checkBox_edges.isChecked():
+            self.edges = True
+        else:
+            self.edges = False
+
+        self.update_img_preview()
     def edge_options(self):
         """
         # edge options
@@ -720,7 +711,8 @@ class DroneIrWindow(QMainWindow):
             print(f'new edge parameters \n {self.edge_color} \n {self.edge_method} \n {self.edge_blur} \n {self.edge_blur_size}')
 
             # update preview
-            self.update_img_preview()
+            if self.checkBox_edges.isChecked():
+                self.update_img_preview()
 
     def toggle_legend(self):
         self.viewer.toggleLegendVisibility()
@@ -783,7 +775,7 @@ class DroneIrWindow(QMainWindow):
     def compile_user_values(self):
         # colormap
         i = self.comboBox.currentIndex()
-        self.work_image.colormap = self.colormap_list[i]
+        self.work_image.colormap = self._colormap_list[i]
 
         try:
             self.work_image.n_colors = int(self.lineEdit_colors.text())
@@ -809,14 +801,51 @@ class DroneIrWindow(QMainWindow):
 
         #   out of limits color
         i = self.comboBox_colors_low.currentIndex()
-        self.work_image.user_lim_col_low = self.out_of_matp[i]
+        self.work_image.user_lim_col_low = self._out_of_matp[i]
 
         i = self.comboBox_colors_high.currentIndex()
-        self.work_image.user_lim_col_high = self.out_of_matp[i]
+        self.work_image.user_lim_col_high = self._out_of_matp[i]
 
         #   post process operation
         k = self.comboBox_post.currentIndex()
-        self.work_image.post_process = self.img_post[k]
+        self.work_image.post_process = self._img_post[k]
+
+    def switch_image_data(self):
+        """
+        When the shown picture is change (adapt measurements and user colormap for this picture)
+        """
+        # load stored data
+        self.work_image = self.images[self.active_image]
+        self.colormap, self.n_colors, self.user_lim_col_high, self.user_lim_col_low, self.tmin, self.tmax, self.tmin_shown, self.tmax_shown, self.post_process = self.work_image.get_colormap_data()
+
+        # find correspondances in comboboxes
+        a = self._colormap_list.index(self.colormap)
+        b = self._out_of_matp.index(self.user_lim_col_high)
+        c = self._out_of_matp.index(self.user_lim_col_low)
+        d = self._img_post.index(self.post_process)
+
+        # adapt combos
+        self.comboBox.setCurrentIndex(a)
+        self.comboBox_colors_high.setCurrentIndex(b)
+        self.comboBox_colors_low.setCurrentIndex(c)
+        self.comboBox_post.setCurrentIndex(d)
+
+        # fill values lineedits
+        self.lineEdit_colors.setText(str(self.n_colors))
+        self.lineEdit_min_temp.setText(str(round(self.tmin_shown, 2)))
+        self.lineEdit_max_temp.setText(str(round(self.tmax_shown, 2)))
+
+        self.thermal_param = self.work_image.thermal_param
+
+        # update double slider TODO
+        self.range_slider.setLowerValue(self.tmin_shown * 100)
+        self.range_slider.setUpperValue(self.tmax_shown * 100)
+        self.range_slider.setMinimum(self.tmin * 100)
+        self.range_slider.setMaximum(self.tmax * 100)
+        self.range_slider.setHandleColorsFromColormap(self.colormap)
+
+        # clean measurements and annotations
+        self.retrace_items()
 
     def update_img_to_preview(self, direction):
         """
@@ -833,11 +862,10 @@ class DroneIrWindow(QMainWindow):
             self.active_image = self.comboBox_img.currentIndex()
 
         # remove all measurements and annotations and get new data
+        self.skip_update = True
         self.switch_image_data()
 
-        test_img = self.ir_imgs[self.active_image]
-        self.test_img_path = os.path.join(self.ir_folder, test_img)
-
+        self.skip_update = False
         self.update_img_preview()
 
         # change buttons
@@ -852,6 +880,9 @@ class DroneIrWindow(QMainWindow):
             self.pushButton_left.setEnabled(True)
 
     def update_img_preview(self):
+        if self.skip_update: # allows to skip image update
+            return
+
         """
         Update what is shown in the viewer
         """
@@ -870,10 +901,11 @@ class DroneIrWindow(QMainWindow):
             self.compile_user_values() # store combobox choices in img data
             dest_path_post = os.path.join(self.preview_folder, 'preview_post.JPG')
             img = self.work_image
+
             # get edge detection parameters
             edge_params = [self.edge_method, self.edge_color, self.edge_blur, self.edge_blur_size, self.edge_opacity]
 
-            tt.process_raw_data(img, dest_path_post, edge_params)
+            tt.process_raw_data(img, dest_path_post, self.edges, edge_params)
             self.range_slider.setHandleColorsFromColormap(self.work_image.colormap)
 
             # add legend
@@ -1039,43 +1071,43 @@ class DroneIrWindow(QMainWindow):
         self.add_icon(res.find('img/compare.png'), self.actionCompose)
         self.add_icon(res.find('img/3d.png'), self.action3D_temperature)
 
-    def full_reset_parameters(self):
+    def full_reset(self):
         """
         Reset all model parameters (image and categories)
         """
+        # set variables
+        self.has_rgb = True  # does the dataset have RGB image
+        self.rgb_shown = False
+
+        # reset param
+        self.thermal_param = {'emissivity': 0.95, 'distance': 5, 'humidity': 50, 'reflection': 25}
+
+        # set paths
+        self.list_rgb_paths = ''
+        self.list_ir_paths = ''
+        self.ir_folder = ''
+        self.rgb_folder = ''
+
+        # list thermal images
+        self.ir_imgs = ''
+        self.rgb_imgs = ''
+        self.n_imgs = len(self.ir_imgs)
+        self.nb_sets = 0
+
+        # list images classes (where to store all measurements and annotations)
         self.images = []
-        self.n_imgs = 0
         self.img_paths = []  # paths to images
         self.active_image = 0
         self.image_loaded = False
-
-        # define categories
-        self.categories = []
-        self.active_category = None
 
         # Create model (for the tree structure)
         self.model = QStandardItemModel()
         self.treeView.setModel(self.model)
 
         # clean graphicscene
-        self.viewer.clean_scene()
+        self.viewer.clean_complete()
 
-    def reset_roi(self):
-        # clean tree view
-        self.model = QStandardItemModel()
-        self.treeView.setModel(self.model)
-
-        # clean roi in each cat
-        self.active_image.nb_roi_rect = 0
-        self.active_image.item_list_rect = []
-        self.active_image.roi_list_rect = []
-
-        for cat in self.categories:
-            self.add_item_in_tree(self.model, cat.name)
-        self.model.setHeaderData(0, Qt.Horizontal, 'Categories')
-
-        # clean graphicscene
-        self.viewer.clean_scene()
+        # deactivate actions
 
 
 def main(argv=None):

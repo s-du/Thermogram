@@ -210,6 +210,9 @@ border-radius: 10px;
        </layout>
       </widget>
       <widget class="QWidget" name="tab_2">
+       <property name="enabled">
+        <bool>false</bool>
+       </property>
        <attribute name="title">
         <string>Dual View</string>
        </attribute>
@@ -311,7 +314,7 @@ border-radius: 10px;
      <x>0</x>
      <y>0</y>
      <width>1114</width>
-     <height>26</height>
+     <height>21</height>
     </rect>
    </property>
    <widget class="QMenu" name="menuFile">
@@ -321,6 +324,7 @@ border-radius: 10px;
     <addaction name="actionLoad_folder"/>
     <addaction name="actionSave_Image"/>
     <addaction name="actionProcess_all"/>
+    <addaction name="actionConvert_to_RAW_TIFF"/>
    </widget>
    <widget class="QMenu" name="menuAbout">
     <property name="title">
@@ -756,7 +760,20 @@ border-radius: 10px;
       </layout>
      </item>
      <item>
+      <widget class="QCheckBox" name="checkBox_edges">
+       <property name="enabled">
+        <bool>false</bool>
+       </property>
+       <property name="text">
+        <string>Add edges from RGB</string>
+       </property>
+      </widget>
+     </item>
+     <item>
       <widget class="QPushButton" name="pushButton_edge_options">
+       <property name="enabled">
+        <bool>false</bool>
+       </property>
        <property name="text">
         <string>Edge detection options</string>
        </property>
@@ -961,7 +978,7 @@ border-radius: 10px;
   </action>
   <action name="actionProcess_all">
    <property name="text">
-    <string>Process all</string>
+    <string>Batch export</string>
    </property>
    <property name="toolTip">
     <string>Process all pictures with the same parameters</string>
@@ -987,6 +1004,11 @@ border-radius: 10px;
    </property>
    <property name="toolTip">
     <string>Show the temperature values in 3D</string>
+   </property>
+  </action>
+  <action name="actionConvert_to_RAW_TIFF">
+   <property name="text">
+    <string>Convert all to RAW TIFF</string>
    </property>
   </action>
  </widget>

@@ -606,9 +606,11 @@ def match_rgb_custom_parameters(cv_img, drone_model, resized=False):
     return rgb_dest
 
 
-def add_lines_from_rgb(cv_ir_img, cv_match_rgb_img, drone_model, dest_path,
+def add_lines_from_rgb(path_ir, cv_match_rgb_img, drone_model, dest_path,
                        exif=None, mode=1, color='white', blur=True, blur_size=3, opacity=0.7):
 
+
+    cv_ir_img = cv2.imread(path_ir)
     img_gray = cv2.cvtColor(cv_match_rgb_img, cv2.COLOR_BGR2GRAY)
 
     if blur:
@@ -647,6 +649,12 @@ def add_lines_from_rgb(cv_ir_img, cv_match_rgb_img, drone_model, dest_path,
     elif mode==4:
         edges = cv2.Canny(img_gray, 100, 200, L2gradient = True)
         pil_edges = Image.fromarray(edges)
+
+    elif mode==5:
+        edge_detector = cv2.ximgproc.createStructuredEdgeDetection('model.yml/model.yml')
+        # detect the edges
+        edges = edge_detector.detectEdges(cv_match_rgb_img)
+
 
     if color == 'black':
         pil_edges = ImageOps.invert(pil_edges)
@@ -808,7 +816,7 @@ def extract_raw_data(param, ir_img_path):
     return im, undis_im
 
 
-def process_raw_data(img_object, dest_path, edge_params):
+def process_raw_data(img_object, dest_path, edges, edge_params):
 
     ed_met, ed_col, ed_blur, ed_bl_sz, ed_op = edge_params
 
@@ -869,18 +877,19 @@ def process_raw_data(img_object, dest_path, edge_params):
     elif post_process == 'smooth':
         img_th_smooth = img_thermal.filter(ImageFilter.SMOOTH)
         img_th_smooth.save(dest_path, exif=exif)
-    elif post_process.startswith('edge (from rgb)'):
+    elif post_process == 'superpixel':
+        pass
+
+    # check if edges need to be added (parameter 'edge' is a boolean)
+    if edges:
         drone_model_name = get_drone_model_from_exif(exif)
         drone_model = DroneModel(drone_model_name)
         cv_match_rgb_img = cv_read_all_path(img_object.rgb_path)
 
         # Use the extracted mode directly
-        add_lines_from_rgb(thermal_cmap[:, :, [2, 1, 0]], cv_match_rgb_img, drone_model, dest_path, exif=exif,
+        add_lines_from_rgb(dest_path, cv_match_rgb_img, drone_model, dest_path, exif=exif,
                            mode=ed_met, color=ed_col, blur=ed_blur, blur_size=ed_bl_sz, opacity=ed_op)
 
-    # elif post_process == 'superpixel':
-    #    img_th_fz = superpixel(img_thermal)
-    #    img_th_fz.save(thermal_filename)
 
 
 def process_one_th_picture(param, drone_model, ir_img_path, dest_path, tmin, tmax, colormap, color_high,

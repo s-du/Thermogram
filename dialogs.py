@@ -377,7 +377,7 @@ class DialogEdgeOptions(QtWidgets.QDialog):
         wid.loadUi(uifile, self)
         self.comboBox_blur_size.addItems([str(3),str(5),str(7)])
         self.comboBox_color.addItems(['white', 'black'])
-        self.comboBox_method.addItems(['Sobel A', 'Kernel 1','Kernel 2', 'Canny', 'Canny-L2'])
+        self.comboBox_method.addItems(['Sobel A', 'Kernel 1','Kernel 2', 'Canny', 'Canny-L2', 'ML'])
 
         # button actions
         self.buttonBox.accepted.connect(self.accept)

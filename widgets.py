@@ -704,6 +704,15 @@ class PhotoViewer(QGraphicsView):
             elif isinstance(item, QGraphicsLineItem):
                 self._scene.removeItem(item)
 
+    def clean_complete(self):
+        self.clean_scene()
+
+        self._scene = QGraphicsScene(self)
+        self._photo = QGraphicsPixmapItem()
+        self._scene.addItem(self._photo)
+        self.setScene(self._scene)
+
+
     def draw_all_meas(self, meas_items):
         for item in meas_items:
             if isinstance(item, QGraphicsLineItem) or isinstance(item, QGraphicsRectItem) or isinstance(item,
