@@ -70,16 +70,14 @@ class DroneIrWindow(QMainWindow):
         self.__pool = QThreadPool()
         self.__pool.setMaxThreadCount(3)
 
-        # set variables
+        # set bool variables
         self.has_rgb = True # does the dataset have RGB image
         self.rgb_shown = False
-
-        # set options
         self.save_colormap_info = True  # TODO make use of it... if True, the colormap and temperature options will be stored for each picture
 
+        # set path variables
         self.list_rgb_paths = ''
         self.list_ir_paths = ''
-
         self.ir_folder = ''
         self.rgb_folder = ''
 
@@ -92,13 +90,6 @@ class DroneIrWindow(QMainWindow):
         # list images classes (where to store all measurements and annotations)
         self.images = []
 
-        # comboboxes content
-        self._out_of_lim = OUT_LIM
-        self._out_of_matp = OUT_LIM_MATPLOT
-
-        self._colormap_list = COLORMAPS
-        self._view_list = VIEWS
-
         # edge options
         self.edges = False
         self.edge_color = 'white'
@@ -106,6 +97,13 @@ class DroneIrWindow(QMainWindow):
         self.edge_blur_size = 3
         self.edge_method = 1
         self.edge_opacity = 0.7
+
+        # comboboxes content
+        self._out_of_lim = OUT_LIM
+        self._out_of_matp = OUT_LIM_MATPLOT
+        self._img_post = POST_PROCESS
+        self._colormap_list = COLORMAPS
+        self._view_list = VIEWS
 
         # add content to comboboxes
         self.comboBox.addItems(self._colormap_list)
@@ -118,10 +116,7 @@ class DroneIrWindow(QMainWindow):
         self.comboBox_colors_high.setCurrentIndex(0)
 
         self.comboBox_view.addItems(self._view_list)
-
-        self._img_post = POST_PROCESS
         self.comboBox_post.addItems(self._img_post)
-
 
         self.advanced_options = False # TODO: see if use
         self.skip_update = False
@@ -254,7 +249,9 @@ class DroneIrWindow(QMainWindow):
 
         # add classes
         for i, im in enumerate(self.ir_imgs):
-            self.update_progress(nb=5+95*(self.n_imgs-i) , text=f'Creating image object {i}/{self.n_imgs}')
+            progress = 5 + (95 * i) / (self.n_imgs - 1)
+            self.update_progress(nb=progress, text=f'Creating image object {i}/{self.n_imgs}')
+
             if self.has_rgb:
                 image = tt.ProcessedIm(os.path.join(self.ir_folder, im),
                                    os.path.join(self.rgb_folder, self.rgb_imgs[i]))

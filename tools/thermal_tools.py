@@ -79,7 +79,7 @@ class ObjectDetectionCategory:
 
 
 class ProcessedIm:
-    def __init__(self, path, rgb_path):
+    def __init__(self, path, rgb_path, delayed_compute = True):
         # general infos
         self.path = path
         self.rgb_path = rgb_path
@@ -90,9 +90,12 @@ class ProcessedIm:
         self.colormap = 'coolwarm'
         self.n_colors = 256
 
+        self.has_data = False
+
         # ir infos
         self.thermal_param = {'emissivity': 0.95, 'distance': 5, 'humidity': 50, 'reflection': 25}
-        self.raw_data, self.raw_data_undis = extract_raw_data(self.thermal_param, self.path)
+        if delayed_compute:
+            self.raw_data, self.raw_data_undis = extract_raw_data(self.thermal_param, self.path)
         self.tmin = np.amin(self.raw_data)
         self.tmax = np.amax(self.raw_data)
         self.tmin_shown = self.tmin
@@ -121,6 +124,8 @@ class ProcessedIm:
         self.tmax = np.amax(self.raw_data)
         self.tmin_shown = self.tmin
         self.tmax_shown = self.tmax
+
+        self.has_data = True
 
     def update_colormap_data(self, colormap, n_colors, user_lim_col_high, user_lim_col_low, post_process, tmin, tmax):
         self.colormap = colormap
@@ -820,6 +825,8 @@ def process_raw_data(img_object, dest_path, edges, edge_params):
 
     ed_met, ed_col, ed_blur, ed_bl_sz, ed_op = edge_params
 
+    if not img_object.has_data:
+        img_object.update_data(img_object.thermal_param)
     im = img_object.raw_data_undis
     tmin = img_object.tmin_shown
     tmax = img_object.tmax_shown
