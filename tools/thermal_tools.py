@@ -146,8 +146,6 @@ class ProcessedIm:
                 self.tmin_shown,
                 self.tmax_shown,
                 self.post_process)
-
-
 class PointMeas:
     def __init__(self, qpoint):
         self.name = ''
@@ -884,8 +882,40 @@ def process_raw_data(img_object, dest_path, edges, edge_params):
     elif post_process == 'smooth':
         img_th_smooth = img_thermal.filter(ImageFilter.SMOOTH)
         img_th_smooth.save(dest_path, exif=exif)
-    elif post_process == 'superpixel':
-        pass
+    elif post_process == 'contours':
+        thermal_normalized_clipped = np.clip(thermal_normalized, 0, 1)
+
+        # Generate a blank canvas to draw contours on, in grayscale for thresholding
+        height, width = thermal_normalized.shape[:2]
+        # contour_canvas = np.zeros((height, width, 3), dtype=np.uint8)
+        contour_canvas = np.full((height, width, 3), 255, dtype=np.uint8)
+
+        # Define specific levels for the contour plot, scaled between 0 and 1
+        levels = np.linspace(0, 1, num=img_object.n_colors)  # Adjust number of levels as needed
+
+        # Convert thermal_normalized to a suitable format for finding contours
+        thermal_for_contours = np.uint8(255 * thermal_normalized_clipped)  # Use clipped version
+
+
+        # Iterate over levels to draw contours for each level
+        for level in levels:
+            # Calculate the corresponding color from the colormap
+            color = custom_cmap(level)[:3]  # Get RGB components, ignore alpha if present
+            color = tuple(int(c * 255) for c in color)   # Convert to BGR for OpenCV, scale to 0-255
+
+            # Threshold image at the current level
+            _, thresh = cv2.threshold(thermal_for_contours, int(level * 255), 255, cv2.THRESH_BINARY)
+            contours, _ = cv2.findContours(thresh, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+
+            # Draw contours on the blank canvas
+            cv2.drawContours(contour_canvas, contours, -1, color, 2)  # Change thickness as needed
+
+        # Blend the contour canvas with the original thermal image
+        blended_img = cv2.addWeighted(np.array(img_thermal), 0.5, contour_canvas, 0.5, 0)
+
+        # Save the blended image
+        img_with_contours = Image.fromarray(contour_canvas)
+        img_with_contours.save(dest_path, exif=exif)
 
     # check if edges need to be added (parameter 'edge' is a boolean)
     if edges:
