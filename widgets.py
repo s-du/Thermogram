@@ -721,7 +721,7 @@ class PhotoViewer(QGraphicsView):
             self._scene.addItem(item)
 
     def setPhoto(self, pixmap=None):
-        self._zoom = 0
+        # self._zoom = 0
         if pixmap and not pixmap.isNull():
             self._empty = False
             self.setDragMode(QGraphicsView.ScrollHandDrag)
@@ -730,7 +730,7 @@ class PhotoViewer(QGraphicsView):
             self._empty = True
             self.setDragMode(QGraphicsView.NoDrag)
             self._photo.setPixmap(QPixmap())
-        self.fitInView()
+        # self.fitInView()
 
     def change_to_brush_cursor(self):
         self.setCursor(self.brush_cur)

@@ -946,6 +946,7 @@ def process_one_th_picture(param, drone_model, ir_img_path, dest_path, tmin, tma
 
     if export_tif:
         dest_path = dest_path[:-4] + '.tiff'
+        print(im.dtype)
         img_thermal = Image.fromarray(im)
         img_thermal.save(dest_path, exif=exif)
 
@@ -977,6 +978,8 @@ def process_one_th_picture(param, drone_model, ir_img_path, dest_path, tmin, tma
         elif post_process == 'smooth':
             img_th_smooth = img_thermal.filter(ImageFilter.SMOOTH)
             img_th_smooth.save(dest_path, exif=exif)
+
+    os.remove(new_raw_path)
 
 
 def generate_legend(legend_dest_path, tmin, tmax, color_high, color_low, colormap, n_colors):

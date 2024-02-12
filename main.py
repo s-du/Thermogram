@@ -888,6 +888,9 @@ class DroneIrWindow(QMainWindow):
 
         if v == 1:  # if rgb view
             self.viewer.setPhoto(QPixmap(self.work_image.rgb_path))
+            # scale view
+            self.viewer.fitInView()
+
             self.viewer.clean_scene()
             self.viewer.toggleLegendVisibility()
 
