@@ -45,6 +45,13 @@
     </widget>
    </item>
    <item>
+    <widget class="QCheckBox" name="checkBox_bil">
+     <property name="text">
+      <string>Bilateral filter</string>
+     </property>
+    </widget>
+   </item>
+   <item>
     <widget class="QLabel" name="label_2">
      <property name="text">
       <string>Blur size (pixels)</string>

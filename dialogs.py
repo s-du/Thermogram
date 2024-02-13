@@ -398,15 +398,20 @@ class DialogEdgeOptions(QtWidgets.QDialog):
             self.comboBox_color.setCurrentIndex(index)
 
         if self.parameters[2]:
+            self.checkBox_bil.setChecked(True)
+        else:
+            self.checkBox_bil.setChecked(False)
+
+        if self.parameters[3]:
             self.checkBox.setChecked(True)
         else:
             self.checkBox.setChecked(False)
 
-        index = self.comboBox_blur_size.findText(str(self.parameters[3]), QtCore.Qt.MatchFixedString)
+        index = self.comboBox_blur_size.findText(str(self.parameters[4]), QtCore.Qt.MatchFixedString)
         if index >= 0:
             self.comboBox_blur_size.setCurrentIndex(index)
 
-        op_value = self.parameters[4]
+        op_value = self.parameters[5]
         self.horizontalSlider.setValue(op_value*100)
 
 

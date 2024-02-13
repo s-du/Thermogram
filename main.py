@@ -93,9 +93,10 @@ class DroneIrWindow(QMainWindow):
         # edge options
         self.edges = False
         self.edge_color = 'white'
-        self.edge_blur = True
+        self.edge_blur = False
+        self.edge_bil = True
         self.edge_blur_size = 3
-        self.edge_method = 1
+        self.edge_method = 0
         self.edge_opacity = 0.7
 
         # comboboxes content
@@ -687,7 +688,7 @@ class DroneIrWindow(QMainWindow):
         """
 
         # lauch dialog
-        edge_params = [self.edge_method, self.edge_color, self.edge_blur, self.edge_blur_size, self.edge_opacity]
+        edge_params = [self.edge_method, self.edge_color, self.edge_bil, self.edge_blur, self.edge_blur_size, self.edge_opacity]
         parameters = {
             'method': edge_params[0],
             'color': edge_params[1],
@@ -701,6 +702,7 @@ class DroneIrWindow(QMainWindow):
 
             self.edge_color = dialog.comboBox_color.currentText()
             self.edge_method = dialog.comboBox_method.currentIndex()
+            self.edge_bil = dialog.checkBox_bil.isChecked()
             self.edge_blur = dialog.checkBox.isChecked()
             self.edge_blur_size = int(dialog.comboBox_blur_size.currentText())
             self.edge_opacity = dialog.horizontalSlider.value() / 100
@@ -903,7 +905,7 @@ class DroneIrWindow(QMainWindow):
             img = self.work_image
 
             # get edge detection parameters
-            edge_params = [self.edge_method, self.edge_color, self.edge_blur, self.edge_blur_size, self.edge_opacity]
+            edge_params = [self.edge_method, self.edge_color, self.edge_bil, self.edge_blur, self.edge_blur_size, self.edge_opacity]
 
             tt.process_raw_data(img, dest_path_post, self.edges, edge_params)
             self.range_slider.setHandleColorsFromColormap(self.work_image.colormap)

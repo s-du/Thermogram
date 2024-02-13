@@ -610,7 +610,7 @@ def match_rgb_custom_parameters(cv_img, drone_model, resized=False):
 
 
 def add_lines_from_rgb(path_ir, cv_match_rgb_img, drone_model, dest_path,
-                       exif=None, mode=1, color='white', blur=True, blur_size=3, opacity=0.7):
+                       exif=None, mode=1, color='white', bilateral=True, blur=True, blur_size=3, opacity=0.7):
 
 
     cv_ir_img = cv2.imread(path_ir)
@@ -618,6 +618,9 @@ def add_lines_from_rgb(path_ir, cv_match_rgb_img, drone_model, dest_path,
 
     if blur:
         img_gray = cv2.GaussianBlur(img_gray, (blur_size, blur_size), 0)
+
+    if bilateral:
+        img_gray = cv2.bilateralFilter(img_gray, 15, 75, 75)
 
     if mode==0:
         scale = 1
@@ -821,7 +824,7 @@ def extract_raw_data(param, ir_img_path):
 
 def process_raw_data(img_object, dest_path, edges, edge_params):
 
-    ed_met, ed_col, ed_blur, ed_bl_sz, ed_op = edge_params
+    ed_met, ed_col, ed_bil, ed_blur, ed_bl_sz, ed_op  = edge_params
 
     if not img_object.has_data:
         img_object.update_data(img_object.thermal_param)
@@ -908,7 +911,7 @@ def process_raw_data(img_object, dest_path, edges, edge_params):
             contours, _ = cv2.findContours(thresh, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
 
             # Draw contours on the blank canvas
-            cv2.drawContours(contour_canvas, contours, -1, color, 2)  # Change thickness as needed
+            cv2.drawContours(contour_canvas, contours, -1, color, 1)  # Change thickness as needed
 
         # Blend the contour canvas with the original thermal image
         blended_img = cv2.addWeighted(np.array(img_thermal), 0.5, contour_canvas, 0.5, 0)
@@ -925,7 +928,7 @@ def process_raw_data(img_object, dest_path, edges, edge_params):
 
         # Use the extracted mode directly
         add_lines_from_rgb(dest_path, cv_match_rgb_img, drone_model, dest_path, exif=exif,
-                           mode=ed_met, color=ed_col, blur=ed_blur, blur_size=ed_bl_sz, opacity=ed_op)
+                           mode=ed_met, color=ed_col, bilateral=ed_bil, blur=ed_blur, blur_size=ed_bl_sz, opacity=ed_op)
 
 
 
