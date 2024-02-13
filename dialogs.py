@@ -83,7 +83,7 @@ class AboutDialog(QtWidgets.QDialog):
         self.setFixedSize(300,300)
         self.layout = QtWidgets.QVBoxLayout()
 
-        about_text = QtWidgets.QLabel('This app was made by Buildwise, to simplify the analysis of thermal images.')
+        about_text = QtWidgets.QLabel('The Thermogram app was made to simplify the analysis of thermal images. Any question/remark: samuel.dubois@buildwise.be')
         about_text.setWordWrap(True)
 
         logos1 = QtWidgets.QLabel()
@@ -92,14 +92,8 @@ class AboutDialog(QtWidgets.QDialog):
         pixmap = pixmap.scaledToWidth(100, QtCore.Qt.SmoothTransformation)
         logos1.setPixmap(pixmap)
 
-        logos2 = QtWidgets.QLabel()
-        pixmap = QtGui.QPixmap(res.find('img/logo_pointify.png'))
-        pixmap = pixmap.scaledToWidth(100, QtCore.Qt.SmoothTransformation)
-        logos2.setPixmap(pixmap)
-
         self.layout.addWidget(about_text)
         self.layout.addWidget(logos1, alignment=QtCore.Qt.AlignCenter)
-        self.layout.addWidget(logos2, alignment=QtCore.Qt.AlignCenter)
 
         self.setLayout(self.layout)
 
