@@ -23,7 +23,7 @@ TODO:
 """
 
 # PARAMETERS
-APP_FOLDER = 'DroneIrToolkit'
+APP_FOLDER = 'ThermogramApp'
 ORIGIN_THERMAL_IMAGES_NAME = 'Original Thermal Images'
 RGB_ORIGINAL_NAME = 'Original RGB Images'
 RGB_CROPPED_NAME = 'Cropped RGB Images'
@@ -80,6 +80,11 @@ class DroneIrWindow(QMainWindow):
         self.list_ir_paths = ''
         self.ir_folder = ''
         self.rgb_folder = ''
+        self.preview_folder = ''
+
+        # set other variables
+        self.colormap = None
+
 
         # list thermal images
         self.ir_imgs = ''
@@ -89,6 +94,7 @@ class DroneIrWindow(QMainWindow):
 
         # list images classes (where to store all measurements and annotations)
         self.images = []
+        self.work_image = None
 
         # edge options
         self.edges = False
@@ -99,7 +105,7 @@ class DroneIrWindow(QMainWindow):
         self.edge_method = 0
         self.edge_opacity = 0.7
 
-        # comboboxes content
+        # combo boxes content
         self._out_of_lim = OUT_LIM
         self._out_of_matp = OUT_LIM_MATPLOT
         self._img_post = POST_PROCESS
@@ -254,11 +260,12 @@ class DroneIrWindow(QMainWindow):
             self.update_progress(nb=progress, text=f'Creating image object {i}/{self.n_imgs}')
 
             if self.has_rgb:
+                print('Has rgb!')
                 image = tt.ProcessedIm(os.path.join(self.ir_folder, im),
-                                   os.path.join(self.rgb_folder, self.rgb_imgs[i]))
+                                       os.path.join(self.rgb_folder, self.rgb_imgs[i]),
+                                       self.list_rgb_paths[i])
             else:
-                image = tt.ProcessedIm(os.path.join(self.ir_folder, im),
-                                       os.path.join(self.rgb_folder, ''))
+                image = tt.ProcessedIm(os.path.join(self.ir_folder, im),'','')
             self.images.append(image)
 
         self.active_image = 0
@@ -288,7 +295,8 @@ class DroneIrWindow(QMainWindow):
             pass
 
     def image_matching(self):
-        pass
+        res = tt.optimize_align(self.images[self.active_image].rgb_path_original,
+                                self.images[self.active_image].path, self.drone_model)
 
     # ANNOTATIONS _________________________________________________________________
     def add_rect_meas(self, rect_item):
@@ -464,8 +472,6 @@ class DroneIrWindow(QMainWindow):
 
     # LOAD AND SAVE ACTIONS ______________________________________________________________________________
     def load_folder_phase1(self):
-        folder = str(QFileDialog.getExistingDirectory(self, "Select Directory"))
-
         # warning message (new project)
         if self.list_rgb_paths != '':
             qm = QMessageBox
@@ -474,6 +480,11 @@ class DroneIrWindow(QMainWindow):
             if reply == qm.Yes:
                 # reset all data
                 self.full_reset()
+
+            else:
+                return
+
+        folder = str(QFileDialog.getExistingDirectory(self, "Select Directory"))
 
         # sort images
         if not folder == '':  # if user cancel selection, stop function
@@ -614,19 +625,13 @@ class DroneIrWindow(QMainWindow):
 
         if reply == qm.Yes:
             desc = f'{PROC_TH_FOLDER}_tiff_{str(round(self.tmin_shown, 0))}_{str(round(self.tmax_shown, 0))}_image-set_{self.nb_sets}'
-            tif_output = True
 
             # create output folder
             out_folder = os.path.join(self.app_folder, desc)
             if not os.path.exists(out_folder):
                 os.mkdir(out_folder)
 
-            worker_1 = tt.RunnerDJI(self.list_ir_paths, out_folder, self.drone_model,
-                                    self.thermal_param, self.tmin_shown, self.tmax_shown, self.colormap,
-                                    self.user_lim_col_high, self.user_lim_col_low,
-                                    5, 100,
-                                    n_colors=self.n_colors, post_process=self.post_process,
-                                    export_tif=tif_output)
+            worker_1 = tt.RunnerDJI(5,100, out_folder, self.images, self.work_image, self.edges, self.edge_params, export_tif=True)
             worker_1.signals.progressed.connect(lambda value: self.update_progress(value))
             worker_1.signals.messaged.connect(lambda string: self.update_progress(text=string))
 
@@ -644,19 +649,13 @@ class DroneIrWindow(QMainWindow):
 
         if reply == qm.Yes:
             desc = f'{PROC_TH_FOLDER}_{self.colormap}_{str(round(self.tmin_shown, 0))}_{str(round(self.tmax_shown, 0))}_{self.post_process}_image-set_{self.nb_sets}'
-            tif_output = False
 
             # create output folder
             out_folder = os.path.join(self.app_folder, desc)
             if not os.path.exists(out_folder):
                 os.mkdir(out_folder)
 
-            worker_1 = tt.RunnerDJI(self.list_ir_paths, out_folder, self.drone_model,
-                                    self.thermal_param, self.tmin_shown, self.tmax_shown, self.colormap,
-                                    self.user_lim_col_high, self.user_lim_col_low,
-                                    5, 100,
-                                    n_colors=self.n_colors, post_process=self.post_process,
-                                    export_tif=tif_output)
+            worker_1 = tt.RunnerDJI(5,100, out_folder, self.images, self.work_image, self.edges, self.edge_params)
             worker_1.signals.progressed.connect(lambda value: self.update_progress(value))
             worker_1.signals.messaged.connect(lambda string: self.update_progress(text=string))
 
@@ -905,9 +904,9 @@ class DroneIrWindow(QMainWindow):
             img = self.work_image
 
             # get edge detection parameters
-            edge_params = [self.edge_method, self.edge_color, self.edge_bil, self.edge_blur, self.edge_blur_size, self.edge_opacity]
+            self.edge_params = [self.edge_method, self.edge_color, self.edge_bil, self.edge_blur, self.edge_blur_size, self.edge_opacity]
 
-            tt.process_raw_data(img, dest_path_post, self.edges, edge_params)
+            tt.process_raw_data(img, dest_path_post, self.edges, self.edge_params)
             self.range_slider.setHandleColorsFromColormap(self.work_image.colormap)
 
             # add legend

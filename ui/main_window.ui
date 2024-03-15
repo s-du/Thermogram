@@ -170,7 +170,7 @@ border-radius: 10px;
       </item>
      </layout>
     </item>
-    <item row="1" column="0">
+    <item row="2" column="0">
      <widget class="QTabWidget" name="tabWidget">
       <property name="currentIndex">
        <number>0</number>
@@ -255,7 +255,7 @@ border-radius: 10px;
       </widget>
      </widget>
     </item>
-    <item row="2" column="0">
+    <item row="3" column="0">
      <layout class="QVBoxLayout" name="verticalLayout_5">
       <item>
        <widget class="QGroupBox" name="groupBox_2">
@@ -306,6 +306,13 @@ border-radius: 10px;
       </item>
      </layout>
     </item>
+    <item row="1" column="0">
+     <widget class="QCheckBox" name="checkBox_keep">
+      <property name="text">
+       <string>Keep all settings when switching images</string>
+      </property>
+     </widget>
+    </item>
    </layout>
   </widget>
   <widget class="QMenuBar" name="menubar">
@@ -314,7 +321,7 @@ border-radius: 10px;
      <x>0</x>
      <y>0</y>
      <width>1114</width>
-     <height>21</height>
+     <height>26</height>
     </rect>
    </property>
    <widget class="QMenu" name="menuFile">

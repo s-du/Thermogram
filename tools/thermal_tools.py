@@ -12,6 +12,8 @@ from matplotlib import cm
 from matplotlib import pyplot as plt
 import matplotlib.colors as mcol
 from blend_modes import dodge, multiply
+from scipy.optimize import differential_evolution
+
 import fileinput
 import shutil
 # from skimage.segmentation import felzenszwalb, slic --> Removed superpixel for the moment
@@ -31,7 +33,7 @@ m2t_rgb_xml_path = res.find('other/rgb_cam_calib_m2t_opencv.xml')
 m3t_ir_xml_path = res.find('other/cam_calib_m3t_opencv.xml')
 m3t_rgb_xml_path = res.find('other/rgb_cam_calib_m3t_opencv.xml')
 
-LIST_CUSTOM_CMAPS = ['Artic','Iron','Rainbow','FIJI_Temp','BlueWhiteRed']
+LIST_CUSTOM_CMAPS = ['Artic', 'Iron', 'Rainbow', 'FIJI_Temp', 'BlueWhiteRed']
 
 # USEFUL CLASSES
 class DroneModel():
@@ -79,10 +81,11 @@ class ObjectDetectionCategory:
 
 
 class ProcessedIm:
-    def __init__(self, path, rgb_path, delayed_compute = True):
+    def __init__(self, path, rgb_path, original_path, delayed_compute = True):
         # general infos
         self.path = path
         self.rgb_path = rgb_path
+        self.rgb_path_original = original_path
         self.preview_path = ''
         self.exif = extract_exif(self.path)
         self.drone_model_name = get_drone_model_from_exif(self.exif)
@@ -350,37 +353,41 @@ class RunnerSignals(QtCore.QObject):
 
 
 class RunnerDJI(QtCore.QRunnable):
-    def __init__(self, ir_paths, dest_folder, drone_model, param, tmin, tmax, colormap,
-                 color_high, color_low, start, stop, n_colors=256, post_process='none', export_tif = False):
+    def __init__(self, start, stop, out_folder, img_objects, ref_im, edges, edges_params, individual_settings = False, export_tif = False):
         super().__init__()
-        self.ir_paths = ir_paths
-        self.dest_folder = dest_folder
-        self.post_process = post_process
-        self.drone_model = drone_model
-        self.param = param
-        self.tmin = tmin
-        self.tmax = tmax
-        self.colormap = colormap
-        self.color_high = color_high
-        self.color_low = color_low
-        self.n_colors = n_colors
-
+        self.img_objects = img_objects
+        self.edges = edges
+        self.edges_params = edges_params
         self.export_tif = export_tif
 
         self.start = start
         self.stop = stop
+        self.dest_folder = out_folder
 
         self.signals = RunnerSignals()
 
+        if not individual_settings: # if global export from current image settings
+            self.custom_params = {
+                "tmin": ref_im.tmin_shown,
+                "tmax": ref_im.tmax_shown,
+                "colormap": ref_im.colormap,
+                "n_colors": ref_im.n_colors,
+                "col_high": ref_im.user_lim_col_high,
+                "col_low": ref_im.user_lim_col_low,
+                "post_process": ref_im.post_process
+            }
+
     def run(self):
         # create raw outputs for each image
-        nb_im = len(self.ir_paths)
-        for i, img_path in enumerate(self.ir_paths):
+        nb_im = len(self.img_objects)
+        for i, img in enumerate(self.img_objects):
             print(i)
             iter = i * (self.stop - self.start) / nb_im
 
             self.signals.progressed.emit(self.start + iter)
             self.signals.messaged.emit(f'Processing image {i}/{nb_im} with DJI SDK')
+
+            img_path = img.path
 
             if i < 9:
                 prefix = '000'
@@ -391,14 +398,16 @@ class RunnerDJI(QtCore.QRunnable):
             _, filename = os.path.split(str(img_path))
             dest_path = os.path.join(self.dest_folder, f'thermal_{prefix}{i}.JPG')
 
-            process_one_th_picture(self.param, self.drone_model, img_path, dest_path, self.tmin, self.tmax,
-                                           self.colormap, self.color_high, self.color_low, n_colors=self.n_colors,
-                                           post_process=self.post_process, export_tif = self.export_tif)
+            process_raw_data(img,
+                             dest_path,
+                             edges=self.edges,
+                             edge_params=self.edges_params,
+                             custom_params=self.custom_params,
+                             export_tif=self.export_tif)
 
-            if i == len(self.ir_paths) - 1:
+            if i == len(self.img_objects) - 1:
                 legend_dest_path = os.path.join(self.dest_folder, 'plot_onlycbar_tight.png')
-                generate_legend(legend_dest_path, self.tmin, self.tmax, self.color_high, self.color_low, self.colormap,
-                                self.n_colors)
+                generate_legend(legend_dest_path, self.custom_params)
 
         self.signals.finished.emit()
 
@@ -608,7 +617,106 @@ def match_rgb_custom_parameters(cv_img, drone_model, resized=False):
 
     return rgb_dest
 
+def optimize_align(rgb_img_path, ir_img_path, drone_model):
+    def undis_kd(cv_img, K, d):
+        h, w = cv_img.shape[:2]
+        newcam, roi = cv2.getOptimalNewCameraMatrix(K, d, (w, h), 1, (w, h))
+        dest = cv2.undistort(cv_img, K, d, None, newcam)
+        x, y, w, h = roi
+        dest = dest[y:y + h, x:x + w]
 
+        return dest
+
+    def func_complex(theta, save=True):
+        K = np.array([[theta[0], 0, theta[1]],
+                      [0, theta[0], theta[2]],
+                      [0, 0, 1]])
+
+        d = np.array([[theta[3]], [theta[4]], [theta[5] / 10000], [theta[6] / 10000], [theta[7]]])
+
+        # undistort image with given parameters
+        cv_ir_un = undis_kd(cv_ir, K, d)
+        h_ir, w_ir = cv_ir_un.shape[:2]
+
+        print(theta)
+        print(h_ir, w_ir)
+
+        dim_undis_ir = (w_ir, h_ir)
+
+        extend = theta[8] / 100
+        y_offset = theta[9] * 100
+        x_offset = theta[10] * 100
+
+        if h_ir == 0:
+            aspect_factor = 1
+        else:
+            aspect_factor = (w_rgb / h_rgb) / (
+                    w_ir / h_ir)  # this is necessary to transform the aspect ratio of the rgb image to fit
+            # the thermal image. The number represent the resolutions of images (rgb and ir respectively) after undistording
+        new_h = h_rgb * aspect_factor
+
+        ret_x = int(extend * w_rgb)
+        ret_y = int(extend * new_h)
+        rgb_dest = cv_rgb[int(h_rgb / 2 + y_offset) - ret_y:int(h_rgb / 2 + y_offset) + ret_y,
+                   int(w_rgb / 2 + x_offset) - ret_x:int(w_rgb / 2 + x_offset) + ret_x]
+
+        # resize
+        rgb_dest = cv2.resize(rgb_dest, dim_undis_ir, interpolation=cv2.INTER_AREA)
+
+        # create lines
+        lines_rgb = create_lines(rgb_dest)
+        if save:
+            cv2.imwrite(rgb_img_path[:-4] + '_rgb_lines.JPG', lines_rgb)
+
+        lines_ir = create_lines(cv_ir_un)
+        if save:
+            cv2.imwrite(ir_img_path[:-4] + '_ir_lines.JPG', lines_ir)
+
+        # compute difference
+        diff = cv2.subtract(lines_ir, lines_rgb)
+        err = np.sum(diff ** 2)
+        mse = err / (float(h_ir * w_ir))
+
+        print(f'mse is {mse}')
+
+        return mse
+
+    # read images
+    cv_rgb = cv2.imread(rgb_img_path)
+    # undistort RGB
+    cv_rgb, dim = undis(cv_rgb, drone_model.rgb_xml_path)
+    cv_ir = cv2.imread(ir_img_path)
+
+    # get shape
+    h_rgb, w_rgb = dim
+    print(h_rgb, w_rgb)
+
+    res = differential_evolution(func_complex, (
+    (500, 1000), (250, 390), (200, 312), (-1, 1), (-1, 1), (0, 1), (0, 1), (-1, 1), (20, 40), (-1, 1), (-1, 1)),
+                                 maxiter=30)
+
+    print(res)
+    print(res.x)
+
+    func_complex(res.x, save=True)
+
+    return res.x
+
+# CROP OPS
+def get_corresponding_crop_rectangle(p1, p2, scale):
+    # Scale the coordinates of p1 and p2 to the larger image size
+    p1_large = (int(p1[0] * scale), int(p1[1] * scale))
+    p2_large = (int(p2[0] * scale), int(p2[1] * scale))
+
+    # Calculate the top-left and bottom-right coordinates of the crop rectangle
+    crop_tl = (min(p1_large[0], p2_large[0]), min(p1_large[1], p2_large[1]))
+    crop_br = (max(p1_large[0], p2_large[0]), max(p1_large[1], p2_large[1]))
+
+    print(p1, p2, crop_tl, crop_br)
+
+    return crop_tl, crop_br
+
+# LINES __________________________________________________________
 def add_lines_from_rgb(path_ir, cv_match_rgb_img, drone_model, dest_path,
                        exif=None, mode=1, color='white', bilateral=True, blur=True, blur_size=3, opacity=0.7):
 
@@ -694,21 +802,27 @@ def add_lines_from_rgb(path_ir, cv_match_rgb_img, drone_model, dest_path,
     else:
         blended_img_raw.save(dest_path, exif=exif)
 
+def create_lines(cv_img):
+    img_gray = cv2.cvtColor(cv_img, cv2.COLOR_BGR2GRAY)
 
-# CROP OPS
-def get_corresponding_crop_rectangle(p1, p2, scale):
-    # Scale the coordinates of p1 and p2 to the larger image size
-    p1_large = (int(p1[0] * scale), int(p1[1] * scale))
-    p2_large = (int(p2[0] * scale), int(p2[1] * scale))
+    # Blur the image for better edge detection
+    img_blur = cv2.GaussianBlur(img_gray, (3, 3), 0)
 
-    # Calculate the top-left and bottom-right coordinates of the crop rectangle
-    crop_tl = (min(p1_large[0], p2_large[0]), min(p1_large[1], p2_large[1]))
-    crop_br = (max(p1_large[0], p2_large[0]), max(p1_large[1], p2_large[1]))
+    scale = 1
+    delta = 0
+    ddepth = cv2.CV_16S
+    grad_x = cv2.Sobel(img_gray, ddepth, 1, 0, ksize=3, scale=scale, delta=delta, borderType=cv2.BORDER_DEFAULT)
+    grad_y = cv2.Sobel(img_gray, ddepth, 0, 1, ksize=3, scale=scale, delta=delta, borderType=cv2.BORDER_DEFAULT)
 
-    print(p1, p2, crop_tl, crop_br)
+    abs_grad_x = cv2.convertScaleAbs(grad_x)
+    abs_grad_y = cv2.convertScaleAbs(grad_y)
 
-    return crop_tl, crop_br
+    edges = cv2.addWeighted(abs_grad_x, 0.5, abs_grad_y, 0.5, 0)
 
+
+    #edges = cv2.Canny(image=img_blur, threshold1=50, threshold2=200)
+
+    return edges
 
 # THERMAL PROCESSING _____________________________________________
 # custom colormaps
@@ -822,21 +936,35 @@ def extract_raw_data(param, ir_img_path):
     return im, undis_im
 
 
-def process_raw_data(img_object, dest_path, edges, edge_params):
+def process_raw_data(img_object, dest_path, edges, edge_params, custom_params=None, export_tif=False):
 
+    if custom_params is None:
+        custom_params = {}
     ed_met, ed_col, ed_bil, ed_blur, ed_bl_sz, ed_op  = edge_params
 
     if not img_object.has_data:
         img_object.update_data(img_object.thermal_param)
+
+    # data
     im = img_object.raw_data_undis
-    tmin = img_object.tmin_shown
-    tmax = img_object.tmax_shown
-    colormap = img_object.colormap
-    n_colors = img_object.n_colors
-    col_high = img_object.user_lim_col_high
-    col_low = img_object.user_lim_col_low
     exif = img_object.exif
-    post_process = img_object.post_process
+
+    if custom_params:
+        tmin = custom_params["tmin"]
+        tmax = custom_params["tmax"]
+        colormap = custom_params["colormap"]
+        n_colors = custom_params["n_colors"]
+        col_high = custom_params["col_high"]
+        col_low = custom_params["col_low"]
+        post_process = custom_params["post_process"]
+    else:
+        tmin = img_object.tmin_shown
+        tmax = img_object.tmax_shown
+        colormap = img_object.colormap
+        n_colors = img_object.n_colors
+        col_high = img_object.user_lim_col_high
+        col_low = img_object.user_lim_col_low
+        post_process = img_object.post_process
 
     # compute new normalized temperature
     thermal_normalized = (im - tmin) / (tmax - tmin)
@@ -855,8 +983,12 @@ def process_raw_data(img_object, dest_path, edges, edge_params):
     thermal_cmap = np.uint8(thermal_cmap * 255)
 
     img_thermal = Image.fromarray(thermal_cmap[:, :, [0, 1, 2]])
+    if export_tif:
+        dest_path = dest_path[:-4] + '.tiff'
+        img_thermal = Image.fromarray(im) # export as 32bit array (floating point)
+        img_thermal.save(dest_path, exif=exif)
 
-    if post_process == 'none':
+    elif post_process == 'none':
         img_thermal.save(dest_path, exif=exif)
     elif post_process == 'sharpen':
         img_th_sharpened = img_thermal.filter(ImageFilter.SHARPEN)
@@ -931,61 +1063,14 @@ def process_raw_data(img_object, dest_path, edges, edge_params):
                            mode=ed_met, color=ed_col, bilateral=ed_bil, blur=ed_blur, blur_size=ed_bl_sz, opacity=ed_op)
 
 
+def generate_legend(legend_dest_path, custom_params):
+    tmin = custom_params["tmin"]
+    tmax = custom_params["tmax"]
+    color_high = custom_params["col_high"]
+    color_low = custom_params["col_low"]
+    colormap = custom_params["colormap"]
+    n_colors = custom_params["n_colors"]
 
-def process_one_th_picture(param, drone_model, ir_img_path, dest_path, tmin, tmax, colormap, color_high,
-                           color_low, n_colors=256, post_process='none', export_tif = False):
-    _, filename = os.path.split(str(ir_img_path))
-    new_raw_path = Path(str(ir_img_path)[:-4] + '.raw')
-
-    exif = read_dji_image(str(ir_img_path), str(new_raw_path), param=param)
-
-    # read raw dji output
-    fd = open(new_raw_path, 'rb')
-    rows = 512
-    cols = 640
-    f = np.fromfile(fd, dtype='<f4', count=rows * cols)
-    im = f.reshape((rows, cols))  # notice row, column format
-    fd.close()
-
-    if export_tif:
-        dest_path = dest_path[:-4] + '.tiff'
-        print(im.dtype)
-        img_thermal = Image.fromarray(im)
-        img_thermal.save(dest_path, exif=exif)
-
-    else:
-        # compute new normalized temperature
-        thermal_normalized = (im - tmin) / (tmax - tmin)
-
-        # get colormap
-        if colormap in LIST_CUSTOM_CMAPS:
-            custom_cmap = get_custom_cmaps(colormap, n_colors)
-        else:
-            custom_cmap = cm.get_cmap(colormap, n_colors)
-
-        if color_high != 'c':
-            custom_cmap.set_over(color_high)
-        if color_low != 'c':
-            custom_cmap.set_under(color_low)
-
-        thermal_cmap = custom_cmap(thermal_normalized)
-        thermal_cmap = np.uint8(thermal_cmap * 255)
-
-        img_thermal = Image.fromarray(thermal_cmap[:, :, [0, 1, 2]])
-
-        if post_process == 'none':
-            img_thermal.save(dest_path, exif=exif)
-        elif post_process == 'sharpen':
-            img_th_sharpened = img_thermal.filter(ImageFilter.SHARPEN)
-            img_th_sharpened.save(dest_path, exif=exif)
-        elif post_process == 'smooth':
-            img_th_smooth = img_thermal.filter(ImageFilter.SMOOTH)
-            img_th_smooth.save(dest_path, exif=exif)
-
-    os.remove(new_raw_path)
-
-
-def generate_legend(legend_dest_path, tmin, tmax, color_high, color_low, colormap, n_colors):
     fig, ax = plt.subplots()
     data = np.clip(np.random.randn(10, 10) * 100, tmin, tmax)
     print(data)
@@ -1037,33 +1122,6 @@ def find_files_of_type(folder, types=[]):
     return output
 
 
-def sort_image_method1(img_folder, dest_rgb_folder, dest_th_folder, string_to_search):
-    """
-    this function is adapted to sort all images from a folder, where those images are a mix between thermal and corresponding rgb
-    """
-    # Sorting images in new folders
-
-    count = 0
-
-    for file in os.listdir(img_folder):
-        if count < 9:
-            prefix = '000'
-        elif 9 < count < 99:
-            prefix = '00'
-        elif 99 < count < 999:
-            prefix = '000'
-        if file.endswith('.jpg') or file.endswith('.JPG'):
-            if string_to_search in str(file):
-                new_file = 'image_' + prefix + str(count) + '.jpg'
-                copyfile(os.path.join(img_folder, file), os.path.join(dest_th_folder, new_file))
-                count += 1
-            else:
-                if count == 0:
-                    count += 1
-                new_file = 'image_' + prefix + str(count) + '.jpg'
-                copyfile(os.path.join(img_folder, file), os.path.join(dest_rgb_folder, new_file))
-
-
 def list_th_rgb_images_from_exif(img_folder):
     list_rgb_paths = []
     list_ir_paths = []
@@ -1079,29 +1137,3 @@ def list_th_rgb_images_from_exif(img_folder):
                 list_rgb_paths.append(path)
 
     return list_rgb_paths, list_ir_paths
-
-
-def process_all_th_pictures(param, drone_model, ir_paths, dest_folder, tmin, tmax, colormap, color_high, color_low,
-                            n_colors=256,
-                            post_process='none'):
-    """
-    this function process all thermal pictures in a folder
-    """
-    # create raw outputs for each image
-    for i, img_path in enumerate(ir_paths):
-        print(i)
-        if i < 9:
-            prefix = '000'
-        elif 9 < i < 99:
-            prefix = '00'
-        elif 99 < i < 999:
-            prefix = '0'
-        _, filename = os.path.split(str(img_path))
-        dest_path = os.path.join(dest_folder, f'thermal_{prefix}{i}.JPG')
-
-        process_one_th_picture(param, drone_model, img_path, dest_path, tmin, tmax, colormap, color_high,
-                                   color_low, n_colors=n_colors, post_process=post_process)
-
-        if i == len(ir_paths) - 1:
-            legend_dest_path = os.path.join(dest_folder, 'plot_onlycbar_tight.png')
-            generate_legend(legend_dest_path, tmin, tmax, color_high, color_low, colormap, n_colors)
