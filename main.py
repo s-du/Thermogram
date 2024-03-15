@@ -46,7 +46,7 @@ VIEWS = ['th. undistorted', 'RGB crop', 'Custom']
 # USEFUL CLASSES
 class DroneIrWindow(QMainWindow):
     """
-    Main Window class for the Drone IR Toolkit
+    Main Window class for Thermogram
     """
 
     def __init__(self, parent=None):
