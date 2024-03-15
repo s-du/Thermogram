@@ -9,16 +9,29 @@ Thermogram is an intuitive tool designed for processing IR images from drones. T
 **The project is still in pre-release, so do not hesitate to send your recommendations or the bugs you encountered!**
 
 ![](anim_thermogram1.gif) 
+    <i>GUI for thermal image processing</i>
 
 ## Features
 The app offers the following key features:
 - User-friendly GUI for simple measurements (spot, line or rectangle).
 - Dual viewer for simultaneously inspecting RGB and IR data
+- 3D-viewer for viewing temperature data as 'voxels'
 - Advanced color palette options
-- Advanced edge
+- Advanced edge overlay possibilities
 - Batch export functionality (including exporting raw data as TIFF files)
 
-![](anim_thermogram2.gif) 
+<p align="center">
+    <a href=""><img src="anim_thermogram2.gif" alt="Thermogram" border="0" style="width: 100%;"></a>
+    
+    Edge overlay
+</p>
+
+<p align="center">
+    <a href=""><img src="anim_thermogram3.gif" alt="Thermogram" border="0" style="width: 100%;"></a>
+    
+    3D visualization
+</p>
+
 
 ## Files and Structure
 - `resources/`: Contains essential resources for the application.
