@@ -918,6 +918,10 @@ class DroneIrWindow(QMainWindow):
                 self.dual_viewer.load_images_from_path(self.work_image.rgb_path, dest_path_post)
             self.dest_path_post = dest_path_post
 
+            # check if legend is needed
+            if not self.checkBox_legend.isChecked():
+                self.viewer.toggleLegendVisibility()
+
 
     # CONTEXT MENU IN TREEVIEW _________________________________________________
     def onContextMenu(self, point):

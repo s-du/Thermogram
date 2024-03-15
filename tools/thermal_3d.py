@@ -41,7 +41,7 @@ class Custom3dView:
         self.window.add_child(self.info)
 
         self.widget3d.scene = rendering.Open3DScene(self.window.renderer)
-        self.widget3d.scene.set_background([0, 0, 0, 1])
+        self.widget3d.scene.set_background([1, 1, 1, 1])
         self.viewopt = self.widget3d.scene.view
         # self.viewopt.set_ambient_occlusion(True, ssct_enabled=True)
 
