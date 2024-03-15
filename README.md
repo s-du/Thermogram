@@ -15,6 +15,10 @@ The app offers the following key features:
 - User-friendly GUI for simple measurements (spot, line or rectangle).
 - Dual viewer for simultaneously inspecting RGB and IR data
 - Advanced color palette options
+- Advanced edge
+- Batch export functionality (including exporting raw data as TIFF files)
+
+![](anim_thermogram2.gif) 
 
 ## Files and Structure
 - `resources/`: Contains essential resources for the application.
@@ -56,8 +60,12 @@ python main.py
 ## Usage
 (Coming soon)
 
+## Coming next
+We plan to implement the following functionalities:
+- 
+
 ## Contributing
-Contributions to the WhatTheCrack App are welcome! If you find any bugs, have suggestions for new features, or would like to contribute enhancements, please follow these steps:
+Contributions to the Thermogram App are welcome! If you find any bugs, have suggestions for new features, or would like to contribute enhancements, please follow these steps:
 
 1. Fork the repository.
 2. Create a new branch for your feature or bug fix.
