@@ -25,7 +25,6 @@ The app offers the following key features:
     
     Edge overlay
 </p>
-<i>GUI for thermal image processing</i>
 
 <p align="center">
     <a href=""><img src="anim_thermogram3.gif" alt="Thermogram" border="0" style="width: 100%;"></a>
