@@ -11,12 +11,12 @@ from PIL import Image, ImageOps, ImageFilter
 from matplotlib import cm, pyplot as plt
 import matplotlib.colors as mcol
 from blend_modes import dodge, multiply
+from scipy.optimize import differential_evolution
 
 # PySide6 imports
 from PySide6 import QtCore, QtGui, QtWidgets
 from PySide6.QtCore import QPointF, QRectF
 from PySide6.QtWidgets import QGraphicsEllipseItem, QGraphicsTextItem
-from scipy.optimize import differential_evolution
 
 # custom libraries
 import resources as res
@@ -66,6 +66,10 @@ class DroneModel():
             _, self.dim_undis_rgb = undis(cv_rgb, self.rgb_xml_path)
             self.aspect_factor = (self.dim_undis_rgb[0] / self.dim_undis_rgb[1]) / (
                     self.dim_undis_ir[0] / self.dim_undis_ir[1])
+            # read focal parameters
+            cv_file = cv2.FileStorage(self.ir_xml_path, cv2.FILE_STORAGE_READ)
+            self.K_ir = cv_file.getNode("Camera_Matrix").mat()
+            self.d_ir = cv_file.getNode("Distortion_Coefficients").mat()
             self.extend = 0.3504
             self.x_offset = 49
             self.y_offset = 53
@@ -538,40 +542,6 @@ def copy_list_dest(list_paths, dest_folder):
     for path in list_paths:
         _, file = os.path.split(path)
         copyfile(path, os.path.join(dest_folder, file))
-
-
-def create_undis_folder(list_ir_paths, drone_model, dest_und_folder):
-    ir_xml_path = drone_model.ir_xml_path
-    for ir_path in list_ir_paths:
-        cv_ir_img = cv_read_all_path(ir_path)
-        cv_und, _ = undis(cv_ir_img, ir_xml_path)
-        _, file = os.path.split(ir_path)
-        new_name = file[:-4] + 'undis.JPG'
-        dest_path = os.path.join(dest_und_folder, new_name)
-        cv_write_all_path(cv_und, dest_path)
-
-
-def create_rgb_crop_folder(list_rgb_paths, drone_model, scale_percent, dest_crop_folder, progressbar, start, stop):
-    nb_im = len(list_rgb_paths)
-    print(list_rgb_paths)
-    for i, rgb_path in enumerate(list_rgb_paths):
-        iter = i * (stop - start) / nb_im
-        progressbar.setProperty("value", start + iter)
-        cv_rgb_img = cv_read_all_path(rgb_path)
-
-        rgb_xml_path = drone_model.rgb_xml_path
-        und = undis(cv_rgb_img, rgb_xml_path)
-        crop = match_rgb_custom_parameters(und, drone_model)
-        width = int(crop.shape[1] * scale_percent / 100)
-        height = int(crop.shape[0] * scale_percent / 100)
-        dim = (width, height)
-
-        crop = cv2.resize(crop, dim, interpolation=cv2.INTER_AREA)
-        _, file = os.path.split(rgb_path)
-        new_name = file[:-4] + 'crop.JPG'
-
-        dest_path = os.path.join(dest_crop_folder, new_name)
-        cv2.imwrite(dest_path, crop)
 
 
 # EXIF Readings

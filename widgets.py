@@ -358,6 +358,18 @@ class DualViewer(QWidget):
         # Store the zoom scale for synchronization
         self.zoom_scale = 1.0
         self.pan_origin = QPointF()
+    def refresh(self):
+        # Create the QGraphicsScenes for each view
+        self.scene1 = QGraphicsScene()
+        self.scene2 = QGraphicsScene()
+
+        # Set the scenes for the views
+        self.view1.setScene(self.scene1)
+        self.view2.setScene(self.scene2)
+
+        # Store the zoom scale for synchronization
+        self.zoom_scale = 1.0
+        self.pan_origin = QPointF()
 
     def load_images_from_path(self, image_path1, image_path2):
         im1 = Image.open(image_path1)

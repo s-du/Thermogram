@@ -324,14 +324,36 @@ class DroneIrWindow(QMainWindow):
 
             print('Re-creating RGB crop')
 
-            # process rgb_crop with updated parameters
-            tt.re_create_miniature(self.work_image.rgb_path_original,
-                                   self.work_image.drone_model,
-                                   self.rgb_crop_img_folder)
+            # ask options
+            # Create a QMessageBox
+            qm = QMessageBox
+            reply = qm.question(self, '', "Do you want to process all pictures with those new parameters", qm.Yes | qm.No)
 
-            # re-print-image
-            self.update_img_preview()
+            if reply == qm.Yes:
+                # re-run all miniatures
+                text_status = 'creating rgb miniatures...'
+                self.update_progress(nb=20, text=text_status)
 
+                worker_1 = tt.RunnerMiniature(self.list_rgb_paths, self.work_image.drone_model, 60, self.rgb_crop_img_folder, 20,
+                                              100)
+                worker_1.signals.progressed.connect(lambda value: self.update_progress(value))
+                worker_1.signals.messaged.connect(lambda string: self.update_progress(text=string))
+
+                self.__pool.start(worker_1)
+                worker_1.signals.finished.connect(self.miniat_finish)
+
+            else:
+                # only one miniature
+                # process rgb_crop with updated parameters
+                tt.re_create_miniature(self.work_image.rgb_path_original,
+                                       self.work_image.drone_model,
+                                       self.rgb_crop_img_folder)
+
+                # re-print-image
+                self.update_img_preview(refresh_dual=True)
+    def miniat_finish(self):
+        self.update_progress(nb=100, text='Ready...')
+        self.update_img_preview(refresh_dual=True)
 
     # ANNOTATIONS _________________________________________________________________
     def add_rect_meas(self, rect_item):
@@ -966,7 +988,7 @@ class DroneIrWindow(QMainWindow):
         else:
             self.pushButton_left.setEnabled(True)
 
-    def update_img_preview(self):
+    def update_img_preview(self, refresh_dual=False):
         if self.skip_update: # allows to skip image update
             return
 
@@ -1004,6 +1026,9 @@ class DroneIrWindow(QMainWindow):
 
             # set left and right views (in dual viewer)
             if self.has_rgb:
+                if refresh_dual:
+                    # reset the dual viewer
+                    self.dual_viewer.refresh()
                 self.dual_viewer.load_images_from_path(self.work_image.rgb_path, dest_path_post)
             self.dest_path_post = dest_path_post
 
