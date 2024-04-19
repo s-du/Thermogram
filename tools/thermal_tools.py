@@ -1,26 +1,22 @@
+# Standard library imports
 import os
-from shutil import copyfile, copytree
-import numpy as np
 import subprocess
 from pathlib import Path
+from shutil import copyfile, copytree
+
+# Third-party imports
+import cv2
+import numpy as np
 from PIL import Image, ImageOps, ImageFilter
+from matplotlib import cm, pyplot as plt
+import matplotlib.colors as mcol
+from blend_modes import dodge, multiply
+
+# PySide6 imports
 from PySide6 import QtCore, QtGui, QtWidgets
 from PySide6.QtCore import QPointF, QRectF
 from PySide6.QtWidgets import QGraphicsEllipseItem, QGraphicsTextItem
-
-from matplotlib import cm
-from matplotlib import pyplot as plt
-import matplotlib.colors as mcol
-from blend_modes import dodge, multiply
 from scipy.optimize import differential_evolution
-
-import fileinput
-import shutil
-# from skimage.segmentation import felzenszwalb, slic --> Removed superpixel for the moment
-# from skimage.color import label2rgb --> Removed superpixel for the moment
-# from skimage.color import label2rgb
-
-import cv2
 
 # custom libraries
 import resources as res
@@ -51,9 +47,14 @@ class DroneModel():
             self.aspect_factor = (self.dim_undis_rgb[0] / self.dim_undis_rgb[1]) / (
                     self.dim_undis_ir[0] / self.dim_undis_ir[1])
 
+            # read focal parameters
+            cv_file = cv2.FileStorage(self.ir_xml_path, cv2.FILE_STORAGE_READ)
+            self.K_ir = cv_file.getNode("Camera_Matrix").mat()
+            self.d_ir = cv_file.getNode("Distortion_Coefficients").mat()
             self.extend = 0.332
             self.x_offset = 50
             self.y_offset = 35
+
         elif name == 'M3T':
             self.rgb_xml_path = m3t_rgb_xml_path
             self.ir_xml_path = m3t_ir_xml_path
@@ -70,16 +71,6 @@ class DroneModel():
             self.y_offset = 53
 
 
-class ObjectDetectionCategory:
-    """
-    Class to describe a segmentation category
-    """
-
-    def __init__(self):
-        self.color = None
-        self.name = ''
-
-
 class ProcessedIm:
     def __init__(self, path, rgb_path, original_path, delayed_compute = True):
         # general infos
@@ -89,6 +80,7 @@ class ProcessedIm:
         self.preview_path = ''
         self.exif = extract_exif(self.path)
         self.drone_model_name = get_drone_model_from_exif(self.exif)
+        self.drone_model = DroneModel(self.drone_model_name)
         # colormap infos
         self.colormap = 'coolwarm'
         self.n_colors = 256
@@ -425,7 +417,6 @@ class RunnerMiniature(QtCore.QRunnable):
 
     def run(self):
         nb_im = len(self.list_rgb_paths)
-        ir_xml_path = self.drone_model.ir_xml_path
         rgb_xml_path = self.drone_model.rgb_xml_path
 
         for i, rgb_path in enumerate(self.list_rgb_paths):
@@ -454,6 +445,26 @@ class RunnerMiniature(QtCore.QRunnable):
 
 
 # EXPORT FUNCTIONS __________________________________________________
+def re_create_miniature(rgb_path, drone_model, dest_crop_folder, scale_percent = 60):
+    # read rgb
+    cv_rgb_img = cv_read_all_path(rgb_path)
+
+    # undistort rgb
+    rgb_xml_path = drone_model.rgb_xml_path
+    und, _ = undis(cv_rgb_img, rgb_xml_path)
+    crop = match_rgb_custom_parameters(und, drone_model)
+    width = int(crop.shape[1] * scale_percent / 100)
+    height = int(crop.shape[0] * scale_percent / 100)
+    dim = (width, height)
+
+    crop = cv2.resize(crop, dim, interpolation=cv2.INTER_AREA)
+    _, file = os.path.split(rgb_path)
+    new_name = file[:-4] + 'crop.JPG'
+
+    dest_path = os.path.join(dest_crop_folder, new_name)
+
+    cv_write_all_path(crop, dest_path)
+
 
 def create_video(image_folder, video_name, fps):
     images = [img for img in os.listdir(image_folder) if img.endswith(".jpg") or img.endswith(".JPG")]
@@ -621,6 +632,14 @@ def undis(cv_img, xml_path):
 
     return dest, dim
 
+def undis_kd(cv_img, K, d):
+    h, w = cv_img.shape[:2]
+    newcam, roi = cv2.getOptimalNewCameraMatrix(K, d, (w, h), 1, (w, h))
+    dest = cv2.undistort(cv_img, K, d, None, newcam)
+    x, y, w, h = roi
+    dest = dest[y:y + h, x:x + w]
+
+    return dest
 
 # LENS RELATED METHODS (DRONE SPECIFIC) __________________________________________________
 def match_rgb_custom_parameters(cv_img, drone_model, resized=False):
@@ -636,91 +655,6 @@ def match_rgb_custom_parameters(cv_img, drone_model, resized=False):
         rgb_dest = cv2.resize(rgb_dest, drone_model.dim_undis_ir, interpolation=cv2.INTER_AREA)
 
     return rgb_dest
-
-def optimize_align(rgb_img_path, ir_img_path, drone_model):
-    def undis_kd(cv_img, K, d):
-        h, w = cv_img.shape[:2]
-        newcam, roi = cv2.getOptimalNewCameraMatrix(K, d, (w, h), 1, (w, h))
-        dest = cv2.undistort(cv_img, K, d, None, newcam)
-        x, y, w, h = roi
-        dest = dest[y:y + h, x:x + w]
-
-        return dest
-
-    def func_complex(theta, save=True):
-        K = np.array([[theta[0], 0, theta[1]],
-                      [0, theta[0], theta[2]],
-                      [0, 0, 1]])
-
-        d = np.array([[theta[3]], [theta[4]], [theta[5] / 10000], [theta[6] / 10000], [theta[7]]])
-
-        # undistort image with given parameters
-        cv_ir_un = undis_kd(cv_ir, K, d)
-        h_ir, w_ir = cv_ir_un.shape[:2]
-
-        print(theta)
-        print(h_ir, w_ir)
-
-        dim_undis_ir = (w_ir, h_ir)
-
-        extend = theta[8] / 100
-        y_offset = theta[9] * 100
-        x_offset = theta[10] * 100
-
-        if h_ir == 0:
-            aspect_factor = 1
-        else:
-            aspect_factor = (w_rgb / h_rgb) / (
-                    w_ir / h_ir)  # this is necessary to transform the aspect ratio of the rgb image to fit
-            # the thermal image. The number represent the resolutions of images (rgb and ir respectively) after undistording
-        new_h = h_rgb * aspect_factor
-
-        ret_x = int(extend * w_rgb)
-        ret_y = int(extend * new_h)
-        rgb_dest = cv_rgb[int(h_rgb / 2 + y_offset) - ret_y:int(h_rgb / 2 + y_offset) + ret_y,
-                   int(w_rgb / 2 + x_offset) - ret_x:int(w_rgb / 2 + x_offset) + ret_x]
-
-        # resize
-        rgb_dest = cv2.resize(rgb_dest, dim_undis_ir, interpolation=cv2.INTER_AREA)
-
-        # create lines
-        lines_rgb = create_lines(rgb_dest)
-        if save:
-            cv2.imwrite(rgb_img_path[:-4] + '_rgb_lines.JPG', lines_rgb)
-
-        lines_ir = create_lines(cv_ir_un)
-        if save:
-            cv2.imwrite(ir_img_path[:-4] + '_ir_lines.JPG', lines_ir)
-
-        # compute difference
-        diff = cv2.subtract(lines_ir, lines_rgb)
-        err = np.sum(diff ** 2)
-        mse = err / (float(h_ir * w_ir))
-
-        print(f'mse is {mse}')
-
-        return mse
-
-    # read images
-    cv_rgb = cv2.imread(rgb_img_path)
-    # undistort RGB
-    cv_rgb, dim = undis(cv_rgb, drone_model.rgb_xml_path)
-    cv_ir = cv2.imread(ir_img_path)
-
-    # get shape
-    h_rgb, w_rgb = dim
-    print(h_rgb, w_rgb)
-
-    res = differential_evolution(func_complex, (
-    (500, 1000), (250, 390), (200, 312), (-1, 1), (-1, 1), (0, 1), (0, 1), (-1, 1), (20, 40), (-1, 1), (-1, 1)),
-                                 maxiter=30)
-
-    print(res)
-    print(res.x)
-
-    func_complex(res.x, save=True)
-
-    return res.x
 
 # CROP OPS __________________________________________________
 def get_corresponding_crop_rectangle(p1, p2, scale):
@@ -822,11 +756,12 @@ def add_lines_from_rgb(path_ir, cv_match_rgb_img, drone_model, dest_path,
     else:
         blended_img_raw.save(dest_path, exif=exif)
 
-def create_lines(cv_img):
+def create_lines(cv_img, bil=True):
     img_gray = cv2.cvtColor(cv_img, cv2.COLOR_BGR2GRAY)
 
-    # Blur the image for better edge detection
-    img_blur = cv2.GaussianBlur(img_gray, (3, 3), 0)
+    if bil:
+        # img_gray = cv2.GaussianBlur(img_gray, (3, 3), 0)
+        img_gray = cv2.bilateralFilter(img_gray, 7, 75, 75)
 
     scale = 1
     delta = 0
@@ -837,10 +772,8 @@ def create_lines(cv_img):
     abs_grad_x = cv2.convertScaleAbs(grad_x)
     abs_grad_y = cv2.convertScaleAbs(grad_y)
 
-    edges = cv2.addWeighted(abs_grad_x, 0.5, abs_grad_y, 0.5, 0)
-
-
-    #edges = cv2.Canny(image=img_blur, threshold1=50, threshold2=200)
+    # edges = cv2.addWeighted(abs_grad_x, 0.5, abs_grad_y, 0.5, 0)
+    edges = cv2.Canny(image=img_gray, threshold1=50, threshold2=200)
 
     return edges
 
@@ -1096,6 +1029,61 @@ def process_raw_data(img_object, dest_path, edges, edge_params, custom_params=No
                            mode=ed_met, color=ed_col, bilateral=ed_bil, blur=ed_blur, blur_size=ed_bl_sz, opacity=ed_op)
 
 
+def process_th_image_with_theta(ir_img_path, rgb_img_path, out_folder, theta, F, CX, CY, d_mat):
+    # read images
+    cv_rgb = cv2.imread(rgb_img_path)
+    h_rgb, w_rgb = cv_rgb.shape[:2]
+    cv_ir = cv2.imread(ir_img_path)
+
+    K = np.array([[F, 0, CX],
+                  [0, F, CY],
+                  [0, 0, 1]])
+
+    d = d_mat
+
+    # undistort image with given parameters
+    cv_ir_un = undis_kd(cv_ir, K, d)
+    h_ir, w_ir = cv_ir_un.shape[:2]
+
+    dim_undis_ir = (w_ir, h_ir)
+
+    extend = theta[0] / 100
+    y_offset = theta[1] * 10
+    x_offset = theta[2] * 10
+
+    if h_ir == 0:
+        aspect_factor = 1
+    else:
+        aspect_factor = (w_rgb / h_rgb) / (
+                w_ir / h_ir)  # this is necessary to transform the aspect ratio of the rgb image to fit
+        # the thermal image. The number represent the resolutions of images (rgb and ir respectively) after undistording
+    new_h = h_rgb * aspect_factor
+
+    ret_x = int(extend * w_rgb)
+    ret_y = int(extend * new_h)
+    rgb_dest = cv_rgb[int(h_rgb / 2 + y_offset) - ret_y:int(h_rgb / 2 + y_offset) + ret_y,
+               int(w_rgb / 2 + x_offset) - ret_x:int(w_rgb / 2 + x_offset) + ret_x]
+
+    # resize
+    rgb_dest = cv2.resize(rgb_dest, dim_undis_ir, interpolation=cv2.INTER_AREA)
+    cv2.imwrite(os.path.join(out_folder, 'rescale.JPG'), rgb_dest)
+
+    # create lines
+    lines_rgb = create_lines(rgb_dest)
+    cv2.imwrite(rgb_img_path[:-4] + '_rgb_lines.JPG', lines_rgb)
+
+    lines_ir = create_lines(cv_ir_un, bil=False)
+    cv2.imwrite(ir_img_path[:-4] + '_ir_lines.JPG', lines_ir)
+
+    # compute difference
+    diff = cv2.subtract(lines_ir, lines_rgb)
+    err = np.sum(diff ** 2)
+    mse = err / (float(h_ir * w_ir))
+
+    print(f'mse is {mse}')
+
+    return mse
+
 def generate_legend(legend_dest_path, custom_params):
     tmin = custom_params["tmin"]
     tmax = custom_params["tmax"]
@@ -1130,43 +1118,3 @@ def generate_legend(legend_dest_path, custom_params):
 """
 °-°-°-°JUNK°-°-°-°
 """
-
-def path_info(path):
-    """
-    Function that reads a path and outputs the folder, the complete filename and the filename without file extension
-    @ parameters:
-        path -- input path (string)
-    """
-    folder, file = os.path.split(path)
-    extension = file[-4:]
-    name = file[:-4]
-    return folder, file, name, extension
-
-
-def find_files_of_type(folder, types=[]):
-    files = [os.path.join(folder, file) for file in os.listdir(folder)]
-    output = []
-
-    for file in files:
-        for type in types:
-            if file.endswith(type):
-                output.append(file)
-
-    return output
-
-
-def list_th_rgb_images_from_exif(img_folder):
-    list_rgb_paths = []
-    list_ir_paths = []
-    for file in os.listdir(img_folder):
-
-        path = os.path.join(img_folder, file)
-        print(path)
-        if file.endswith('.jpg') or file.endswith('.JPG'):
-            res = get_resolution(path)
-            if res == 640:
-                list_ir_paths.append(path)
-            else:
-                list_rgb_paths.append(path)
-
-    return list_rgb_paths, list_ir_paths

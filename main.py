@@ -296,8 +296,42 @@ class DroneIrWindow(QMainWindow):
             pass
 
     def image_matching(self):
-        res = tt.optimize_align(self.images[self.active_image].rgb_path_original,
-                                self.images[self.active_image].path, self.drone_model)
+        temp_folder = os.path.join(self.app_folder, 'temp')
+        if not os.path.exists(temp_folder):
+            os.mkdir(temp_folder)
+
+        # get work images
+        rgb_path = self.work_image.rgb_path_original
+        ir_path = self.work_image.path
+
+        # get initial distortion parameters from the drone model (stored in the image)
+        # [k1, extend, y - offset, x - offset]
+        F = self.work_image.drone_model.K_ir[0][0]
+        d_mat = self.work_image.drone_model.d_ir
+        extend = self.work_image.drone_model.extend
+        y_off = self.work_image.drone_model.y_offset
+        x_off = self.work_image.drone_model.x_offset
+
+        print(f'Here are the work values! focal:{F}, extend:{extend}, y offset:{y_off}, x offset: {x_off}')
+
+        dialog = dia.AlignmentDialog(ir_path, rgb_path, temp_folder, F, d_mat, theta=[extend*100, y_off/10, x_off/10])
+        if dialog.exec_():
+            # update values
+            extend, y_off, x_off = dialog.theta
+            self.work_image.drone_model.extend = extend/100
+            self.work_image.drone_model.y_offset = y_off*10
+            self.work_image.drone_model.x_offset = x_off*10
+
+            print('Re-creating RGB crop')
+
+            # process rgb_crop with updated parameters
+            tt.re_create_miniature(self.work_image.rgb_path_original,
+                                   self.work_image.drone_model,
+                                   self.rgb_crop_img_folder)
+
+            # re-print-image
+            self.update_img_preview()
+
 
     # ANNOTATIONS _________________________________________________________________
     def add_rect_meas(self, rect_item):

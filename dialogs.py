@@ -1,29 +1,26 @@
-import os
-from PySide6 import QtCore, QtGui, QtWidgets
+# Standard library imports
 import logging
+import os
 import sys
 import traceback
+from shutil import copyfile
 
-from PySide6.QtCore import QRectF
-from PySide6.QtGui import QPixmap, QPainter, QImage, QColor
-from PySide6.QtWidgets import QDialog, QVBoxLayout, QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QComboBox, \
-    QSlider, QGraphicsItem
+# Third-party imports
+import cv2
 from matplotlib import cm
-from matplotlib.backends.backend_qt5agg import (
-   FigureCanvasQTAgg as FigureCanvas,
-   NavigationToolbar2QT)
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas, NavigationToolbar2QT
 from matplotlib.figure import Figure
-
+import numpy as np
+from PIL import Image
 import qimage2ndarray
 
-from PIL import Image
-from matplotlib import cm
+# PySide6 imports
+from PySide6 import QtCore, QtGui, QtWidgets
+from PySide6.QtCore import *
+from PySide6.QtGui import *
+from PySide6.QtWidgets import *
 
-
-
-import numpy as np
-
-# custom libraries
+# Custom library imports
 import widgets as wid
 import resources as res
 from tools import thermal_tools as tt
@@ -33,16 +30,18 @@ log = logging.getLogger(__name__)
 handler = logging.StreamHandler(stream=sys.stdout)
 log.addHandler(handler)
 
+
 def show_exception_box(log_msg):
     """Checks if a QApplication instance is available and shows a messagebox with the exception message.
     If unavailable (non-console application), log an additional notice.
     """
     if QtWidgets.QApplication.instance() is not None:
-            errorbox = QtWidgets.QMessageBox()
-            errorbox.setText("Oops. An unexpected error occured:\n{0}".format(log_msg))
-            errorbox.exec_()
+        errorbox = QtWidgets.QMessageBox()
+        errorbox.setText("Oops. An unexpected error occured:\n{0}".format(log_msg))
+        errorbox.exec_()
     else:
         log.debug("No QApplication instance available.")
+
 
 class UncaughtHook(QtCore.QObject):
     _exception_caught = QtCore.Signal(object)
@@ -72,18 +71,21 @@ class UncaughtHook(QtCore.QObject):
             # trigger message box show
             self._exception_caught.emit(log_msg)
 
+
 # create a global instance of our class to register the hook
 qt_exception_hook = UncaughtHook()
+
 
 class AboutDialog(QtWidgets.QDialog):
     def __init__(self):
         super().__init__()
 
         self.setWindowTitle('What is this app about?')
-        self.setFixedSize(300,300)
+        self.setFixedSize(300, 300)
         self.layout = QtWidgets.QVBoxLayout()
 
-        about_text = QtWidgets.QLabel('The Thermogram app was made to simplify the analysis of thermal images. Any question/remark: samuel.dubois@buildwise.be')
+        about_text = QtWidgets.QLabel(
+            'The Thermogram app was made to simplify the analysis of thermal images. Any question/remark: samuel.dubois@buildwise.be')
         about_text.setWordWrap(True)
 
         logos1 = QtWidgets.QLabel()
@@ -97,6 +99,7 @@ class AboutDialog(QtWidgets.QDialog):
 
         self.setLayout(self.layout)
 
+
 class CustomGraphicsItem(QGraphicsItem):
     def __init__(self, pixmap, target_size=None, parent=None):
         super().__init__(parent)
@@ -106,7 +109,8 @@ class CustomGraphicsItem(QGraphicsItem):
         self.target_size = target_size
 
         if self.target_size:
-            self.pixmap = self.pixmap.scaled(self.target_size, QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation)
+            self.pixmap = self.pixmap.scaled(self.target_size, QtCore.Qt.KeepAspectRatio,
+                                             QtCore.Qt.SmoothTransformation)
 
     def boundingRect(self):
         return QRectF(self.pixmap.rect())
@@ -116,11 +120,13 @@ class CustomGraphicsItem(QGraphicsItem):
         painter.setCompositionMode(self.composition_mode)
         painter.drawPixmap(0, 0, self.pixmap)
 
-    def setPixmap(self, pixmap, rescale = True):
+    def setPixmap(self, pixmap, rescale=True):
         self.pixmap = pixmap
         if rescale:
-            self.pixmap = self.pixmap.scaled(self.target_size, QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation)
+            self.pixmap = self.pixmap.scaled(self.target_size, QtCore.Qt.KeepAspectRatio,
+                                             QtCore.Qt.SmoothTransformation)
         self.update()
+
 
 class ImageFusionDialog(QtWidgets.QDialog):
     """
@@ -172,8 +178,8 @@ class ImageFusionDialog(QtWidgets.QDialog):
         self.range_slider_map.upperValueChanged.connect(self.recolorIRImage)
 
         # edit labels
-        self.label_max.setText(f'{str(min_shown_temp_scaled/100)} °C')
-        self.label_min.setText(f'{str(max_shown_temp_scaled/100)} °C')
+        self.label_max.setText(f'{str(min_shown_temp_scaled / 100)} °C')
+        self.label_min.setText(f'{str(max_shown_temp_scaled / 100)} °C')
 
         # edit labels
         self.label_max_2.setText(f'{str(max_shown_temp_scaled / 100)} °C')
@@ -357,6 +363,134 @@ class ImageFusionDialog(QtWidgets.QDialog):
         self.colorImageItem.update()
 
 
+class AlignmentDialog(QDialog):
+    def __init__(self, ir_path, rgb_path, temp_folder, F, d_mat, theta=[30, 0, 0]):
+        super().__init__()
+
+        # images to process
+        # copy images to temp folder
+        self.temp_folder = temp_folder
+        self.ir_path = os.path.join(temp_folder, 'IR.JPG')
+        self.rgb_path = os.path.join(temp_folder, 'RGB.JPG')
+        copyfile(ir_path, self.ir_path)
+        copyfile(rgb_path, self.rgb_path)
+
+        # get focal and center points
+        self.F = F
+        self.CX = 320
+        self.CY = 256
+        self.d_mat = d_mat
+
+        # Initial theta values
+        # Parameters are [k1, extend, y-offset, x-offset]
+        self.theta = theta
+
+        # Setup UI
+        self.setWindowTitle("Thermal Image Processor")
+        self.setGeometry(100, 100, 800, 800)
+
+        # Main layout
+        layout = QVBoxLayout(self)
+
+        # Graphics view
+        self.graphics_view = QGraphicsView()
+        layout.addWidget(self.graphics_view)
+        self.scene = QGraphicsScene()
+        self.graphics_view.setScene(self.scene)
+
+        # Sliders and Labels for parameters
+        self.sliders = []
+        self.labels = []
+        param_names = ["extend", "y-offset", "x-offset"]
+        param_ranges = [(20, 40), (-100, 100), (-100, 100)]
+
+        for i, (param_name, param_range) in enumerate(zip(param_names, param_ranges)):
+            label = QLabel(f"{param_name}: {self.theta[i]}")
+            layout.addWidget(label)
+            self.labels.append(label)
+
+            slider = QSlider(Qt.Horizontal)
+            slider.setMinimum(param_range[0] * 10)
+            slider.setMaximum(param_range[1] * 10)
+            slider.setValue(self.theta[i])
+            slider.valueChanged.connect(lambda value, x=i: self.update_parameter(x, value))
+            self.sliders.append(slider)
+            layout.addWidget(slider)
+
+        # Optimize button
+        self.optimize_button = QPushButton('Optimize')
+        self.optimize_button.clicked.connect(self.optimize)
+        layout.addWidget(self.optimize_button)
+
+        # Button box for OK and Cancel
+        button_layout = QHBoxLayout()
+        self.ok_button = QPushButton("OK")
+        self.cancel_button = QPushButton("Cancel")
+        button_layout.addWidget(self.ok_button)
+        button_layout.addWidget(self.cancel_button)
+        layout.addLayout(button_layout)
+
+        # Connect buttons to their actions
+        self.ok_button.clicked.connect(self.accept)
+        self.cancel_button.clicked.connect(self.reject)
+
+        # Load and process initial images
+        self.process_images()
+
+    def update_parameter(self, index, value):
+        self.theta[index] = value / 10
+        self.labels[index].setText(f"{self.labels[index].text().split(':')[0]}: {value / 10}")
+        self.process_images()
+
+    def optimize(self):
+        # Placeholder for optimize function
+        print("Optimization started...")
+
+    def convert_np_img_to_qimage(self, img):
+        """Converts a numpy array image to QImage."""
+        if img.ndim == 3:  # Color image
+            h, w, ch = img.shape
+            bytes_per_line = ch * w
+            qimage = QImage(img.data, w, h, bytes_per_line, QImage.Format_RGB888)
+        else:  # Grayscale image
+            h, w = img.shape
+            qimage = QImage(img.data, w, h, QImage.Format_Grayscale8)
+        return qimage
+
+    def process_images(self):
+        # Image processing placeholder
+        print(f"Processing with theta: {self.theta}")
+        # This should call your actual image processing code
+        tt.process_th_image_with_theta(self.ir_path, self.rgb_path, self.temp_folder, self.theta, self.F, self.CX,
+                                       self.CY, self.d_mat)
+
+        # Read the original RGB image
+        rgb_image = cv2.imread(os.path.join(self.temp_folder, 'rescale.JPG'))  # Assuming 'rgb_img_path' is defined globally or accessible
+
+        # Convert RGB image to grayscale for background
+        grayscale_rgb_image = cv2.cvtColor(rgb_image, cv2.COLOR_BGR2GRAY)
+
+        # Read or process the IR lines image
+        # Assuming 'lines_ir' is a binary image with lines as white (255) and background as black (0)
+        # For demonstration, replace this with an actual call to your image processing function
+        lines_ir = cv2.imread(os.path.join(self.temp_folder, 'IR_ir_lines.JPG'), cv2.IMREAD_GRAYSCALE)  # Placeholder
+
+        # Convert the grayscale image to a 3-channel image to overlay colors
+        grayscale_rgb_image_colored = cv2.cvtColor(grayscale_rgb_image, cv2.COLOR_GRAY2BGR)
+
+        # Overlay IR lines: Set them to blue (or any color you choose) on the grayscale image
+        grayscale_rgb_image_colored[lines_ir >= 100] = [255, 0, 0]  # Blue: [B, G, R] - Change this color if needed
+
+        # Convert the overlay image to QImage for display
+        qimage = self.convert_np_img_to_qimage(grayscale_rgb_image_colored)
+
+        # Update QGraphicsScene
+        self.scene.clear()
+        pixmap_item = QGraphicsPixmapItem(QPixmap.fromImage(qimage))
+        self.scene.addItem(pixmap_item)
+
+
+
 
 class DialogEdgeOptions(QtWidgets.QDialog):
     """
@@ -369,9 +503,9 @@ class DialogEdgeOptions(QtWidgets.QDialog):
         basename = 'edge_options'
         uifile = os.path.join(basepath, 'ui/%s.ui' % basename)
         wid.loadUi(uifile, self)
-        self.comboBox_blur_size.addItems([str(3),str(5),str(7)])
+        self.comboBox_blur_size.addItems([str(3), str(5), str(7)])
         self.comboBox_color.addItems(['white', 'black'])
-        self.comboBox_method.addItems(['Sobel A', 'Kernel 1','Kernel 2', 'Canny', 'Canny-L2', 'ML'])
+        self.comboBox_method.addItems(['Sobel A', 'Kernel 1', 'Kernel 2', 'Canny', 'Canny-L2', 'ML'])
 
         # button actions
         self.buttonBox.accepted.connect(self.accept)
@@ -406,17 +540,14 @@ class DialogEdgeOptions(QtWidgets.QDialog):
             self.comboBox_blur_size.setCurrentIndex(index)
 
         op_value = self.parameters[5]
-        self.horizontalSlider.setValue(op_value*100)
-
-
-
-
+        self.horizontalSlider.setValue(op_value * 100)
 
     def toggle_combo(self):
         if self.checkBox.isChecked():
             self.comboBox_blur_size.setEnabled(True)
         else:
             self.comboBox_blur_size.setEnabled(False)
+
 
 class DialogThParams(QtWidgets.QDialog):
     """
@@ -448,7 +579,6 @@ class MeasLineDialog(QtWidgets.QDialog):
         basename = 'meas_dialog_2d'
         uifile = os.path.join(basepath, 'ui/%s.ui' % basename)
         wid.loadUi(uifile, self)
-
 
         self.data = data
         self.y_values = data
@@ -564,7 +694,5 @@ class Meas3dDialog(QtWidgets.QDialog):
         custom_cmap.set_under(col_low)
 
         xx, yy = np.mgrid[0:self.data.shape[0], 0:self.data.shape[1]]
-        self.ax.plot_surface(xx, yy,self.data, rstride=1, cstride=1, linewidth=0, cmap=custom_cmap)
+        self.ax.plot_surface(xx, yy, self.data, rstride=1, cstride=1, linewidth=0, cmap=custom_cmap)
         self.matplot_c.figure.canvas.draw_idle()
-
-
