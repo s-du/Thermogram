@@ -25,7 +25,7 @@ import cv2
 # custom libraries
 import resources as res
 
-# PATHS
+# PATHS __________________________________________________
 sdk_tool_path = Path(res.find('dji/dji_irp.exe'))
 m2t_ir_xml_path = res.find('other/cam_calib_m2t_opencv.xml')
 m2t_rgb_xml_path = res.find('other/rgb_cam_calib_m2t_opencv.xml')
@@ -35,7 +35,7 @@ m3t_rgb_xml_path = res.find('other/rgb_cam_calib_m3t_opencv.xml')
 
 LIST_CUSTOM_CMAPS = ['Artic', 'Iron', 'Rainbow', 'FIJI_Temp', 'BlueWhiteRed']
 
-# USEFUL CLASSES
+# USEFUL CLASSES __________________________________________________
 class DroneModel():
     def __init__(self, name):
         if name == 'MAVIC2-ENTERPRISE-ADVANCED':
@@ -453,6 +453,26 @@ class RunnerMiniature(QtCore.QRunnable):
         self.signals.finished.emit()
 
 
+# EXPORT FUNCTIONS __________________________________________________
+
+def create_video(image_folder, video_name, fps):
+    images = [img for img in os.listdir(image_folder) if img.endswith(".jpg") or img.endswith(".JPG")]
+    images.sort()  # Sort the images if needed
+
+    # Determine the width and height from the first image
+    frame = cv2.imread(os.path.join(image_folder, images[0]))
+    height, width, layers = frame.shape
+
+    # Initialize video writer
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')  # For mp4 videos
+    video = cv2.VideoWriter(video_name, fourcc, fps, (width, height))
+
+    for image in images:
+        video.write(cv2.imread(os.path.join(image_folder, image)))
+
+    cv2.destroyAllWindows()
+    video.release()
+
 #  PATH FUNCTIONS __________________________________________________
 def cv_read_all_path(path):
     """
@@ -602,7 +622,7 @@ def undis(cv_img, xml_path):
     return dest, dim
 
 
-# LENS RELATED METHODS (DRONE SPECIFIC)
+# LENS RELATED METHODS (DRONE SPECIFIC) __________________________________________________
 def match_rgb_custom_parameters(cv_img, drone_model, resized=False):
     print(cv_img)
     h2, w2 = cv_img.shape[:2]
@@ -702,7 +722,7 @@ def optimize_align(rgb_img_path, ir_img_path, drone_model):
 
     return res.x
 
-# CROP OPS
+# CROP OPS __________________________________________________
 def get_corresponding_crop_rectangle(p1, p2, scale):
     # Scale the coordinates of p1 and p2 to the larger image size
     p1_large = (int(p1[0] * scale), int(p1[1] * scale))
@@ -716,7 +736,7 @@ def get_corresponding_crop_rectangle(p1, p2, scale):
 
     return crop_tl, crop_br
 
-# LINES __________________________________________________________
+# LINES __________________________________________________
 def add_lines_from_rgb(path_ir, cv_match_rgb_img, drone_model, dest_path,
                        exif=None, mode=1, color='white', bilateral=True, blur=True, blur_size=3, opacity=0.7):
 
@@ -824,7 +844,7 @@ def create_lines(cv_img):
 
     return edges
 
-# THERMAL PROCESSING _____________________________________________
+# THERMAL PROCESSING __________________________________________________
 # custom colormaps
 def get_custom_cmaps(colormap_name, n_colors):
     colors = [(25, 0, 150), (94, 243, 247), (100, 100, 100), (243, 116, 27), (251, 250, 208)]
@@ -890,15 +910,28 @@ def read_dji_image(img_in, raw_out, param={'emissivity': 0.95, 'distance': 5, 'h
     refl_temp = param['reflection']
     em = param['emissivity']
 
-    subprocess.run(
-        [str(sdk_tool_path), "-s", f"{img_in}", "-a", "measure", "-o", f"{raw_out}", "--measurefmt",
-         "float32", "--distance", f"{dist}", "--humidity", f"{rh}", "--reflection", f"{refl_temp}",
-         "--emissivity", f"{em}"],
-        universal_newlines=True,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.STDOUT,
-        shell=True
-    )
+    try:
+        result = subprocess.run(
+            [str(sdk_tool_path), "-s", f"{img_in}", "-a", "measure", "-o", f"{raw_out}", "--measurefmt",
+             "float32", "--distance", f"{dist}", "--humidity", f"{rh}", "--reflection", f"{refl_temp}",
+             "--emissivity", f"{em}"],
+            universal_newlines=True,
+            stdout=subprocess.PIPE,  # Capture standard output
+            stderr=subprocess.PIPE,  # Capture standard error
+            shell=True
+        )
+
+        # Always print stdout and stderr for debugging
+        print("STDOUT:")
+        print(result.stdout)
+        print("STDERR:")
+        print(result.stderr)
+
+        # Check if the subprocess completed successfully
+        if result.returncode != 0:
+            print("An error occurred in the subprocess.")
+    except Exception as e:
+        print(f"An exception occurred while running the subprocess: {e}")
 
     image = Image.open(img_in)
     exif = image.info['exif']

@@ -332,6 +332,7 @@ border-radius: 10px;
     <addaction name="actionSave_Image"/>
     <addaction name="actionProcess_all"/>
     <addaction name="actionConvert_to_RAW_TIFF"/>
+    <addaction name="actionCreate_anim"/>
    </widget>
    <widget class="QMenu" name="menuAbout">
     <property name="title">
@@ -1016,6 +1017,14 @@ border-radius: 10px;
   <action name="actionConvert_to_RAW_TIFF">
    <property name="text">
     <string>Convert all to RAW TIFF</string>
+   </property>
+  </action>
+  <action name="actionCreate_anim">
+   <property name="text">
+    <string>Create animation</string>
+   </property>
+   <property name="toolTip">
+    <string>Create animation from all images</string>
    </property>
   </action>
  </widget>

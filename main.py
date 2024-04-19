@@ -205,6 +205,7 @@ class DroneIrWindow(QMainWindow):
         self.actionConvert_to_RAW_TIFF.triggered.connect(self.generate_raw_tiff)
         self.action3D_temperature.triggered.connect(self.show_viz_threed)
         self.actionCompose.triggered.connect(self.compose_pic)
+        self.actionCreate_anim.triggered.connect(self.export_anim)
 
         self.viewer.endDrawing_rect_meas.connect(self.add_rect_meas)
         self.viewer.endDrawing_point_meas.connect(self.add_point_meas)
@@ -471,6 +472,59 @@ class DroneIrWindow(QMainWindow):
         self.update_img_preview()
 
     # LOAD AND SAVE ACTIONS ______________________________________________________________________________
+    def export_anim(self):
+        # export all images
+        # get parameters
+        self.colormap, self.n_colors, self.user_lim_col_high, self.user_lim_col_low, self.tmin, self.tmax, self.tmin_shown, self.tmax_shown, self.post_process = self.work_image.get_colormap_data()
+
+        self.nb_sets += 1
+
+        desc = f'{PROC_TH_FOLDER}_{self.colormap}_{str(round(self.tmin_shown, 0))}_{str(round(self.tmax_shown, 0))}_{self.post_process}_image-set_{self.nb_sets}'
+
+        # create output folder
+        self.last_out_folder = os.path.join(self.app_folder, desc)
+        if not os.path.exists(self.last_out_folder):
+            os.mkdir(self.last_out_folder)
+
+        worker_1 = tt.RunnerDJI(5, 50, self.last_out_folder, self.images, self.work_image, self.edges,
+                                self.edge_params)
+        worker_1.signals.progressed.connect(lambda value: self.update_progress(value))
+        worker_1.signals.messaged.connect(lambda string: self.update_progress(text=string))
+
+        self.__pool.start(worker_1)
+        worker_1.signals.finished.connect(self.export_video_phase2)
+
+    def export_video_phase2(self):
+        self.update_progress(nb=60, text="Status: Video creation!")
+
+        tt.create_video(self.last_out_folder, 'animation_thermal.mp4', 3)
+
+        self.update_progress(nb=100, text="Continue analyses!")
+
+        video_path = self.last_out_folder  # Adjust the path to your video's folder
+        video_file = "animation_thermal.mp4"  # Adjust to your video file name if needed
+
+        msg_box = QMessageBox()
+        msg_box.setWindowTitle("Video Location")
+        msg_box.setText(f"Your video is located here:\n{video_path}/{video_file}")
+        msg_box.setInformativeText("Click 'Open Folder' to view it.")
+
+        # Adding Open Folder button
+        open_button = msg_box.addButton("Open Folder", QMessageBox.ActionRole)
+        msg_box.setStandardButtons(QMessageBox.Ok)
+
+        # Display the message box and wait for a user action
+        msg_box.exec_()
+
+        # Check if the Open Folder button was clicked
+        if msg_box.clickedButton() == open_button:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(video_path))
+
+        # Display the message box
+        msg_box.exec_()
+
+
+
     def load_folder_phase1(self):
         # warning message (new project)
         if self.list_rgb_paths != '':
@@ -545,7 +599,7 @@ class DroneIrWindow(QMainWindow):
                     text_status = 'creating rgb miniatures...'
                     self.update_progress(nb=20, text=text_status)
 
-                    worker_1 = tt.RunnerMiniature(self.list_rgb_paths, self.drone_model, 20, self.rgb_crop_img_folder, 20,
+                    worker_1 = tt.RunnerMiniature(self.list_rgb_paths, self.drone_model, 60, self.rgb_crop_img_folder, 20,
                                                   100)
                     worker_1.signals.progressed.connect(lambda value: self.update_progress(value))
                     worker_1.signals.messaged.connect(lambda string: self.update_progress(text=string))
@@ -651,11 +705,11 @@ class DroneIrWindow(QMainWindow):
             desc = f'{PROC_TH_FOLDER}_{self.colormap}_{str(round(self.tmin_shown, 0))}_{str(round(self.tmax_shown, 0))}_{self.post_process}_image-set_{self.nb_sets}'
 
             # create output folder
-            out_folder = os.path.join(self.app_folder, desc)
-            if not os.path.exists(out_folder):
-                os.mkdir(out_folder)
+            self.last_out_folder = os.path.join(self.app_folder, desc)
+            if not os.path.exists(self.last_out_folder):
+                os.mkdir(self.last_out_folder)
 
-            worker_1 = tt.RunnerDJI(5,100, out_folder, self.images, self.work_image, self.edges, self.edge_params)
+            worker_1 = tt.RunnerDJI(5,100, self.last_out_folder, self.images, self.work_image, self.edges, self.edge_params)
             worker_1.signals.progressed.connect(lambda value: self.update_progress(value))
             worker_1.signals.messaged.connect(lambda string: self.update_progress(text=string))
 
@@ -814,33 +868,34 @@ class DroneIrWindow(QMainWindow):
         """
         # load stored data
         self.work_image = self.images[self.active_image]
-        self.colormap, self.n_colors, self.user_lim_col_high, self.user_lim_col_low, self.tmin, self.tmax, self.tmin_shown, self.tmax_shown, self.post_process = self.work_image.get_colormap_data()
+        if not self.checkBox_keep.isChecked():
+            self.colormap, self.n_colors, self.user_lim_col_high, self.user_lim_col_low, self.tmin, self.tmax, self.tmin_shown, self.tmax_shown, self.post_process = self.work_image.get_colormap_data()
 
-        # find correspondances in comboboxes
-        a = self._colormap_list.index(self.colormap)
-        b = self._out_of_matp.index(self.user_lim_col_high)
-        c = self._out_of_matp.index(self.user_lim_col_low)
-        d = self._img_post.index(self.post_process)
+            # find correspondances in comboboxes
+            a = self._colormap_list.index(self.colormap)
+            b = self._out_of_matp.index(self.user_lim_col_high)
+            c = self._out_of_matp.index(self.user_lim_col_low)
+            d = self._img_post.index(self.post_process)
 
-        # adapt combos
-        self.comboBox.setCurrentIndex(a)
-        self.comboBox_colors_high.setCurrentIndex(b)
-        self.comboBox_colors_low.setCurrentIndex(c)
-        self.comboBox_post.setCurrentIndex(d)
+            # adapt combos
+            self.comboBox.setCurrentIndex(a)
+            self.comboBox_colors_high.setCurrentIndex(b)
+            self.comboBox_colors_low.setCurrentIndex(c)
+            self.comboBox_post.setCurrentIndex(d)
 
-        # fill values lineedits
-        self.lineEdit_colors.setText(str(self.n_colors))
-        self.lineEdit_min_temp.setText(str(round(self.tmin_shown, 2)))
-        self.lineEdit_max_temp.setText(str(round(self.tmax_shown, 2)))
+            # fill values lineedits
+            self.lineEdit_colors.setText(str(self.n_colors))
+            self.lineEdit_min_temp.setText(str(round(self.tmin_shown, 2)))
+            self.lineEdit_max_temp.setText(str(round(self.tmax_shown, 2)))
 
-        self.thermal_param = self.work_image.thermal_param
+            self.thermal_param = self.work_image.thermal_param
 
-        # update double slider TODO
-        self.range_slider.setLowerValue(self.tmin_shown * 100)
-        self.range_slider.setUpperValue(self.tmax_shown * 100)
-        self.range_slider.setMinimum(self.tmin * 100)
-        self.range_slider.setMaximum(self.tmax * 100)
-        self.range_slider.setHandleColorsFromColormap(self.colormap)
+            # update double slider TODO
+            self.range_slider.setLowerValue(self.tmin_shown * 100)
+            self.range_slider.setUpperValue(self.tmax_shown * 100)
+            self.range_slider.setMinimum(self.tmin * 100)
+            self.range_slider.setMaximum(self.tmax * 100)
+            self.range_slider.setHandleColorsFromColormap(self.colormap)
 
         # clean measurements and annotations
         self.retrace_items()
