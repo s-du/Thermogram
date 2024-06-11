@@ -38,7 +38,8 @@ LINE_MEAS_NAME = 'Line measurements'
 OUT_LIM = ['continuous', 'black', 'white', 'red']
 OUT_LIM_MATPLOT = ['c', 'k', 'w', 'r']
 POST_PROCESS = ['none', 'smooth', 'sharpen', 'sharpen strong', 'edge (simple)', 'contours']
-COLORMAPS = ['coolwarm', 'Artic', 'Iron', 'Rainbow', 'FIJI_Temp', 'BlueWhiteRed', 'Greys_r', 'Greys', 'plasma', 'inferno', 'jet',
+COLORMAPS = ['coolwarm', 'Artic', 'Iron', 'Rainbow', 'FIJI_Temp', 'BlueWhiteRed', 'Greys_r', 'Greys', 'plasma',
+             'inferno', 'jet',
              'Spectral_r', 'cividis', 'viridis', 'gnuplot2']
 VIEWS = ['th. undistorted', 'RGB crop', 'Custom']
 
@@ -71,7 +72,7 @@ class DroneIrWindow(QMainWindow):
         self.__pool.setMaxThreadCount(3)
 
         # set bool variables
-        self.has_rgb = True # does the dataset have RGB image
+        self.has_rgb = True  # does the dataset have RGB image
         self.rgb_shown = False
         self.save_colormap_info = True  # TODO make use of it... if True, the colormap and temperature options will be stored for each picture
 
@@ -84,7 +85,6 @@ class DroneIrWindow(QMainWindow):
 
         # set other variables
         self.colormap = None
-
 
         # list thermal images
         self.ir_imgs = ''
@@ -125,7 +125,7 @@ class DroneIrWindow(QMainWindow):
         self.comboBox_view.addItems(self._view_list)
         self.comboBox_post.addItems(self._img_post)
 
-        self.advanced_options = False # TODO: see if use
+        self.advanced_options = False  # TODO: see if use
         self.skip_update = False
 
         # create double slider
@@ -135,6 +135,8 @@ class DroneIrWindow(QMainWindow):
         self.range_slider.setUpperValue(20)
         self.range_slider.setMinimum(0)
         self.range_slider.setMaximum(20)
+
+        self.slider_sensitive = True
 
         # add double slider to layout
         self.horizontalLayout_slider.addWidget(self.range_slider)
@@ -228,13 +230,50 @@ class DroneIrWindow(QMainWindow):
         self.comboBox_view.currentIndexChanged.connect(self.update_img_preview)
 
         # Line edits
-        self.lineEdit_min_temp.editingFinished.connect(self.update_img_preview)
-        self.lineEdit_max_temp.editingFinished.connect(self.update_img_preview)
+        self.lineEdit_min_temp.editingFinished.connect(self.change_slider_values)
+        self.lineEdit_max_temp.editingFinished.connect(self.change_slider_values)
         self.lineEdit_colors.editingFinished.connect(self.update_img_preview)
 
         # Checkboxes
         self.checkBox_legend.stateChanged.connect(self.toggle_legend)
         self.checkBox_edges.stateChanged.connect(self.activate_edges)
+
+    def change_slider_values(self):
+        self.slider_sensitive = False # to avoid chain reaction
+
+        try:
+            tmin = float(self.lineEdit_min_temp.text())
+            tmax = float(self.lineEdit_max_temp.text())
+
+            if tmax > tmin:
+                if tmin < self.work_image.tmin: # the encoded value is lower than the minimal value on the image
+                    tmin = self.work_image.tmin
+                    self.work_image.tmin_shown = tmin
+                    self.lineEdit_min_temp.setText(str(round(self.work_image.tmin_shown, 2)))
+                else:
+                    self.work_image.tmin_shown = tmin
+
+                if tmax > self.work_image.tmax:
+                    tmax = self.work_image.tmax
+                    self.work_image.tmax_shown = tmax
+                    self.lineEdit_max_temp.setText(str(round(self.work_image.tmax_shown, 2)))
+                else:
+                    self.work_image.tmax_shown = tmax
+            else:
+                raise ValueError
+
+        except ValueError:
+            QMessageBox.warning(self, "Warning",
+                                "Oops! A least one of the temperatures is not valid.  Try again...")
+
+            self.lineEdit_min_temp.setText(str(round(self.work_image.tmin_shown, 2)))
+            self.lineEdit_max_temp.setText(str(round(self.work_image.tmax_shown, 2)))
+
+        self.range_slider.setLowerValue(tmin * 100)
+        self.range_slider.setUpperValue(tmax * 100)
+
+        self.update_img_preview()
+        self.slider_sensitive = True
 
     def update_img_list(self):
         """
@@ -266,7 +305,7 @@ class DroneIrWindow(QMainWindow):
                                        os.path.join(self.rgb_folder, self.rgb_imgs[i]),
                                        self.list_rgb_paths[i])
             else:
-                image = tt.ProcessedIm(os.path.join(self.ir_folder, im),'','')
+                image = tt.ProcessedIm(os.path.join(self.ir_folder, im), '', '')
             self.images.append(image)
 
         self.active_image = 0
@@ -314,27 +353,30 @@ class DroneIrWindow(QMainWindow):
 
         print(f'Here are the work values! focal:{F}, extend:{extend}, y offset:{y_off}, x offset: {x_off}')
 
-        dialog = dia.AlignmentDialog(ir_path, rgb_path, temp_folder, F, d_mat, theta=[extend*100, y_off/10, x_off/10])
+        dialog = dia.AlignmentDialog(ir_path, rgb_path, temp_folder, F, d_mat,
+                                     theta=[extend * 100, y_off / 10, x_off / 10])
         if dialog.exec_():
             # update values
             extend, y_off, x_off = dialog.theta
-            self.work_image.drone_model.extend = extend/100
-            self.work_image.drone_model.y_offset = y_off*10
-            self.work_image.drone_model.x_offset = x_off*10
+            self.work_image.drone_model.extend = extend / 100
+            self.work_image.drone_model.y_offset = y_off * 10
+            self.work_image.drone_model.x_offset = x_off * 10
 
             print('Re-creating RGB crop')
 
             # ask options
             # Create a QMessageBox
             qm = QMessageBox
-            reply = qm.question(self, '', "Do you want to process all pictures with those new parameters", qm.Yes | qm.No)
+            reply = qm.question(self, '', "Do you want to process all pictures with those new parameters",
+                                qm.Yes | qm.No)
 
             if reply == qm.Yes:
                 # re-run all miniatures
                 text_status = 'creating rgb miniatures...'
                 self.update_progress(nb=20, text=text_status)
 
-                worker_1 = tt.RunnerMiniature(self.list_rgb_paths, self.work_image.drone_model, 60, self.rgb_crop_img_folder, 20,
+                worker_1 = tt.RunnerMiniature(self.list_rgb_paths, self.work_image.drone_model, 60,
+                                              self.rgb_crop_img_folder, 20,
                                               100)
                 worker_1.signals.progressed.connect(lambda value: self.update_progress(value))
                 worker_1.signals.messaged.connect(lambda string: self.update_progress(text=string))
@@ -351,6 +393,7 @@ class DroneIrWindow(QMainWindow):
 
                 # re-print-image
                 self.update_img_preview(refresh_dual=True)
+
     def miniat_finish(self):
         self.update_progress(nb=100, text='Ready...')
         self.update_img_preview(refresh_dual=True)
@@ -519,13 +562,14 @@ class DroneIrWindow(QMainWindow):
         self.update_img_preview()
 
     def change_line_edits(self, value):
-        tmin = self.range_slider.lowerValue() / 100.0  # Adjust if you used scaling
-        tmax = self.range_slider.upperValue() / 100.0
+        if self.slider_sensitive:
+            tmin = self.range_slider.lowerValue() / 100.0  # Adjust if you used scaling
+            tmax = self.range_slider.upperValue() / 100.0
 
-        self.lineEdit_min_temp.setText(str(round(tmin, 2)))
-        self.lineEdit_max_temp.setText(str(round(tmax, 2)))
+            self.lineEdit_min_temp.setText(str(round(tmin, 2)))
+            self.lineEdit_max_temp.setText(str(round(tmax, 2)))
 
-        self.update_img_preview()
+            self.update_img_preview()
 
     # LOAD AND SAVE ACTIONS ______________________________________________________________________________
     def export_anim(self):
@@ -578,8 +622,6 @@ class DroneIrWindow(QMainWindow):
 
         # Display the message box
         msg_box.exec_()
-
-
 
     def load_folder_phase1(self):
         # warning message (new project)
@@ -655,7 +697,8 @@ class DroneIrWindow(QMainWindow):
                     text_status = 'creating rgb miniatures...'
                     self.update_progress(nb=20, text=text_status)
 
-                    worker_1 = tt.RunnerMiniature(self.list_rgb_paths, self.drone_model, 60, self.rgb_crop_img_folder, 20,
+                    worker_1 = tt.RunnerMiniature(self.list_rgb_paths, self.drone_model, 60, self.rgb_crop_img_folder,
+                                                  20,
                                                   100)
                     worker_1.signals.progressed.connect(lambda value: self.update_progress(value))
                     worker_1.signals.messaged.connect(lambda string: self.update_progress(text=string))
@@ -741,7 +784,8 @@ class DroneIrWindow(QMainWindow):
             if not os.path.exists(out_folder):
                 os.mkdir(out_folder)
 
-            worker_1 = tt.RunnerDJI(5,100, out_folder, self.images, self.work_image, self.edges, self.edge_params, export_tif=True)
+            worker_1 = tt.RunnerDJI(5, 100, out_folder, self.images, self.work_image, self.edges, self.edge_params,
+                                    export_tif=True)
             worker_1.signals.progressed.connect(lambda value: self.update_progress(value))
             worker_1.signals.messaged.connect(lambda string: self.update_progress(text=string))
 
@@ -750,7 +794,8 @@ class DroneIrWindow(QMainWindow):
 
     def process_all_images(self):
         qm = QMessageBox
-        reply = qm.question(self, '', "Are you sure to process all pictures with the current parameters?", qm.Yes | qm.No)
+        reply = qm.question(self, '', "Are you sure to process all pictures with the current parameters?",
+                            qm.Yes | qm.No)
 
         # get parameters
         self.colormap, self.n_colors, self.user_lim_col_high, self.user_lim_col_low, self.tmin, self.tmax, self.tmin_shown, self.tmax_shown, self.post_process = self.work_image.get_colormap_data()
@@ -765,7 +810,8 @@ class DroneIrWindow(QMainWindow):
             if not os.path.exists(self.last_out_folder):
                 os.mkdir(self.last_out_folder)
 
-            worker_1 = tt.RunnerDJI(5,100, self.last_out_folder, self.images, self.work_image, self.edges, self.edge_params)
+            worker_1 = tt.RunnerDJI(5, 100, self.last_out_folder, self.images, self.work_image, self.edges,
+                                    self.edge_params)
             worker_1.signals.progressed.connect(lambda value: self.update_progress(value))
             worker_1.signals.messaged.connect(lambda string: self.update_progress(text=string))
 
@@ -775,8 +821,6 @@ class DroneIrWindow(QMainWindow):
     def process_all_phase2(self):
         self.update_progress(nb=100, text="Status: Continue analyses!")
 
-
-
     # VISUALIZE __________________________________________________________________
     def activate_edges(self):
         if self.checkBox_edges.isChecked():
@@ -785,6 +829,7 @@ class DroneIrWindow(QMainWindow):
             self.edges = False
 
         self.update_img_preview()
+
     def edge_options(self):
         """
         # edge options
@@ -797,7 +842,8 @@ class DroneIrWindow(QMainWindow):
         """
 
         # lauch dialog
-        edge_params = [self.edge_method, self.edge_color, self.edge_bil, self.edge_blur, self.edge_blur_size, self.edge_opacity]
+        edge_params = [self.edge_method, self.edge_color, self.edge_bil, self.edge_blur, self.edge_blur_size,
+                       self.edge_opacity]
         parameters = {
             'method': edge_params[0],
             'color': edge_params[1],
@@ -816,7 +862,8 @@ class DroneIrWindow(QMainWindow):
             self.edge_blur_size = int(dialog.comboBox_blur_size.currentText())
             self.edge_opacity = dialog.horizontalSlider.value() / 100
 
-            print(f'new edge parameters \n {self.edge_color} \n {self.edge_method} \n {self.edge_blur} \n {self.edge_blur_size}')
+            print(
+                f'new edge parameters \n {self.edge_color} \n {self.edge_method} \n {self.edge_blur} \n {self.edge_blur_size}')
 
             # update preview
             if self.checkBox_edges.isChecked():
@@ -867,8 +914,8 @@ class DroneIrWindow(QMainWindow):
 
     def show_viz_threed(self):
         t3d.run_viz_app(self.work_image.raw_data_undis, self.work_image.colormap,
-                        self.work_image.user_lim_col_high, self.work_image.user_lim_col_low, self.work_image.n_colors, self.work_image.tmin_shown, self.work_image.tmax_shown)
-
+                        self.work_image.user_lim_col_high, self.work_image.user_lim_col_low, self.work_image.n_colors,
+                        self.work_image.tmin_shown, self.work_image.tmax_shown)
 
     def change_meas_color(self):
         self.viewer.change_meas_color()
@@ -989,7 +1036,7 @@ class DroneIrWindow(QMainWindow):
             self.pushButton_left.setEnabled(True)
 
     def update_img_preview(self, refresh_dual=False):
-        if self.skip_update: # allows to skip image update
+        if self.skip_update:  # allows to skip image update
             return
 
         """
@@ -1009,13 +1056,14 @@ class DroneIrWindow(QMainWindow):
         elif v == 2:  # picture-in-picture (or custom)
             pass
 
-        else: # IR picture
-            self.compile_user_values() # store combobox choices in img data
+        else:  # IR picture
+            self.compile_user_values()  # store combobox choices in img data
             dest_path_post = os.path.join(self.preview_folder, 'preview_post.JPG')
             img = self.work_image
 
             # get edge detection parameters
-            self.edge_params = [self.edge_method, self.edge_color, self.edge_bil, self.edge_blur, self.edge_blur_size, self.edge_opacity]
+            self.edge_params = [self.edge_method, self.edge_color, self.edge_bil, self.edge_blur, self.edge_blur_size,
+                                self.edge_opacity]
 
             tt.process_raw_data(img, dest_path_post, self.edges, self.edge_params)
             self.range_slider.setHandleColorsFromColormap(self.work_image.colormap)
@@ -1035,7 +1083,6 @@ class DroneIrWindow(QMainWindow):
             # check if legend is needed
             if not self.checkBox_legend.isChecked():
                 self.viewer.toggleLegendVisibility()
-
 
     # CONTEXT MENU IN TREEVIEW _________________________________________________
     def onContextMenu(self, point):
