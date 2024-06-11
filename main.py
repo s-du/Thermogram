@@ -14,6 +14,7 @@ from tools import thermal_tools as tt
 from tools import thermal_3d as t3d
 
 """
+Any remarks, questions: sdu@bbri.be
 TODO:
 - Allow to import only thermal pictures - OK
 - Implement 'context' dialog --> Drone info + location
