@@ -243,6 +243,19 @@ class DroneIrWindow(QMainWindow):
         self.checkBox_legend.stateChanged.connect(self.toggle_legend)
         self.checkBox_edges.stateChanged.connect(self.activate_edges)
 
+        # tab widget
+        self.tabWidget.currentChanged.connect(self.on_tab_change)
+
+    def on_tab_change(self, index):
+        if index == 1:
+            self.actionRectangle_meas.setDisabled(True)
+            self.actionSpot_meas.setDisabled(True)
+            self.actionLine_meas.setDisabled(True)
+        else:
+            self.actionRectangle_meas.setDisabled(False)
+            self.actionSpot_meas.setDisabled(False)
+            self.actionLine_meas.setDisabled(False)
+
     def change_slider_values(self):
         self.slider_sensitive = False # to avoid chain reaction
 
@@ -1085,6 +1098,7 @@ class DroneIrWindow(QMainWindow):
 
             # add legend
             self.viewer.setPhoto(QPixmap(dest_path_post))
+            self.viewer.fitInView()
             self.viewer.setupLegendLabel(self.work_image)
 
             # set left and right views (in dual viewer)
@@ -1180,7 +1194,7 @@ class DroneIrWindow(QMainWindow):
                     rgb_path = os.path.join(self.rgb_folder, self.rgb_imgs[self.active_image])
                     ir_path = self.dest_path_post
                     coords = interest.get_coord_from_item(interest.main_item)
-                    roi_ir, roi_rgb = interest.compute_data(coords, self.raw_data, rgb_path, ir_path)
+                    roi_ir, roi_rgb = interest.compute_data(coords, self.work_image.raw_data_undis, rgb_path, ir_path)
 
                     roi_rgb_path = os.path.join(self.preview_folder, 'roi_rgb.JPG')
                     roi_ir_path = os.path.join(self.preview_folder, 'roi_ir.JPG')
