@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>1114</width>
-    <height>699</height>
+    <width>1496</width>
+    <height>821</height>
    </rect>
   </property>
   <property name="sizePolicy">
@@ -320,7 +320,7 @@ border-radius: 10px;
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>1114</width>
+     <width>1496</width>
      <height>26</height>
     </rect>
    </property>
@@ -829,9 +829,23 @@ border-radius: 10px;
       </widget>
      </item>
      <item>
+      <widget class="QPushButton" name="pushButton_delete_area">
+       <property name="text">
+        <string>Delete all area measurements</string>
+       </property>
+      </widget>
+     </item>
+     <item>
       <widget class="QPushButton" name="pushButton_delete_points">
        <property name="text">
         <string>Delete all spot measurements</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="pushButton_delete_lines">
+       <property name="text">
+        <string>Delete all line measurements</string>
        </property>
       </widget>
      </item>
@@ -997,10 +1011,10 @@ border-radius: 10px;
     <bool>false</bool>
    </property>
    <property name="text">
-    <string>Customize</string>
+    <string>Custom overlay</string>
    </property>
    <property name="toolTip">
-    <string>Compose advanced custom images</string>
+    <string>Create a custom overlay image</string>
    </property>
   </action>
   <action name="action3D_temperature">

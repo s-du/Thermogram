@@ -221,6 +221,10 @@ class DroneIrWindow(QMainWindow):
         self.pushButton_meas_color.clicked.connect(self.change_meas_color)
         self.pushButton_match.clicked.connect(self.image_matching)
         self.pushButton_edge_options.clicked.connect(self.edge_options)
+        self.pushButton_delete_points.clicked.connect(lambda: self.remove_annotations('point'))
+        self.pushButton_delete_lines.clicked.connect(lambda: self.remove_annotations('line'))
+        self.pushButton_delete_area.clicked.connect(lambda: self.remove_annotations('area'))
+
 
         # Dropdowns
         self.comboBox.currentIndexChanged.connect(self.update_img_preview)
@@ -510,6 +514,16 @@ class DroneIrWindow(QMainWindow):
             # activate drawing tool
             self.viewer.line_meas = True
             self.viewer.toggleDragMode()
+
+    def remove_annotations(self, type):
+        if type == 'point':
+            self.images[self.active_image].meas_point_list = []
+        elif type == 'line':
+            self.images[self.active_image].meas_line_list = []
+        elif type == 'area':
+            self.images[self.active_image].meas_rect_list = []
+
+        self.retrace_items()
 
     # THERMAL-RELATED FUNCTIONS __________________________________________________________________________
     def define_options(self):
