@@ -314,7 +314,10 @@ class DroneIrWindow(QMainWindow):
 
         # add classes
         for i, im in enumerate(self.ir_imgs):
-            progress = 5 + (95 * i) / (self.n_imgs - 1)
+            if self.n_imgs == 1:
+                progress = 100  # or any other value that makes sense in your context
+            else:
+                progress = 5 + (95 * i) / (self.n_imgs - 1)
             self.update_progress(nb=progress, text=f'Creating image object {i}/{self.n_imgs}')
 
             if self.has_rgb:
@@ -811,9 +814,15 @@ class DroneIrWindow(QMainWindow):
             out_folder = os.path.join(self.app_folder, desc)
             if not os.path.exists(out_folder):
                 os.mkdir(out_folder)
+            reply = qm.question(self, '', "Do you want to correct deformation?",
+                                qm.Yes | qm.No)
+            if reply == qm.Yes:
+                undis = True
+            else:
+                undis = False
 
             worker_1 = tt.RunnerDJI(5, 100, out_folder, self.images, self.work_image, self.edges, self.edge_params,
-                                    export_tif=True)
+                                    export_tif=True, undis=undis)
             worker_1.signals.progressed.connect(lambda value: self.update_progress(value))
             worker_1.signals.messaged.connect(lambda string: self.update_progress(text=string))
 
@@ -838,8 +847,15 @@ class DroneIrWindow(QMainWindow):
             if not os.path.exists(self.last_out_folder):
                 os.mkdir(self.last_out_folder)
 
+            reply = qm.question(self, '', "Do you want to correct deformation?",
+                                qm.Yes | qm.No)
+            if reply == qm.Yes:
+                undis = True
+            else:
+                undis = False
+
             worker_1 = tt.RunnerDJI(5, 100, self.last_out_folder, self.images, self.work_image, self.edges,
-                                    self.edge_params)
+                                    self.edge_params, undis = undis)
             worker_1.signals.progressed.connect(lambda value: self.update_progress(value))
             worker_1.signals.messaged.connect(lambda string: self.update_progress(text=string))
 

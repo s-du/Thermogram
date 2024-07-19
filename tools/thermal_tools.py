@@ -349,7 +349,7 @@ class RunnerSignals(QtCore.QObject):
 
 
 class RunnerDJI(QtCore.QRunnable):
-    def __init__(self, start, stop, out_folder, img_objects, ref_im, edges, edges_params, individual_settings = False, export_tif = False):
+    def __init__(self, start, stop, out_folder, img_objects, ref_im, edges, edges_params, individual_settings = False, export_tif = False, undis = False):
         super().__init__()
         self.img_objects = img_objects
         self.edges = edges
@@ -361,6 +361,7 @@ class RunnerDJI(QtCore.QRunnable):
         self.dest_folder = out_folder
 
         self.signals = RunnerSignals()
+        self.undis = undis
 
         if not individual_settings: # if global export from current image settings
             self.custom_params = {
@@ -399,7 +400,8 @@ class RunnerDJI(QtCore.QRunnable):
                              edges=self.edges,
                              edge_params=self.edges_params,
                              custom_params=self.custom_params,
-                             export_tif=self.export_tif)
+                             export_tif=self.export_tif,
+                             undis=self.undis)
 
             if i == len(self.img_objects) - 1:
                 legend_dest_path = os.path.join(self.dest_folder, 'plot_onlycbar_tight.png')
@@ -872,7 +874,7 @@ def extract_raw_data(param, ir_img_path):
     return im, undis_im
 
 
-def process_raw_data(img_object, dest_path, edges, edge_params, custom_params=None, export_tif=False):
+def process_raw_data(img_object, dest_path, edges, edge_params, undis=True, custom_params=None, export_tif=False):
 
     if custom_params is None:
         custom_params = {}
@@ -882,7 +884,10 @@ def process_raw_data(img_object, dest_path, edges, edge_params, custom_params=No
         img_object.update_data(img_object.thermal_param)
 
     # data
-    im = img_object.raw_data_undis
+    if undis:
+        im = img_object.raw_data_undis
+    else:
+        im =img_object.raw_data
     exif = img_object.exif
 
     if custom_params:
