@@ -324,9 +324,9 @@ class DroneIrWindow(QMainWindow):
                 print('Has rgb!')
                 image = tt.ProcessedIm(os.path.join(self.ir_folder, im),
                                        os.path.join(self.rgb_folder, self.rgb_imgs[i]),
-                                       self.list_rgb_paths[i])
+                                       self.list_rgb_paths[i], self.ir_undistorder)
             else:
-                image = tt.ProcessedIm(os.path.join(self.ir_folder, im), '', '')
+                image = tt.ProcessedIm(os.path.join(self.ir_folder, im), '', '', self.ir_undistorder)
             self.images.append(image)
 
         self.active_image = 0
@@ -697,6 +697,9 @@ class DroneIrWindow(QMainWindow):
             # get drone model
             drone_name = tt.get_drone_model(self.list_ir_paths[0])
             self.drone_model = tt.DroneModel(drone_name)
+
+            # create undistorder based on drone model
+            self.ir_undistorder = tt.CameraUndistorter(self.drone_model.ir_xml_path)
 
             print(f'Drone model : {drone_name}')
 

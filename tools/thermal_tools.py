@@ -3,6 +3,8 @@ import os
 import subprocess
 from pathlib import Path
 from shutil import copyfile, copytree
+import time
+from concurrent.futures import ThreadPoolExecutor
 
 # Third-party imports
 import cv2
@@ -12,6 +14,7 @@ from matplotlib import cm, pyplot as plt
 import matplotlib.colors as mcol
 from blend_modes import dodge, multiply
 from scipy.optimize import differential_evolution
+
 
 # PySide6 imports
 from PySide6 import QtCore, QtGui, QtWidgets
@@ -31,7 +34,43 @@ m3t_rgb_xml_path = res.find('other/rgb_cam_calib_m3t_opencv.xml')
 
 LIST_CUSTOM_CMAPS = ['Artic', 'Iron', 'Rainbow', 'FIJI_Temp', 'BlueWhiteRed']
 
+
 # USEFUL CLASSES __________________________________________________
+class CameraUndistorter:
+    def __init__(self, xml_path):
+        self.K, self.d = self.read_matrices(xml_path)
+        self.newcam = None
+        self.roi = None
+
+    def read_matrices(self, xml_path):
+        cv_file = cv2.FileStorage(xml_path, cv2.FILE_STORAGE_READ)
+        K = cv_file.getNode("Camera_Matrix").mat()
+        d = cv_file.getNode("Distortion_Coefficients").mat()
+        cv_file.release()
+
+        return K, d
+
+    def undis(self, cv_img):
+        h, w = cv_img.shape[:2]
+
+        # Compute new camera matrix only once if it hasn't been computed yet
+        if self.newcam is None:
+            self.newcam, self.roi = cv2.getOptimalNewCameraMatrix(self.K, self.d, (w, h), 1, (w, h))
+
+        # Undistort image
+        dest = cv2.undistort(cv_img, self.K, self.d, None, self.newcam)
+
+        # Crop the image based on the region of interest (ROI)
+        x, y, w, h = self.roi
+        dest = dest[y:y + h, x:x + w]
+
+        # Get dimensions
+        height, width = dest.shape[:2]
+        dim = (width, height)
+
+        return dest, dim
+
+
 class DroneModel():
     def __init__(self, name):
         if name == 'MAVIC2-ENTERPRISE-ADVANCED':
@@ -76,25 +115,25 @@ class DroneModel():
 
 
 class ProcessedIm:
-    def __init__(self, path, rgb_path, original_path, delayed_compute = True):
+    def __init__(self, path, rgb_path, original_path, undistorder_ir, delayed_compute=False):
         # general infos
         self.path = path
         self.rgb_path = rgb_path
         self.rgb_path_original = original_path
         self.preview_path = ''
-        self.exif = extract_exif(self.path)
-        self.drone_model_name = get_drone_model_from_exif(self.exif)
-        self.drone_model = DroneModel(self.drone_model_name)
+        self.undistorder_ir = undistorder_ir
         # colormap infos
         self.colormap = 'coolwarm'
         self.n_colors = 256
+
+        self._exif = None
 
         self.has_data = False
 
         # ir infos
         self.thermal_param = {'emissivity': 0.95, 'distance': 5, 'humidity': 50, 'reflection': 25}
-        if delayed_compute:
-            self.raw_data, self.raw_data_undis = extract_raw_data(self.thermal_param, self.path)
+        if not delayed_compute:
+            self.raw_data, self.raw_data_undis = extract_raw_data(self.thermal_param, self.path, self.undistorder_ir)
         self.tmin = np.amin(self.raw_data)
         self.tmax = np.amax(self.raw_data)
         self.tmin_shown = self.tmin
@@ -116,9 +155,16 @@ class ProcessedIm:
         self.nb_meas_line = 0  # number of line measurements (classes)
         self.meas_line_list = []
 
+    @property
+    def exif(self):
+        # Lazy load the EXIF data
+        if self._exif is None:
+            self._exif = extract_exif(self.path)
+        return self._exif
+
     def update_data(self, new_params):
         self.thermal_param = new_params
-        self.raw_data, self.raw_data_undis = extract_raw_data(self.thermal_param, self.path)
+        self.raw_data, self.raw_data_undis = extract_raw_data(self.thermal_param, self.path, self.undistorder_ir)
         self.tmin = np.amin(self.raw_data)
         self.tmax = np.amax(self.raw_data)
         self.tmin_shown = self.tmin
@@ -145,6 +191,8 @@ class ProcessedIm:
                 self.tmin_shown,
                 self.tmax_shown,
                 self.post_process)
+
+
 class PointMeas:
     def __init__(self, qpoint):
         self.name = ''
@@ -349,7 +397,8 @@ class RunnerSignals(QtCore.QObject):
 
 
 class RunnerDJI(QtCore.QRunnable):
-    def __init__(self, start, stop, out_folder, img_objects, ref_im, edges, edges_params, individual_settings = False, export_tif = False, undis = False):
+    def __init__(self, start, stop, out_folder, img_objects, ref_im, edges, edges_params, individual_settings=False,
+                 export_tif=False, undis=False):
         super().__init__()
         self.img_objects = img_objects
         self.edges = edges
@@ -363,7 +412,7 @@ class RunnerDJI(QtCore.QRunnable):
         self.signals = RunnerSignals()
         self.undis = undis
 
-        if not individual_settings: # if global export from current image settings
+        if not individual_settings:  # if global export from current image settings
             self.custom_params = {
                 "tmin": ref_im.tmin_shown,
                 "tmax": ref_im.tmax_shown,
@@ -424,34 +473,48 @@ class RunnerMiniature(QtCore.QRunnable):
     def run(self):
         nb_im = len(self.list_rgb_paths)
         rgb_xml_path = self.drone_model.rgb_xml_path
+        undistorter = CameraUndistorter(rgb_xml_path)
 
-        for i, rgb_path in enumerate(self.list_rgb_paths):
+        def process_image(i, rgb_path):
+            iter_start_time = time.time()  # Track time for each iteration
             iter = i * (self.stop - self.start) / nb_im
 
             # update progress
             self.signals.progressed.emit(self.start + iter)
             self.signals.messaged.emit(f'Pre-processing image {i}/{nb_im}')
+
+            # Step 1: Reading the image
             cv_rgb_img = cv_read_all_path(rgb_path)
 
-            und, _ = undis(cv_rgb_img, rgb_xml_path)
+            # Step 2: Image undistortion
+            und, _ = undistorter.undis(cv_rgb_img)
+
+            # Step 3: Crop based on custom parameters
             crop = match_rgb_custom_parameters(und, self.drone_model)
+
+            # Step 4: Resize the image
             width = int(crop.shape[1] * self.scale_percent / 100)
             height = int(crop.shape[0] * self.scale_percent / 100)
             dim = (width, height)
-
             crop = cv2.resize(crop, dim, interpolation=cv2.INTER_AREA)
+
+            # Step 5: Save the new cropped image
             _, file = os.path.split(rgb_path)
             new_name = file[:-4] + 'crop.JPG'
-
             dest_path = os.path.join(self.dest_crop_folder, new_name)
-
             cv_write_all_path(crop, dest_path)
+
+            print(f"Iteration {i} - Total iteration time: {time.time() - iter_start_time} seconds")
+
+        with ThreadPoolExecutor() as executor:
+            for i, rgb_path in enumerate(self.list_rgb_paths):
+                executor.submit(process_image, i, rgb_path)
 
         self.signals.finished.emit()
 
 
 # EXPORT FUNCTIONS __________________________________________________
-def re_create_miniature(rgb_path, drone_model, dest_crop_folder, scale_percent = 60):
+def re_create_miniature(rgb_path, drone_model, dest_crop_folder, scale_percent=60):
     # read rgb
     cv_rgb_img = cv_read_all_path(rgb_path)
 
@@ -489,6 +552,7 @@ def create_video(image_folder, video_name, fps):
 
     cv2.destroyAllWindows()
     video.release()
+
 
 #  PATH FUNCTIONS __________________________________________________
 def cv_read_all_path(path):
@@ -552,11 +616,14 @@ def print_exif(img_path):
     infos = img.getexif()
     print(infos)
 
+
 def extract_exif(img_path):
     img = Image.open(img_path)
     infos = img.getexif()
 
     return infos
+
+
 def get_drone_model(img_path):
     img = Image.open(img_path)
     infos = img.getexif()
@@ -604,6 +671,7 @@ def undis(cv_img, xml_path):
 
     return dest, dim
 
+
 def undis_kd(cv_img, K, d):
     h, w = cv_img.shape[:2]
     newcam, roi = cv2.getOptimalNewCameraMatrix(K, d, (w, h), 1, (w, h))
@@ -613,9 +681,10 @@ def undis_kd(cv_img, K, d):
 
     return dest
 
+
 # LENS RELATED METHODS (DRONE SPECIFIC) __________________________________________________
 def match_rgb_custom_parameters(cv_img, drone_model, resized=False):
-    print(cv_img)
+
     h2, w2 = cv_img.shape[:2]
     new_h = h2 * drone_model.aspect_factor
     ret_x = int(drone_model.extend * w2)
@@ -627,6 +696,7 @@ def match_rgb_custom_parameters(cv_img, drone_model, resized=False):
         rgb_dest = cv2.resize(rgb_dest, drone_model.dim_undis_ir, interpolation=cv2.INTER_AREA)
 
     return rgb_dest
+
 
 # CROP OPS __________________________________________________
 def get_corresponding_crop_rectangle(p1, p2, scale):
@@ -642,11 +712,10 @@ def get_corresponding_crop_rectangle(p1, p2, scale):
 
     return crop_tl, crop_br
 
+
 # LINES __________________________________________________
 def add_lines_from_rgb(path_ir, cv_match_rgb_img, drone_model, dest_path,
                        exif=None, mode=1, color='white', bilateral=True, blur=True, blur_size=3, opacity=0.7):
-
-
     cv_ir_img = cv2.imread(path_ir)
     img_gray = cv2.cvtColor(cv_match_rgb_img, cv2.COLOR_BGR2GRAY)
 
@@ -656,14 +725,16 @@ def add_lines_from_rgb(path_ir, cv_match_rgb_img, drone_model, dest_path,
     if bilateral:
         img_gray = cv2.bilateralFilter(img_gray, 15, 75, 75)
 
-    if mode==0:
+    if mode == 0:
         scale = 1
         delta = 0
         k_size = 3
         ddepth = cv2.CV_16S
 
-        grad_x = cv2.Sobel(img_gray, ddepth, 1, 0, ksize=k_size, scale=scale, delta=delta, borderType=cv2.BORDER_DEFAULT)
-        grad_y = cv2.Sobel(img_gray, ddepth, 0, 1, ksize=k_size, scale=scale, delta=delta, borderType=cv2.BORDER_DEFAULT)
+        grad_x = cv2.Sobel(img_gray, ddepth, 1, 0, ksize=k_size, scale=scale, delta=delta,
+                           borderType=cv2.BORDER_DEFAULT)
+        grad_y = cv2.Sobel(img_gray, ddepth, 0, 1, ksize=k_size, scale=scale, delta=delta,
+                           borderType=cv2.BORDER_DEFAULT)
 
         abs_grad_x = cv2.convertScaleAbs(grad_x)
         abs_grad_y = cv2.convertScaleAbs(grad_y)
@@ -672,29 +743,28 @@ def add_lines_from_rgb(path_ir, cv_match_rgb_img, drone_model, dest_path,
 
         pil_edges = Image.fromarray(edges)
 
-    elif mode==1:
+    elif mode == 1:
         image_pil = Image.fromarray(img_gray)
         pil_edges = image_pil.filter(ImageFilter.Kernel((3, 3), (-1, -1, -1, -1, 8,
-                                          -1, -1, -1, -1), 1, 0))
+                                                                 -1, -1, -1, -1), 1, 0))
 
-    elif mode==2:
+    elif mode == 2:
         image_pil = Image.fromarray(img_gray)
         pil_edges = image_pil.filter(ImageFilter.Kernel((3, 3), (0, -1, 0, -1, 4,
-                                          -1, 0, -1, 0), 1, 0))
+                                                                 -1, 0, -1, 0), 1, 0))
 
-    elif mode==3:
+    elif mode == 3:
         edges = cv2.Canny(img_gray, 100, 200)
         pil_edges = Image.fromarray(edges)
 
-    elif mode==4:
-        edges = cv2.Canny(img_gray, 100, 200, L2gradient = True)
+    elif mode == 4:
+        edges = cv2.Canny(img_gray, 100, 200, L2gradient=True)
         pil_edges = Image.fromarray(edges)
 
-    elif mode==5:
+    elif mode == 5:
         edge_detector = cv2.ximgproc.createStructuredEdgeDetection('model.yml/model.yml')
         # detect the edges
         edges = edge_detector.detectEdges(cv_match_rgb_img)
-
 
     if color == 'black':
         pil_edges = ImageOps.invert(pil_edges)
@@ -728,6 +798,7 @@ def add_lines_from_rgb(path_ir, cv_match_rgb_img, drone_model, dest_path,
     else:
         blended_img_raw.save(dest_path, exif=exif)
 
+
 def create_lines(cv_img, bil=True):
     img_gray = cv2.cvtColor(cv_img, cv2.COLOR_BGR2GRAY)
 
@@ -748,6 +819,7 @@ def create_lines(cv_img, bil=True):
     edges = cv2.Canny(image=img_gray, threshold1=50, threshold2=200)
 
     return edges
+
 
 # THERMAL PROCESSING __________________________________________________
 # custom colormaps
@@ -844,20 +916,13 @@ def read_dji_image(img_in, raw_out, param={'emissivity': 0.95, 'distance': 5, 'h
     return exif
 
 
-def extract_raw_data(param, ir_img_path):
-    # Read img infos
-    exif = extract_exif(ir_img_path)
-    drone_model_name = get_drone_model_from_exif(exif)
-    drone_model = DroneModel(drone_model_name)
-
-    # create raw file
+def extract_raw_data(param, ir_img_path, undistorder_ir):
+    # Step 1: Create raw file
     _, filename = os.path.split(str(ir_img_path))
     new_raw_path = Path(str(ir_img_path)[:-4] + '.raw')
-
     _ = read_dji_image(str(ir_img_path), str(new_raw_path), param=param)
-    ir_xml_path = drone_model.ir_xml_path
 
-    # read raw dji output
+    # Step 2: Read raw DJI output
     fd = open(new_raw_path, 'rb')
     rows = 512
     cols = 640
@@ -865,20 +930,19 @@ def extract_raw_data(param, ir_img_path):
     im = f.reshape((rows, cols))  # notice row, column format
     fd.close()
 
-    # create an undistort version of the temperature map
-    undis_im, _ = undis(im, ir_xml_path)
+    # Step 3: Create an undistorted version of the temperature map
+    undis_im, _ = undistorder_ir.undis(im)
 
-    # remove raw file
+    # Step 4: Remove raw file
     os.remove(new_raw_path)
 
     return im, undis_im
 
 
 def process_raw_data(img_object, dest_path, edges, edge_params, undis=True, custom_params=None, export_tif=False):
-
     if custom_params is None:
         custom_params = {}
-    ed_met, ed_col, ed_bil, ed_blur, ed_bl_sz, ed_op  = edge_params
+    ed_met, ed_col, ed_bil, ed_blur, ed_bl_sz, ed_op = edge_params
 
     if not img_object.has_data:
         img_object.update_data(img_object.thermal_param)
@@ -887,7 +951,7 @@ def process_raw_data(img_object, dest_path, edges, edge_params, undis=True, cust
     if undis:
         im = img_object.raw_data_undis
     else:
-        im =img_object.raw_data
+        im = img_object.raw_data
     exif = img_object.exif
 
     if custom_params:
@@ -926,7 +990,7 @@ def process_raw_data(img_object, dest_path, edges, edge_params, undis=True, cust
     img_thermal = Image.fromarray(thermal_cmap[:, :, [0, 1, 2]])
     if export_tif:
         dest_path = dest_path[:-4] + '.tiff'
-        img_thermal = Image.fromarray(im) # export as 32bit array (floating point)
+        img_thermal = Image.fromarray(im)  # export as 32bit array (floating point)
         img_thermal.save(dest_path, exif=exif)
 
     elif post_process == 'none':
@@ -972,12 +1036,11 @@ def process_raw_data(img_object, dest_path, edges, edge_params, undis=True, cust
         # Convert thermal_normalized to a suitable format for finding contours
         thermal_for_contours = np.uint8(255 * thermal_normalized_clipped)  # Use clipped version
 
-
         # Iterate over levels to draw contours for each level
         for level in levels:
             # Calculate the corresponding color from the colormap
             color = custom_cmap(level)[:3]  # Get RGB components, ignore alpha if present
-            color = tuple(int(c * 255) for c in color)   # Convert to BGR for OpenCV, scale to 0-255
+            color = tuple(int(c * 255) for c in color)  # Convert to BGR for OpenCV, scale to 0-255
 
             # Threshold image at the current level
             _, thresh = cv2.threshold(thermal_for_contours, int(level * 255), 255, cv2.THRESH_BINARY)
@@ -1058,6 +1121,7 @@ def process_th_image_with_theta(ir_img_path, rgb_img_path, out_folder, theta, F,
     print(f'mse is {mse}')
 
     return mse
+
 
 def generate_legend(legend_dest_path, custom_params):
     tmin = custom_params["tmin"]
