@@ -39,9 +39,36 @@ LINE_MEAS_NAME = 'Line measurements'
 OUT_LIM = ['continuous', 'black', 'white', 'red']
 OUT_LIM_MATPLOT = ['c', 'k', 'w', 'r']
 POST_PROCESS = ['none', 'smooth', 'sharpen', 'sharpen strong', 'edge (simple)', 'contours']
-COLORMAPS = ['coolwarm', 'Artic', 'Iron', 'Rainbow', 'FIJI_Temp', 'BlueWhiteRed', 'Greys_r', 'Greys', 'plasma',
-             'inferno', 'jet',
-             'Spectral_r', 'cividis', 'viridis', 'gnuplot2']
+COLORMAP_NAMES = ['WhiteHot',
+                  'BlackHot',
+                  'Artic',
+                  'Iron',
+                  'Rainbow',
+                  'Pyplot_BlueToRed',
+                  'Pyplot_BlueWhiteRed',
+                  'Pyplot_Plasma',
+                  'Pyplot_Inferno',
+                  'Pyplot_Jet',
+                  'Pyplot_GNUPlot2'
+                  'Pyplot_Spectral',
+                  'Pyplot_Cividis',
+                  'Pyplot_Viridis',
+                  'FIJI_Temp']
+COLORMAPS = ['Greys_r',
+             'Greys',
+             'Artic',
+             'Iron',
+             'Rainbow',
+             'coolwarm',
+             'BlueWhiteRed',
+             'plasma',
+             'inferno',
+             'jet',
+             'gnuplot2',
+             'Spectral_r',
+             'cividis',
+             'viridis',
+             'FIJI_Temp']
 VIEWS = ['th. undistorted', 'RGB crop', 'Custom']
 
 
@@ -110,11 +137,12 @@ class DroneIrWindow(QMainWindow):
         self._out_of_lim = OUT_LIM
         self._out_of_matp = OUT_LIM_MATPLOT
         self._img_post = POST_PROCESS
+        self._colormap_names = COLORMAP_NAMES
         self._colormap_list = COLORMAPS
         self._view_list = VIEWS
 
         # add content to comboboxes
-        self.comboBox.addItems(self._colormap_list)
+        self.comboBox.addItems(self._colormap_names)
         self.comboBox.setCurrentIndex(0)
         self.comboBox_img.addItems(self.ir_imgs)
 

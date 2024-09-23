@@ -123,7 +123,7 @@ class ProcessedIm:
         self.preview_path = ''
         self.undistorder_ir = undistorder_ir
         # colormap infos
-        self.colormap = 'coolwarm'
+        self.colormap = 'Greys_r'
         self.n_colors = 256
 
         self._exif = None
