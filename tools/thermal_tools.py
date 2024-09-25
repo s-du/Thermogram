@@ -15,7 +15,6 @@ import matplotlib.colors as mcol
 from blend_modes import dodge, multiply
 from scipy.optimize import differential_evolution
 
-
 # PySide6 imports
 from PySide6 import QtCore, QtGui, QtWidgets
 from PySide6.QtCore import QPointF, QRectF
@@ -32,7 +31,19 @@ m2t_rgb_xml_path = res.find('other/rgb_cam_calib_m2t_opencv.xml')
 m3t_ir_xml_path = res.find('other/cam_calib_m3t_opencv.xml')
 m3t_rgb_xml_path = res.find('other/rgb_cam_calib_m3t_opencv.xml')
 
-LIST_CUSTOM_CMAPS = ['Artic', 'Iron', 'Rainbow', 'FIJI_Temp', 'BlueWhiteRed']
+LIST_CUSTOM_CMAPS = ['Arctic',
+                     'Iron',
+                     'Rainbow',
+                     'Fulgurite',
+                     'Iron Red',
+                     'Hot Iron',
+                     'Medical',
+                     'Arctic2',
+                     'Rainbow1',
+                     'Rainbow2',
+                     'Tint',
+                     'BlueWhiteRed',
+                     'FIJI_Temp']
 
 
 # USEFUL CLASSES __________________________________________________
@@ -684,7 +695,6 @@ def undis_kd(cv_img, K, d):
 
 # LENS RELATED METHODS (DRONE SPECIFIC) __________________________________________________
 def match_rgb_custom_parameters(cv_img, drone_model, resized=False):
-
     h2, w2 = cv_img.shape[:2]
     new_h = h2 * drone_model.aspect_factor
     ret_x = int(drone_model.extend * w2)
@@ -824,19 +834,23 @@ def create_lines(cv_img, bil=True):
 # THERMAL PROCESSING __________________________________________________
 # custom colormaps
 def get_custom_cmaps(colormap_name, n_colors):
+    # Artic Color Palette
     colors = [(25, 0, 150), (94, 243, 247), (100, 100, 100), (243, 116, 27), (251, 250, 208)]
     colors_scaled = [np.array(x).astype(np.float32) / 255 for x in colors]
     artic_cmap = mcol.LinearSegmentedColormap.from_list('my_colormap', colors_scaled, N=n_colors)
 
+    # Ironbow Color Palette
     colors = [(0, 0, 0), (144, 15, 170), (230, 88, 65), (248, 205, 35), (255, 255, 255)]
     colors_scaled = [np.array(x).astype(np.float32) / 255 for x in colors]
     ironbow_cmap = mcol.LinearSegmentedColormap.from_list('my_colormap', colors_scaled, N=n_colors)
 
+    # Rainbow Color Palette
     colors = [(8, 0, 75), (43, 80, 203), (119, 185, 31), (240, 205, 35), (245, 121, 47), (236, 64, 100),
               (240, 222, 203)]
     colors_scaled = [np.array(x).astype(np.float32) / 255 for x in colors]
     rainbow_cmap = mcol.LinearSegmentedColormap.from_list('my_colormap', colors_scaled, N=n_colors)
 
+    # FIJI Temp Palette
     colors = [(70, 0, 115), (70, 0, 151), (70, 0, 217), (57, 27, 255),
               (14, 136, 251), (0, 245, 235), (76, 255, 247), (206, 255, 254),
               (251, 254, 243), (178, 255, 163), (57, 255, 51), (37, 255, 1),
@@ -844,11 +858,59 @@ def get_custom_cmaps(colormap_name, n_colors):
     colors_scaled = [np.array(x).astype(np.float32) / 255 for x in colors]
     fiji_cmap = mcol.LinearSegmentedColormap.from_list('my_colormap', colors_scaled, N=256)
 
+    # BlueWhiteRed Palette
     colors = [(0, 0, 255), (255, 255, 255), (255, 0, 0)]
     colors_scaled = [np.array(x).astype(np.float32) / 255 for x in colors]
     bwr_cmap = mcol.LinearSegmentedColormap.from_list('my_colormap', colors_scaled, N=256)
 
-    if colormap_name == 'Artic':
+    # New Palette: Fulgurite
+    colors = [(77, 0, 0), (204, 0, 0), (255, 153, 0), (255, 255, 0), (255, 255, 255)]
+    colors_scaled = [np.array(x).astype(np.float32) / 255 for x in colors]
+    fulgurite_cmap = mcol.LinearSegmentedColormap.from_list('my_colormap', colors_scaled, N=n_colors)
+
+    # New Palette: Iron Red
+    colors = [(0, 0, 0), (30, 0, 90), (100, 0, 130), (175, 0, 175), (255, 70, 0), (255, 130, 0), (255, 200, 0),
+              (255, 255, 0), (255, 255, 200)]
+    colors_scaled = [np.array(x).astype(np.float32) / 255 for x in colors]
+    iron_red_cmap = mcol.LinearSegmentedColormap.from_list('my_colormap', colors_scaled, N=n_colors)
+
+    # New Palette: Hot Iron
+    colors = [(0, 0, 0), (0, 51, 51), (25, 100, 100), (50, 130, 130), (120, 175, 80), (190, 215, 40), (255, 255, 0),
+              (255, 102, 0), (255, 0, 0)]
+    colors_scaled = [np.array(x).astype(np.float32) / 255 for x in colors]
+    hot_iron_cmap = mcol.LinearSegmentedColormap.from_list('my_colormap', colors_scaled, N=n_colors)
+
+    # New Palette: Medical
+    colors = [(60, 26, 30), (224, 64, 224), (32, 42, 255), (20, 229, 241), (8, 192, 95), (0, 160, 0), (255, 255, 0),
+              (255, 0, 0), (255, 255, 255)]
+    colors_scaled = [np.array(x).astype(np.float32) / 255 for x in colors]
+    medical_cmap = mcol.LinearSegmentedColormap.from_list('my_colormap', colors_scaled, N=n_colors)
+
+    # New Palette: Arctic (refined)
+    colors = [(0, 33, 70), (0, 0, 255), (0, 174, 53), (0, 255, 255), (255, 255, 0), (255, 136, 0), (255, 0, 0),
+              (255, 25, 255), (255, 25, 255)]
+    colors_scaled = [np.array(x).astype(np.float32) / 255 for x in colors]
+    arctic_dji_cmap = mcol.LinearSegmentedColormap.from_list('my_colormap', colors_scaled, N=n_colors)
+
+    # New Palette: Rainbow 1
+    colors = [(133, 10, 10), (255, 0, 200), (108, 0, 255), (0, 0, 255), (0, 255, 255), (0, 255, 65), (255, 255, 0),
+              (255, 160, 0), (255, 0, 0)]
+    colors_scaled = [np.array(x).astype(np.float32) / 255 for x in colors]
+    rainbow1_cmap = mcol.LinearSegmentedColormap.from_list('my_colormap', colors_scaled, N=n_colors)
+
+    # New Palette: Rainbow 2
+    colors = [(0, 0, 130), (0, 0, 255), (0, 130, 255), (0, 255, 255), (130, 255, 130), (255, 255, 0), (255, 130, 0),
+              (255, 0, 0), (130, 0, 0)]
+    colors_scaled = [np.array(x).astype(np.float32) / 255 for x in colors]
+    rainbow2_cmap = mcol.LinearSegmentedColormap.from_list('my_colormap', colors_scaled, N=n_colors)
+
+    # New Palette: Tint
+    colors = [(0, 0, 0), (128, 128, 128), (255, 255, 255), (255, 0, 0)]
+    colors_scaled = [np.array(x).astype(np.float32) / 255 for x in colors]
+    tint_cmap = mcol.LinearSegmentedColormap.from_list('my_colormap', colors_scaled, N=n_colors)
+
+    # Return the correct colormap based on the input name
+    if colormap_name == 'Arctic':
         out_colormap = artic_cmap
     elif colormap_name == 'Iron':
         out_colormap = ironbow_cmap
@@ -858,6 +920,22 @@ def get_custom_cmaps(colormap_name, n_colors):
         out_colormap = fiji_cmap
     elif colormap_name == 'BlueWhiteRed':
         out_colormap = bwr_cmap
+    elif colormap_name == 'Fulgurite':
+        out_colormap = fulgurite_cmap
+    elif colormap_name == 'Iron Red':
+        out_colormap = iron_red_cmap
+    elif colormap_name == 'Hot Iron':
+        out_colormap = hot_iron_cmap
+    elif colormap_name == 'Medical':
+        out_colormap = medical_cmap
+    elif colormap_name == 'Arctic2':
+        out_colormap = arctic_dji_cmap
+    elif colormap_name == 'Rainbow1':
+        out_colormap = rainbow1_cmap
+    elif colormap_name == 'Rainbow2':
+        out_colormap = rainbow2_cmap
+    elif colormap_name == 'Tint':
+        out_colormap = tint_cmap
 
     return out_colormap
 

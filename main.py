@@ -6,6 +6,7 @@ from PySide6.QtCore import *
 import os
 import json
 
+import PIL
 # custom libraries
 import widgets as wid
 import resources as res
@@ -41,9 +42,17 @@ OUT_LIM_MATPLOT = ['c', 'k', 'w', 'r']
 POST_PROCESS = ['none', 'smooth', 'sharpen', 'sharpen strong', 'edge (simple)', 'contours']
 COLORMAP_NAMES = ['WhiteHot',
                   'BlackHot',
-                  'Artic',
+                  'Arctic',
                   'Iron',
                   'Rainbow',
+                  'DJI_Fulgurite',
+                  'DJI_Iron Red',
+                  'DJI_Hot Iron',
+                  'DJI_Medical',
+                  'DJI_Arctic',
+                  'DJI_Rainbow1',
+                  'DJI_Rainbow2',
+                  'DJI_Tint',
                   'Pyplot_BlueToRed',
                   'Pyplot_BlueWhiteRed',
                   'Pyplot_Plasma',
@@ -56,9 +65,17 @@ COLORMAP_NAMES = ['WhiteHot',
                   'FIJI_Temp']
 COLORMAPS = ['Greys_r',
              'Greys',
-             'Artic',
+             'Arctic',
              'Iron',
              'Rainbow',
+             'Fulgurite',
+             'Iron Red',
+             'Hot Iron',
+             'Medical',
+             'Arctic2',
+             'Rainbow1',
+             'Rainbow2',
+             'Tint',
              'coolwarm',
              'BlueWhiteRed',
              'plasma',
@@ -394,24 +411,18 @@ class DroneIrWindow(QMainWindow):
 
         # get initial distortion parameters from the drone model (stored in the image)
         # [k1, extend, y - offset, x - offset]
-        F = self.work_image.drone_model.K_ir[0][0]
-        d_mat = self.work_image.drone_model.d_ir
-        extend = self.work_image.drone_model.extend
-        y_off = self.work_image.drone_model.y_offset
-        x_off = self.work_image.drone_model.x_offset
+        F = self.drone_model.K_ir[0][0]
+        d_mat = self.drone_model.d_ir
+        extend = self.drone_model.extend
+        y_off = self.drone_model.y_offset
+        x_off = self.drone_model.x_offset
 
         print(f'Here are the work values! focal:{F}, extend:{extend}, y offset:{y_off}, x offset: {x_off}')
 
         dialog = dia.AlignmentDialog(ir_path, rgb_path, temp_folder, F, d_mat,
                                      theta=[extend * 100, y_off / 10, x_off / 10])
         if dialog.exec_():
-            # update values
-            extend, y_off, x_off = dialog.theta
-            self.work_image.drone_model.extend = extend / 100
-            self.work_image.drone_model.y_offset = y_off * 10
-            self.work_image.drone_model.x_offset = x_off * 10
 
-            print('Re-creating RGB crop')
 
             # ask options
             # Create a QMessageBox
@@ -420,11 +431,19 @@ class DroneIrWindow(QMainWindow):
                                 qm.Yes | qm.No)
 
             if reply == qm.Yes:
+                # update values
+                extend, y_off, x_off = dialog.theta
+                self.drone_model.extend = extend / 100
+                self.drone_model.y_offset = y_off * 10
+                self.drone_model.x_offset = x_off * 10
+
+                print('Re-creating RGB crop')
+
                 # re-run all miniatures
                 text_status = 'creating rgb miniatures...'
                 self.update_progress(nb=20, text=text_status)
 
-                worker_1 = tt.RunnerMiniature(self.list_rgb_paths, self.work_image.drone_model, 60,
+                worker_1 = tt.RunnerMiniature(self.list_rgb_paths, self.drone_model, 60,
                                               self.rgb_crop_img_folder, 20,
                                               100)
                 worker_1.signals.progressed.connect(lambda value: self.update_progress(value))
@@ -434,11 +453,7 @@ class DroneIrWindow(QMainWindow):
                 worker_1.signals.finished.connect(self.miniat_finish)
 
             else:
-                # only one miniature
-                # process rgb_crop with updated parameters
-                tt.re_create_miniature(self.work_image.rgb_path_original,
-                                       self.work_image.drone_model,
-                                       self.rgb_crop_img_folder)
+                pass
 
                 # re-print-image
                 self.update_img_preview(refresh_dual=True)
@@ -490,7 +505,7 @@ class DroneIrWindow(QMainWindow):
         # bring data 3d figure
         dialog = dia.Meas3dDialog(new_rect_annot)
         dialog.dual_view.load_images_from_path(roi_rgb_path, roi_ir_path)
-        dialog.surface_from_image_matplot(self.colormap, self.n_colors, self.user_lim_col_low, self.user_lim_col_high)
+        dialog.surface_from_image_matplot(self.work_image.colormap, self.n_colors, self.user_lim_col_low, self.user_lim_col_high)
         if dialog.exec_():
             pass
 
@@ -1000,7 +1015,23 @@ class DroneIrWindow(QMainWindow):
         dest_path_temp = self.dest_path_post[:-4] + '_temp.png'
         dialog = dia.ImageFusionDialog(self.work_image, self.dest_path_post, dest_path_temp)
         if dialog.exec_():
-            pass
+            qm = QMessageBox
+            reply = qm.question(self, '', "Do you want to save the picture?",
+                                qm.Yes | qm.No)
+
+            if reply == qm.Yes:
+
+                file_path, _ = QFileDialog.getSaveFileName(
+                    None, "Save Image", "", "PNG Image (*.png);;JPEG Image (*.jpg *.jpeg *.JPEG)"
+                )
+
+                # Save the image if a file path was provided, using high-quality settings for JPEG
+                if file_path:
+                    dialog.exportComposedImage(file_path)
+
+
+            else:
+                pass
 
     def compile_user_values(self):
         # colormap
@@ -1249,7 +1280,7 @@ class DroneIrWindow(QMainWindow):
                     tt.cv_write_all_path(roi_ir, roi_ir_path)
                     dialog = dia.Meas3dDialog(interest)
                     dialog.dual_view.load_images_from_path(roi_rgb_path, roi_ir_path)
-                    dialog.surface_from_image_matplot(self.colormap, self.n_colors, self.user_lim_col_low,
+                    dialog.surface_from_image_matplot(self.work_image.colormap, self.n_colors, self.user_lim_col_low,
                                                       self.user_lim_col_high)
                     if dialog.exec_():
                         pass

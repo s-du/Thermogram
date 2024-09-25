@@ -149,6 +149,7 @@ class ImageFusionDialog(QtWidgets.QDialog):
         self.dest_path_preview = dest_path_preview
         self.scene = QGraphicsScene()
         self.view.setScene(self.scene)
+        self.image_to_export = None
 
         min_temp_scaled = self.scale_temperature(img_object.tmin)
         max_temp_scaled = self.scale_temperature(img_object.tmax)
@@ -361,6 +362,40 @@ class ImageFusionDialog(QtWidgets.QDialog):
             colorPixmap = QPixmap(self.img_object.rgb_path)  # Assuming img_object is accessible
             self.colorImageItem.setPixmap(colorPixmap, rescale=False)
         self.colorImageItem.update()
+
+    def exportComposedImage(self, output_path):
+        """
+        Export the composed image (fused color and infrared images) to the specified output path.
+        """
+        # Determine the size of the composed image
+        width = self.colorImageItem.pixmap.width()
+        height = self.colorImageItem.pixmap.height()
+
+        # Create an empty QImage with the size of the final composed image
+        composed_image = QImage(width, height, QImage.Format_ARGB32)
+        composed_image.fill(QtCore.Qt.transparent)  # Start with a transparent image
+
+        # Initialize a QPainter to draw on the composed QImage
+        painter = QPainter(composed_image)
+
+        # Draw the color image first
+        painter.drawPixmap(0, 0, self.colorImageItem.pixmap)
+
+        # Set the composition mode (e.g., Overlay, Multiply, etc.) and opacity
+        painter.setCompositionMode(self.thermalImageItem.composition_mode)
+        painter.setOpacity(self.thermalImageItem.opacity)
+
+        # Draw the infrared image with the appropriate blending mode
+        painter.drawPixmap(0, 0, self.thermalImageItem.pixmap)
+
+        # End the painter
+        painter.end()
+
+        if output_path.lower().endswith('.jpg') or output_path.lower().endswith('.jpeg'):
+            composed_image.save(output_path, 'JPEG', 100)
+        else:
+            composed_image.save(output_path)  # PNG is lossless by default
+        composed_image.save(output_path)
 
 
 class AlignmentDialog(QDialog):
