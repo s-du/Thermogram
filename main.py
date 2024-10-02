@@ -58,7 +58,7 @@ COLORMAP_NAMES = ['WhiteHot',
                   'Pyplot_Plasma',
                   'Pyplot_Inferno',
                   'Pyplot_Jet',
-                  'Pyplot_GNUPlot2'
+                  'Pyplot_GNUPlot2',
                   'Pyplot_Spectral',
                   'Pyplot_Cividis',
                   'Pyplot_Viridis',
@@ -900,8 +900,16 @@ class DroneIrWindow(QMainWindow):
             else:
                 undis = False
 
+            reply = qm.question(self, '', "Do you want to upscale images (4x)?",
+                                qm.Yes | qm.No)
+
+            if reply == qm.Yes:
+                zoom = 4
+            else:
+                zoom = 1
+
             worker_1 = tt.RunnerDJI(5, 100, self.last_out_folder, self.images, self.work_image, self.edges,
-                                    self.edge_params, undis = undis)
+                                    self.edge_params, undis = undis, zoom=zoom)
             worker_1.signals.progressed.connect(lambda value: self.update_progress(value))
             worker_1.signals.messaged.connect(lambda string: self.update_progress(text=string))
 

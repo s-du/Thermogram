@@ -123,6 +123,8 @@ class DroneModel():
             self.extend = 0.3504
             self.x_offset = 49
             self.y_offset = 53
+        elif name == 'M30T':
+            pass
 
 
 class ProcessedIm:
@@ -409,7 +411,7 @@ class RunnerSignals(QtCore.QObject):
 
 class RunnerDJI(QtCore.QRunnable):
     def __init__(self, start, stop, out_folder, img_objects, ref_im, edges, edges_params, individual_settings=False,
-                 export_tif=False, undis=False):
+                 export_tif=False, undis=False, zoom=1):
         super().__init__()
         self.img_objects = img_objects
         self.edges = edges
@@ -422,6 +424,7 @@ class RunnerDJI(QtCore.QRunnable):
 
         self.signals = RunnerSignals()
         self.undis = undis
+        self.zoom = zoom
 
         if not individual_settings:  # if global export from current image settings
             self.custom_params = {
@@ -461,7 +464,8 @@ class RunnerDJI(QtCore.QRunnable):
                              edge_params=self.edges_params,
                              custom_params=self.custom_params,
                              export_tif=self.export_tif,
-                             undis=self.undis)
+                             undis=self.undis,
+                             zoom=self.zoom)
 
             if i == len(self.img_objects) - 1:
                 legend_dest_path = os.path.join(self.dest_folder, 'plot_onlycbar_tight.png')
@@ -1017,7 +1021,7 @@ def extract_raw_data(param, ir_img_path, undistorder_ir):
     return im, undis_im
 
 
-def process_raw_data(img_object, dest_path, edges, edge_params, undis=True, custom_params=None, export_tif=False):
+def process_raw_data(img_object, dest_path, edges, edge_params, undis=True, custom_params=None, export_tif=False, zoom = 1 ):
     if custom_params is None:
         custom_params = {}
     ed_met, ed_col, ed_bil, ed_blur, ed_bl_sz, ed_op = edge_params
@@ -1066,10 +1070,18 @@ def process_raw_data(img_object, dest_path, edges, edge_params, undis=True, cust
     thermal_cmap = np.uint8(thermal_cmap * 255)
 
     img_thermal = Image.fromarray(thermal_cmap[:, :, [0, 1, 2]])
+
+    if zoom != 1:
+        original_width, original_height = img_thermal.size
+        new_width = int(original_width * zoom)
+        new_height = int(original_height * zoom)
+        img_thermal = img_thermal.resize((new_width, new_height),
+                                         Image.LANCZOS)  # Use LANCZOS interpolation for high-quality upscaling
+
     if export_tif:
         dest_path = dest_path[:-4] + '.tiff'
         img_thermal = Image.fromarray(im)  # export as 32bit array (floating point)
-        img_thermal.save(dest_path, exif=exif)
+        img_thermal.save(dest_path)
 
     elif post_process == 'none':
         img_thermal.save(dest_path, exif=exif)
@@ -1145,7 +1157,30 @@ def process_raw_data(img_object, dest_path, edges, edge_params, undis=True, cust
                            mode=ed_met, color=ed_col, bilateral=ed_bil, blur=ed_blur, blur_size=ed_bl_sz, opacity=ed_op)
 
 
-def process_th_image_with_theta(ir_img_path, rgb_img_path, out_folder, theta, F, CX, CY, d_mat):
+def resize_and_pad(img, target_size):
+    target_w, target_h = target_size
+    h, w = img.shape[:2]
+
+    # Calculate scaling factor to maintain aspect ratio
+    scale = min(target_w / w, target_h / h)
+    new_w = int(w * scale)
+    new_h = int(h * scale)
+
+    # Resize image
+    resized_img = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_AREA)
+
+    # Pad image to match target size
+    delta_w = target_w - new_w
+    delta_h = target_h - new_h
+    top = delta_h // 2
+    bottom = delta_h - top
+    left = delta_w // 2
+    right = delta_w - left
+
+    padded_img = cv2.copyMakeBorder(resized_img, top, bottom, left, right, cv2.BORDER_CONSTANT, value=[0, 0, 0])
+    return padded_img
+
+def process_th_image_with_theta_test(ir_img_path, rgb_img_path, out_folder, theta, F, CX, CY, d_mat):
     # read images
     cv_rgb = cv2.imread(rgb_img_path)
     h_rgb, w_rgb = cv_rgb.shape[:2]
@@ -1157,9 +1192,95 @@ def process_th_image_with_theta(ir_img_path, rgb_img_path, out_folder, theta, F,
 
     d = d_mat
 
-    # undistort image with given parameters
+    # undistort infrared image with given parameters
     cv_ir_un = undis_kd(cv_ir, K, d)
     h_ir, w_ir = cv_ir_un.shape[:2]
+
+    zoom = theta[0]
+    x_offset = theta[2] * 10
+    y_offset = theta[1] * 10
+
+    # Compute aspect factor to adjust for aspect ratio differences
+    if h_ir == 0:
+        aspect_factor = 1
+    else:
+        aspect_factor = (w_rgb / h_rgb) / (w_ir / h_ir)
+
+    # Adjust zoom
+    if zoom >= 1:
+        # For zoom >= 1, resize the RGB image to be smaller
+        scaling_factor = 1 / zoom
+        rgb_resized = cv2.resize(cv_rgb, None, fx=scaling_factor, fy=scaling_factor, interpolation=cv2.INTER_AREA)
+        h_resized, w_resized = rgb_resized.shape[:2]
+
+        # Apply aspect factor
+        new_h = int(h_resized * aspect_factor)
+        rgb_resized = cv2.resize(rgb_resized, (w_resized, new_h), interpolation=cv2.INTER_AREA)
+        h_resized, w_resized = rgb_resized.shape[:2]
+
+        # Apply x_offset and y_offset
+        x_center = int(w_resized / 2 + x_offset)
+        y_center = int(h_resized / 2 + y_offset)
+        x1 = x_center - w_ir // 2
+        y1 = y_center - h_ir // 2
+        x2 = x_center + w_ir // 2
+        y2 = y_center + h_ir // 2
+
+        # Crop the image
+        rgb_cropped = rgb_resized[max(y1, 0):min(y2, h_resized), max(x1, 0):min(x2, w_resized)]
+    else:
+        # For zoom < 1, crop a rectangle from the RGB image
+        crop_width = int(w_rgb * zoom)
+        crop_height = int(h_rgb * zoom * aspect_factor)
+        x_center = int(w_rgb / 2 + x_offset)
+        y_center = int(h_rgb / 2 + y_offset)
+        x1 = x_center - crop_width // 2
+        y1 = y_center - crop_height // 2
+        x2 = x_center + crop_width // 2
+        y2 = y_center + crop_height // 2
+
+        # Crop the image
+        rgb_cropped = cv_rgb[max(y1, 0):min(y2, h_rgb), max(x1, 0):min(x2, w_rgb)]
+
+    # After cropping, resize and pad rgb_cropped to match IR image dimensions
+    rgb_cropped = resize_and_pad(rgb_cropped, (w_ir, h_ir))
+
+    # Save the resized image
+    cv2.imwrite(os.path.join(out_folder, 'rescale.JPG'), rgb_cropped)
+
+    # Create lines
+    lines_rgb = create_lines(rgb_cropped)
+    cv2.imwrite(rgb_img_path[:-4] + '_rgb_lines.JPG', lines_rgb)
+
+    lines_ir = create_lines(cv_ir_un, bil=False)
+    cv2.imwrite(ir_img_path[:-4] + '_ir_lines.JPG', lines_ir)
+
+    # Now lines_rgb and lines_ir should have the same size
+    # Compute difference
+    diff = cv2.subtract(lines_ir, lines_rgb)
+    err = np.sum(diff ** 2)
+    mse = err / (float(h_ir * w_ir))
+
+    print(f'mse is {mse}')
+
+    return mse
+
+
+def process_th_image_with_theta(ir_img_path, rgb_img_path, out_folder, theta, F, CX, CY, d_mat):
+    # read images
+    cv_rgb = cv2.imread(rgb_img_path) # read rgb image
+    h_rgb, w_rgb = cv_rgb.shape[:2]
+    cv_ir = cv2.imread(ir_img_path) # read infrared image
+
+    K = np.array([[F, 0, CX],
+                  [0, F, CY],
+                  [0, 0, 1]]) # read optical parameters for infrared image
+
+    d = d_mat
+
+    # undistort infrared image with given parameters
+    cv_ir_un = undis_kd(cv_ir, K, d)
+    h_ir, w_ir = cv_ir_un.shape[:2] # get resulting dimension of thermal image
 
     dim_undis_ir = (w_ir, h_ir)
 
