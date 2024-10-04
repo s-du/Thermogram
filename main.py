@@ -37,55 +37,6 @@ RECT_MEAS_NAME = 'Rectangle measurements'
 POINT_MEAS_NAME = 'Spot measurements'
 LINE_MEAS_NAME = 'Line measurements'
 
-OUT_LIM = ['continuous', 'black', 'white', 'red']
-OUT_LIM_MATPLOT = ['c', 'k', 'w', 'r']
-POST_PROCESS = ['none', 'smooth', 'sharpen', 'sharpen strong', 'edge (simple)', 'contours']
-COLORMAP_NAMES = ['WhiteHot',
-                  'BlackHot',
-                  'Arctic',
-                  'Iron',
-                  'Rainbow',
-                  'DJI_Fulgurite',
-                  'DJI_Iron Red',
-                  'DJI_Hot Iron',
-                  'DJI_Medical',
-                  'DJI_Arctic',
-                  'DJI_Rainbow1',
-                  'DJI_Rainbow2',
-                  'DJI_Tint',
-                  'Pyplot_BlueToRed',
-                  'Pyplot_BlueWhiteRed',
-                  'Pyplot_Plasma',
-                  'Pyplot_Inferno',
-                  'Pyplot_Jet',
-                  'Pyplot_GNUPlot2',
-                  'Pyplot_Spectral',
-                  'Pyplot_Cividis',
-                  'Pyplot_Viridis',
-                  'FIJI_Temp']
-COLORMAPS = ['Greys_r',
-             'Greys',
-             'Arctic',
-             'Iron',
-             'Rainbow',
-             'Fulgurite',
-             'Iron Red',
-             'Hot Iron',
-             'Medical',
-             'Arctic2',
-             'Rainbow1',
-             'Rainbow2',
-             'Tint',
-             'coolwarm',
-             'BlueWhiteRed',
-             'plasma',
-             'inferno',
-             'jet',
-             'gnuplot2',
-             'Spectral_r',
-             'cividis',
-             'viridis',
-             'FIJI_Temp']
 VIEWS = ['th. undistorted', 'RGB crop', 'Custom']
 
 
@@ -151,11 +102,11 @@ class DroneIrWindow(QMainWindow):
         self.edge_opacity = 0.7
 
         # combo boxes content
-        self._out_of_lim = OUT_LIM
-        self._out_of_matp = OUT_LIM_MATPLOT
-        self._img_post = POST_PROCESS
-        self._colormap_names = COLORMAP_NAMES
-        self._colormap_list = COLORMAPS
+        self._out_of_lim = tt.OUT_LIM
+        self._out_of_matp = tt.OUT_LIM_MATPLOT
+        self._img_post = tt.POST_PROCESS
+        self._colormap_names = tt.COLORMAP_NAMES
+        self._colormap_list = tt.COLORMAPS
         self._view_list = VIEWS
 
         # add content to comboboxes
@@ -175,7 +126,7 @@ class DroneIrWindow(QMainWindow):
         self.skip_update = False
 
         # create double slider
-        self.range_slider = wid.QRangeSlider(COLORMAPS[0])
+        self.range_slider = wid.QRangeSlider(tt.COLORMAPS[0])
         self.range_slider.setEnabled(False)
         self.range_slider.setLowerValue(0)
         self.range_slider.setUpperValue(20)
@@ -259,10 +210,11 @@ class DroneIrWindow(QMainWindow):
         self.viewer.endDrawing_point_meas.connect(self.add_point_meas)
         self.viewer.endDrawing_line_meas.connect(self.add_line_meas)
 
+        # PushButtons
         self.pushButton_left.clicked.connect(lambda: self.update_img_to_preview('minus'))
         self.pushButton_right.clicked.connect(lambda: self.update_img_to_preview('plus'))
         self.pushButton_estimate.clicked.connect(self.estimate_temp)
-        self.pushButton_advanced.clicked.connect(self.define_options)
+        # self.pushButton_advanced.clicked.connect(self.define_options)
         self.pushButton_meas_color.clicked.connect(self.change_meas_color)
         self.pushButton_match.clicked.connect(self.image_matching)
         self.pushButton_edge_options.clicked.connect(self.edge_options)
@@ -283,6 +235,10 @@ class DroneIrWindow(QMainWindow):
         self.lineEdit_min_temp.editingFinished.connect(self.change_slider_values)
         self.lineEdit_max_temp.editingFinished.connect(self.change_slider_values)
         self.lineEdit_colors.editingFinished.connect(self.update_img_preview)
+
+        self.lineEdit_emissivity.editingFinished.connect(self.define_options)
+        self.lineEdit_distance.editingFinished.connect(self.define_options)
+        self.lineEdit_refl_temp.editingFinished.connect(self.define_options)
 
         # Checkboxes
         self.checkBox_legend.stateChanged.connect(self.toggle_legend)
@@ -585,7 +541,7 @@ class DroneIrWindow(QMainWindow):
         self.retrace_items()
 
     # THERMAL-RELATED FUNCTIONS __________________________________________________________________________
-    def define_options(self):
+    def define_options_old(self):
         dialog = dia.DialogThParams(self.thermal_param)
         dialog.setWindowTitle("Choose advanced thermal options")
 
@@ -623,6 +579,42 @@ class DroneIrWindow(QMainWindow):
                 QMessageBox.warning(self, "Warning",
                                     "Oops! Some of the values are not valid!")
                 self.define_options()
+
+    def define_options(self):
+        try:
+            self.advanced_options = True
+            em = float(self.lineEdit_emissivity.text())
+            if em < 0.1 or em > 1:
+                self.lineEdit_emissivity.setText(str(round(self.thermal_param['emissivity'], 2)))
+                raise ValueError
+            else:
+                self.thermal_param['emissivity'] = em
+
+            dist = float(self.lineEdit_distance.text())
+            if dist < 1 or dist > 25:
+                self.lineEdit_distance.setText(str(round(self.thermal_param['distance'], 1)))
+                raise ValueError
+            else:
+                self.thermal_param['distance'] = dist
+
+            refl_temp = float(self.lineEdit_refl_temp.text())
+            if refl_temp < -40 or refl_temp > 500:
+                self.lineEdit_refl_temp.setText(str(round(self.thermal_param['reflection'], 1)))
+                raise ValueError
+            else:
+                self.thermal_param['reflection'] = refl_temp
+
+            # update image data
+            self.work_image.update_data(self.thermal_param)
+            self.switch_image_data()
+            self.update_img_preview()
+
+
+        except ValueError:
+            QMessageBox.warning(self, "Warning",
+                                "Oops! Some of the values are not valid!")
+
+
 
     def estimate_temp(self):
         ref_pic_name = QFileDialog.getOpenFileName(self, 'Open file',
@@ -789,9 +781,11 @@ class DroneIrWindow(QMainWindow):
         # activate buttons and options
 
         #   dock widgets
-        self.pushButton_advanced.setEnabled(True)
         self.lineEdit_max_temp.setEnabled(True)
         self.lineEdit_min_temp.setEnabled(True)
+        self.lineEdit_distance.setEnabled(True)
+        self.lineEdit_emissivity.setEnabled(True)
+        self.lineEdit_refl_temp.setEnabled(True)
         self.pushButton_estimate.setEnabled(True)
 
         self.comboBox.setEnabled(True)
@@ -1081,10 +1075,12 @@ class DroneIrWindow(QMainWindow):
 
     def switch_image_data(self):
         """
-        When the shown picture is change (adapt measurements and user colormap for this picture)
+        When the shown picture is changed (adapt measurements and user colormap for this picture)
         """
         # load stored data
         self.work_image = self.images[self.active_image]
+
+        # if 'keep parameters' is not checked, change all parameters according to stored data
         if not self.checkBox_keep.isChecked():
             self.colormap, self.n_colors, self.user_lim_col_high, self.user_lim_col_low, self.tmin, self.tmax, self.tmin_shown, self.tmax_shown, self.post_process = self.work_image.get_colormap_data()
 
@@ -1105,7 +1101,12 @@ class DroneIrWindow(QMainWindow):
             self.lineEdit_min_temp.setText(str(round(self.tmin_shown, 2)))
             self.lineEdit_max_temp.setText(str(round(self.tmax_shown, 2)))
 
+            # load radiometeric parameters
             self.thermal_param = self.work_image.thermal_param
+
+            self.lineEdit_emissivity.setText(str(round(self.thermal_param['emissivity'], 2)))
+            self.lineEdit_distance.setText(str(round(self.thermal_param['distance'], 2)))
+            self.lineEdit_refl_temp.setText(str(round(self.thermal_param['reflection'], 2)))
 
             # update double slider TODO
             self.range_slider.setLowerValue(self.tmin_shown * 100)
@@ -1113,6 +1114,10 @@ class DroneIrWindow(QMainWindow):
             self.range_slider.setMinimum(self.tmin * 100)
             self.range_slider.setMaximum(self.tmax * 100)
             self.range_slider.setHandleColorsFromColormap(self.colormap)
+        else:
+            # get radiometric data
+            self.work_image.thermal_param = self.thermal_param
+            self.work_image.update_data(self.thermal_param)
 
         # clean measurements and annotations
         self.retrace_items()

@@ -31,6 +31,10 @@ m2t_rgb_xml_path = res.find('other/rgb_cam_calib_m2t_opencv.xml')
 m3t_ir_xml_path = res.find('other/cam_calib_m3t_opencv.xml')
 m3t_rgb_xml_path = res.find('other/rgb_cam_calib_m3t_opencv.xml')
 
+OUT_LIM = ['continuous', 'black', 'white', 'red']
+OUT_LIM_MATPLOT = ['c', 'k', 'w', 'r']
+POST_PROCESS = ['none', 'smooth', 'sharpen', 'sharpen strong', 'edge (simple)', 'contours']
+
 LIST_CUSTOM_CMAPS = ['Arctic',
                      'Iron',
                      'Rainbow',
@@ -44,7 +48,52 @@ LIST_CUSTOM_CMAPS = ['Arctic',
                      'Tint',
                      'BlueWhiteRed',
                      'FIJI_Temp']
-
+COLORMAP_NAMES = ['WhiteHot',
+                  'BlackHot',
+                  'Arctic',
+                  'Iron',
+                  'Rainbow',
+                  'DJI_Fulgurite',
+                  'DJI_Iron Red',
+                  'DJI_Hot Iron',
+                  'DJI_Medical',
+                  'DJI_Arctic',
+                  'DJI_Rainbow1',
+                  'DJI_Rainbow2',
+                  'DJI_Tint',
+                  'Pyplot_BlueToRed',
+                  'Pyplot_BlueWhiteRed',
+                  'Pyplot_Plasma',
+                  'Pyplot_Inferno',
+                  'Pyplot_Jet',
+                  'Pyplot_GNUPlot2',
+                  'Pyplot_Spectral',
+                  'Pyplot_Cividis',
+                  'Pyplot_Viridis',
+                  'FIJI_Temp']
+COLORMAPS = ['Greys_r',
+             'Greys',
+             'Arctic',
+             'Iron',
+             'Rainbow',
+             'Fulgurite',
+             'Iron Red',
+             'Hot Iron',
+             'Medical',
+             'Arctic2',
+             'Rainbow1',
+             'Rainbow2',
+             'Tint',
+             'coolwarm',
+             'BlueWhiteRed',
+             'plasma',
+             'inferno',
+             'jet',
+             'gnuplot2',
+             'Spectral_r',
+             'cividis',
+             'viridis',
+             'FIJI_Temp']
 
 # USEFUL CLASSES __________________________________________________
 class CameraUndistorter:
@@ -425,6 +474,7 @@ class RunnerDJI(QtCore.QRunnable):
         self.signals = RunnerSignals()
         self.undis = undis
         self.zoom = zoom
+        self.radio_param = None
 
         if not individual_settings:  # if global export from current image settings
             self.custom_params = {
@@ -436,6 +486,8 @@ class RunnerDJI(QtCore.QRunnable):
                 "col_low": ref_im.user_lim_col_low,
                 "post_process": ref_im.post_process
             }
+            # get global radiometric parameters
+            self.radio_param = ref_im.thermal_param
 
     def run(self):
         # create raw outputs for each image
@@ -461,6 +513,7 @@ class RunnerDJI(QtCore.QRunnable):
             process_raw_data(img,
                              dest_path,
                              edges=self.edges,
+                             radio_param=self.radio_param,
                              edge_params=self.edges_params,
                              custom_params=self.custom_params,
                              export_tif=self.export_tif,
@@ -1021,14 +1074,19 @@ def extract_raw_data(param, ir_img_path, undistorder_ir):
     return im, undis_im
 
 
-def process_raw_data(img_object, dest_path, edges, edge_params, undis=True, custom_params=None, export_tif=False, zoom = 1 ):
+def process_raw_data(img_object, dest_path, edges, edge_params, radio_param=None, undis=True, custom_params=None, export_tif=False, zoom = 1 ):
     if custom_params is None:
         custom_params = {}
     ed_met, ed_col, ed_bil, ed_blur, ed_bl_sz, ed_op = edge_params
 
-    if not img_object.has_data:
-        img_object.update_data(img_object.thermal_param)
+    if radio_param:
+        img_object.update_data(radio_param)
 
+    if not img_object.has_data:
+        if radio_param:
+            img_object.update_data(radio_param)
+        else:
+            img_object.update_data(img_object.thermal_param)
     # data
     if undis:
         im = img_object.raw_data_undis
