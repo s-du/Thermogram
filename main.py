@@ -900,11 +900,11 @@ class DroneIrWindow(QMainWindow):
             else:
                 undis = False
 
-            reply = qm.question(self, '', "Do you want to upscale images (4x)?",
+            reply = qm.question(self, '', "Do you want to upscale images (3x)?",
                                 qm.Yes | qm.No)
 
             if reply == qm.Yes:
-                zoom = 4
+                zoom = 3
             else:
                 zoom = 1
 
@@ -1172,7 +1172,7 @@ class DroneIrWindow(QMainWindow):
 
         else:  # IR picture
             self.compile_user_values()  # store combobox choices in img data
-            dest_path_post = os.path.join(self.preview_folder, 'preview_post.JPG')
+            dest_path_post = os.path.join(self.preview_folder, 'preview_post.png')
             img = self.work_image
 
             # get edge detection parameters

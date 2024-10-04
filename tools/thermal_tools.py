@@ -555,7 +555,7 @@ def create_video(image_folder, video_name, fps):
     images.sort()  # Sort the images if needed
 
     # Determine the width and height from the first image
-    frame = cv2.imread(os.path.join(image_folder, images[0]))
+    frame = cv_read_all_path(os.path.join(image_folder, images[0]))
     height, width, layers = frame.shape
 
     # Initialize video writer
@@ -563,7 +563,7 @@ def create_video(image_folder, video_name, fps):
     video = cv2.VideoWriter(video_name, fourcc, fps, (width, height))
 
     for image in images:
-        video.write(cv2.imread(os.path.join(image_folder, image)))
+        video.write(cv_read_all_path(os.path.join(image_folder, image)))
 
     cv2.destroyAllWindows()
     video.release()
@@ -730,7 +730,7 @@ def get_corresponding_crop_rectangle(p1, p2, scale):
 # LINES __________________________________________________
 def add_lines_from_rgb(path_ir, cv_match_rgb_img, drone_model, dest_path,
                        exif=None, mode=1, color='white', bilateral=True, blur=True, blur_size=3, opacity=0.7):
-    cv_ir_img = cv2.imread(path_ir)
+    cv_ir_img = cv_read_all_path(path_ir)
     img_gray = cv2.cvtColor(cv_match_rgb_img, cv2.COLOR_BGR2GRAY)
 
     if blur:
@@ -1153,6 +1153,7 @@ def process_raw_data(img_object, dest_path, edges, edge_params, undis=True, cust
         cv_match_rgb_img = cv_read_all_path(img_object.rgb_path)
 
         # Use the extracted mode directly
+        print(f'HERREEEEEE {dest_path}')
         add_lines_from_rgb(dest_path, cv_match_rgb_img, drone_model, dest_path, exif=exif,
                            mode=ed_met, color=ed_col, bilateral=ed_bil, blur=ed_blur, blur_size=ed_bl_sz, opacity=ed_op)
 
@@ -1182,9 +1183,9 @@ def resize_and_pad(img, target_size):
 
 def process_th_image_with_theta_test(ir_img_path, rgb_img_path, out_folder, theta, F, CX, CY, d_mat):
     # read images
-    cv_rgb = cv2.imread(rgb_img_path)
+    cv_rgb = cv_read_all_path(rgb_img_path)
     h_rgb, w_rgb = cv_rgb.shape[:2]
-    cv_ir = cv2.imread(ir_img_path)
+    cv_ir = cv_read_all_path(ir_img_path)
 
     K = np.array([[F, 0, CX],
                   [0, F, CY],
@@ -1268,9 +1269,9 @@ def process_th_image_with_theta_test(ir_img_path, rgb_img_path, out_folder, thet
 
 def process_th_image_with_theta(ir_img_path, rgb_img_path, out_folder, theta, F, CX, CY, d_mat):
     # read images
-    cv_rgb = cv2.imread(rgb_img_path) # read rgb image
+    cv_rgb = cv_read_all_path(rgb_img_path) # read rgb image
     h_rgb, w_rgb = cv_rgb.shape[:2]
-    cv_ir = cv2.imread(ir_img_path) # read infrared image
+    cv_ir = cv_read_all_path(ir_img_path) # read infrared image
 
     K = np.array([[F, 0, CX],
                   [0, F, CY],
