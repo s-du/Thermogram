@@ -428,15 +428,24 @@ class DroneIrWindow(QMainWindow):
         new_rect_annot = tt.RectMeas(rect_item)
 
         # get image data
-        rgb_path = os.path.join(self.rgb_folder, self.rgb_imgs[self.active_image])
+        if self.has_rgb:
+            rgb_path = os.path.join(self.rgb_folder, self.rgb_imgs[self.active_image])
+        else:
+            rgb_path = ''
+            new_rect_annot.has_rgb = False
+
         ir_path = self.dest_path_post
         coords = new_rect_annot.get_coord_from_item(rect_item)
         roi_ir, roi_rgb = new_rect_annot.compute_data(coords, self.work_image.raw_data_undis, rgb_path, ir_path)
 
-        roi_rgb_path = os.path.join(self.preview_folder, 'roi_rgb.JPG')
         roi_ir_path = os.path.join(self.preview_folder, 'roi_ir.JPG')
-        tt.cv_write_all_path(roi_rgb, roi_rgb_path)
         tt.cv_write_all_path(roi_ir, roi_ir_path)
+
+        if self.has_rgb:
+            roi_rgb_path = os.path.join(self.preview_folder, 'roi_rgb.JPG')
+            tt.cv_write_all_path(roi_rgb, roi_rgb_path)
+        else:
+            roi_rgb_path = ''
 
         # add interesting data to viewer
         new_rect_annot.compute_highlights()
@@ -459,8 +468,12 @@ class DroneIrWindow(QMainWindow):
         self.treeView.expandAll()
 
         # bring data 3d figure
-        dialog = dia.Meas3dDialog(new_rect_annot)
-        dialog.dual_view.load_images_from_path(roi_rgb_path, roi_ir_path)
+        if self.has_rgb:
+            dialog = dia.Meas3dDialog(new_rect_annot)
+            dialog.dual_view.load_images_from_path(roi_rgb_path, roi_ir_path)
+        else:
+            dialog = dia.Meas3dDialog_simple(new_rect_annot)
+
         dialog.surface_from_image_matplot(self.work_image.colormap, self.n_colors, self.user_lim_col_low, self.user_lim_col_high)
         if dialog.exec_():
             pass
@@ -1282,18 +1295,29 @@ class DroneIrWindow(QMainWindow):
                     interest = self.images[self.active_image].meas_rect_list[i]
 
                     # bring data 3d figure
-                    rgb_path = os.path.join(self.rgb_folder, self.rgb_imgs[self.active_image])
+                    if self.has_rgb:
+                        rgb_path = os.path.join(self.rgb_folder, self.rgb_imgs[self.active_image])
+                    else:
+                        rgb_path = ''
+
                     ir_path = self.dest_path_post
                     coords = interest.get_coord_from_item(interest.main_item)
                     roi_ir, roi_rgb = interest.compute_data(coords, self.work_image.raw_data_undis, rgb_path, ir_path)
-
-                    roi_rgb_path = os.path.join(self.preview_folder, 'roi_rgb.JPG')
                     roi_ir_path = os.path.join(self.preview_folder, 'roi_ir.JPG')
-                    tt.cv_write_all_path(roi_rgb, roi_rgb_path)
                     tt.cv_write_all_path(roi_ir, roi_ir_path)
-                    dialog = dia.Meas3dDialog(interest)
-                    dialog.dual_view.load_images_from_path(roi_rgb_path, roi_ir_path)
-                    dialog.surface_from_image_matplot(self.work_image.colormap, self.n_colors, self.user_lim_col_low,
+
+                    if self.has_rgb:
+                        roi_rgb_path = os.path.join(self.preview_folder, 'roi_rgb.JPG')
+                        tt.cv_write_all_path(roi_rgb, roi_rgb_path)
+
+                        dialog = dia.Meas3dDialog(interest)
+                        dialog.dual_view.load_images_from_path(roi_rgb_path, roi_ir_path)
+
+                    else:
+                        dialog = dia.Meas3dDialog_simple(interest)
+
+                    dialog.surface_from_image_matplot(self.work_image.colormap, self.n_colors,
+                                                      self.user_lim_col_low,
                                                       self.user_lim_col_high)
                     if dialog.exec_():
                         pass

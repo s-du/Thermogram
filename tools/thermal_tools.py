@@ -350,6 +350,7 @@ class RectMeas:
         self.coords = []
         self.data_roi = []
         self.th_norm = []
+        self.has_rgb = True
 
         self.tmin = 0
         self.tmax = 0
@@ -367,18 +368,21 @@ class RectMeas:
         # crop data to last rectangle
         self.data_roi = raw_data[int(p1.y()):int(p2.y()), int(p1.x()):int(p2.x())]
 
-        cv_rgb = cv_read_all_path(rgb_path)
-        h_rgb, w_rgb, _ = cv_rgb.shape
         cv_ir = cv_read_all_path(ir_path)
         h_ir, w_ir, _ = cv_ir.shape
         roi_ir = cv_ir[int(p1.y()):int(p2.y()), int(p1.x()):int(p2.x())]
 
         p1 = (p1.x(), p1.y())
         p2 = (p2.x(), p2.y())
-        scale = w_rgb / w_ir
-        crop_tl, crop_tr = get_corresponding_crop_rectangle(p1, p2, scale)
 
-        roi_rgb = cv_rgb[int(crop_tl[1]):int(crop_tr[1]), int(crop_tl[0]):int(crop_tr[0])]
+        if self.has_rgb:
+            cv_rgb = cv_read_all_path(rgb_path)
+            h_rgb, w_rgb, _ = cv_rgb.shape
+            scale = w_rgb / w_ir
+            crop_tl, crop_tr = get_corresponding_crop_rectangle(p1, p2, scale)
+            roi_rgb = cv_rgb[int(crop_tl[1]):int(crop_tr[1]), int(crop_tl[0]):int(crop_tr[0])]
+        else:
+            roi_rgb = None
 
         return roi_ir, roi_rgb
 
