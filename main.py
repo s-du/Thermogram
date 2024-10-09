@@ -369,14 +369,14 @@ class DroneIrWindow(QMainWindow):
         # [k1, extend, y - offset, x - offset]
         F = self.drone_model.K_ir[0][0]
         d_mat = self.drone_model.d_ir
-        extend = self.drone_model.extend
+        zoom = self.drone_model.zoom
         y_off = self.drone_model.y_offset
         x_off = self.drone_model.x_offset
 
-        print(f'Here are the work values! focal:{F}, extend:{extend}, y offset:{y_off}, x offset: {x_off}')
+        print(f'Here are the work values! focal:{F}, extend:{zoom}, y offset:{y_off}, x offset: {x_off}')
 
         dialog = dia.AlignmentDialog(ir_path, rgb_path, temp_folder, F, d_mat,
-                                     theta=[extend * 100, y_off / 10, x_off / 10])
+                                     theta=[zoom, y_off, x_off])
         if dialog.exec_():
 
 
@@ -388,8 +388,8 @@ class DroneIrWindow(QMainWindow):
 
             if reply == qm.Yes:
                 # update values
-                extend, y_off, x_off = dialog.theta
-                self.drone_model.extend = extend / 100
+                zoom, y_off, x_off = dialog.theta
+                self.drone_model.zoom = zoom
                 self.drone_model.y_offset = y_off * 10
                 self.drone_model.x_offset = x_off * 10
 

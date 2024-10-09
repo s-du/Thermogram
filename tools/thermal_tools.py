@@ -153,6 +153,7 @@ class DroneModel():
             self.extend = 0.332
             self.x_offset = 50
             self.y_offset = 35
+            self.zoom = 1.506
 
         elif name == 'M3T':
             self.rgb_xml_path = m3t_rgb_xml_path
@@ -172,6 +173,8 @@ class DroneModel():
             self.extend = 0.3504
             self.x_offset = 49
             self.y_offset = 53
+            self.zoom = 1.4269
+
         elif name == 'M30T':
             pass
 
@@ -768,6 +771,37 @@ def match_rgb_custom_parameters(cv_img, drone_model, resized=False):
 
     return rgb_dest
 
+def match_rgb_custom_parameters_zoom(cv_img, drone_model, resized=False):
+    h2, w2 = cv_img.shape[:2]
+    new_h = h2 * drone_model.aspect_factor
+
+    # Adjust crop size based on zoom factor
+    ret_x = int((w2 / drone_model.zoom) / 2)
+    ret_y = int((new_h / drone_model.zoom) / 2)
+
+    # Compute the region of the RGB image to retain
+    rgb_crop = cv_img[
+               max(0, int(h2 / 2 + drone_model.y_offset) - ret_y):min(h2, int(h2 / 2 + drone_model.y_offset) + ret_y),
+               max(0, int(w2 / 2 + drone_model.x_offset) - ret_x):min(w2, int(w2 / 2 + drone_model.x_offset) + ret_x)
+               ]
+
+    # Handle zoom < 1: padding is needed to match the final size to the infrared image size
+    if drone_model.zoom < 1:
+        # Resize cropped region according to zoom
+        rgb_crop_resized = cv2.resize(rgb_crop, (int(w2 * drone_model.zoom), int(new_h * drone_model.zoom)))
+
+        # Calculate padding required to match IR image size
+        pad_x = max(0, (w2 - rgb_crop_resized.shape[1]) // 2)
+        pad_y = max(0, (new_h - rgb_crop_resized.shape[0]) // 2) # TODO Adapt the decentering
+
+        # Pad the resized image to fit the infrared image size
+        rgb_dest = cv2.copyMakeBorder(rgb_crop_resized, pad_y, pad_y, pad_x, pad_x, cv2.BORDER_CONSTANT,
+                                      value=[0, 0, 0])
+
+        if resized:
+            rgb_dest = cv2.resize(rgb_dest, drone_model.dim_undis_ir, interpolation=cv2.INTER_AREA)
+
+        return rgb_dest
 
 # CROP OPS __________________________________________________
 def get_corresponding_crop_rectangle(p1, p2, scale):
@@ -1243,82 +1277,97 @@ def resize_and_pad(img, target_size):
     padded_img = cv2.copyMakeBorder(resized_img, top, bottom, left, right, cv2.BORDER_CONSTANT, value=[0, 0, 0])
     return padded_img
 
-def process_th_image_with_theta_test(ir_img_path, rgb_img_path, out_folder, theta, F, CX, CY, d_mat):
+def process_th_image_with_zoom(ir_img_path, rgb_img_path, out_folder, theta, F, CX, CY, d_mat):
     # read images
-    cv_rgb = cv_read_all_path(rgb_img_path)
+    cv_rgb = cv_read_all_path(rgb_img_path)  # read rgb image
     h_rgb, w_rgb = cv_rgb.shape[:2]
-    cv_ir = cv_read_all_path(ir_img_path)
+    cv_ir = cv_read_all_path(ir_img_path)  # read infrared image
 
     K = np.array([[F, 0, CX],
                   [0, F, CY],
-                  [0, 0, 1]])
+                  [0, 0, 1]])  # read optical parameters for infrared image
 
     d = d_mat
 
     # undistort infrared image with given parameters
     cv_ir_un = undis_kd(cv_ir, K, d)
-    h_ir, w_ir = cv_ir_un.shape[:2]
+    h_ir, w_ir = cv_ir_un.shape[:2]  # get resulting dimension of thermal image
+    dim_undis_ir = (w_ir, h_ir)  # The size we need to match
 
-    zoom = theta[0]
-    x_offset = theta[2] * 10
-    y_offset = theta[1] * 10
+    zoom = theta[0]  # zoom factor
+    y_offset = theta[1]   # vertical shift
+    x_offset = theta[2]  # horizontal shift
 
-    # Compute aspect factor to adjust for aspect ratio differences
     if h_ir == 0:
         aspect_factor = 1
     else:
-        aspect_factor = (w_rgb / h_rgb) / (w_ir / h_ir)
+        aspect_factor = (w_rgb / h_rgb) / (
+                w_ir / h_ir)  # Aspect ratio adjustment to fit RGB image to IR
 
-    # Adjust zoom
-    if zoom >= 1:
-        # For zoom >= 1, resize the RGB image to be smaller
-        scaling_factor = 1 / zoom
-        rgb_resized = cv2.resize(cv_rgb, None, fx=scaling_factor, fy=scaling_factor, interpolation=cv2.INTER_AREA)
-        h_resized, w_resized = rgb_resized.shape[:2]
+    new_h = h_rgb * aspect_factor
 
-        # Apply aspect factor
-        new_h = int(h_resized * aspect_factor)
-        rgb_resized = cv2.resize(rgb_resized, (w_resized, new_h), interpolation=cv2.INTER_AREA)
-        h_resized, w_resized = rgb_resized.shape[:2]
+    # Adjust crop size based on zoom factor
+    ret_x = int((w_rgb / zoom) / 2)
+    ret_y = int((new_h / zoom) / 2)
 
-        # Apply x_offset and y_offset
-        x_center = int(w_resized / 2 + x_offset)
-        y_center = int(h_resized / 2 + y_offset)
-        x1 = x_center - w_ir // 2
-        y1 = y_center - h_ir // 2
-        x2 = x_center + w_ir // 2
-        y2 = y_center + h_ir // 2
+    # Calculate crop bounds
+    x1 = int(w_rgb / 2 + x_offset) - ret_x
+    x2 = int(w_rgb / 2 + x_offset) + ret_x
+    y1 = int(h_rgb / 2 + y_offset) - ret_y
+    y2 = int(h_rgb / 2 + y_offset) + ret_y
 
-        # Crop the image
-        rgb_cropped = rgb_resized[max(y1, 0):min(y2, h_resized), max(x1, 0):min(x2, w_resized)]
+    # Check if crop bounds go beyond the image dimensions
+    pad_top = max(0, -y1)
+    pad_bottom = max(0, y2 - h_rgb)
+    pad_left = max(0, -x1)
+    pad_right = max(0, x2 - w_rgb)
+
+    # Pad the image if necessary
+    if pad_top > 0 or pad_bottom > 0 or pad_left > 0 or pad_right > 0:
+        cv_rgb = cv2.copyMakeBorder(
+            cv_rgb,
+            pad_top, pad_bottom, pad_left, pad_right,
+            cv2.BORDER_CONSTANT,
+            value=[0, 0, 0]  # Black padding
+        )
+
+    # Update bounds after padding
+    x1 += pad_left
+    x2 += pad_left
+    y1 += pad_top
+    y2 += pad_top
+
+    rgb_crop = cv_rgb[y1:y2, x1:x2]
+
+    # Handle zoom < 1: padding is needed to match the final size to the infrared image size
+    if zoom < 1:
+        # Resize cropped region according to zoom
+        rgb_crop_resized = cv2.resize(rgb_crop, (int(w_ir * zoom), int(h_ir * zoom)))
+
+        # Calculate padding required to match IR image size
+        pad_x = max(0, (dim_undis_ir[0] - rgb_crop_resized.shape[1]) // 2)
+        pad_y = max(0, (dim_undis_ir[1] - rgb_crop_resized.shape[0]) // 2)
+
+        # Pad the resized image to fit the infrared image size
+        rgb_dest = cv2.copyMakeBorder(rgb_crop_resized, pad_y, pad_y, pad_x, pad_x, cv2.BORDER_CONSTANT, value=[0, 0, 0])
+
+        # Ensure the final padded image is exactly the size of the IR image
+        rgb_dest = cv2.resize(rgb_dest, (w_ir, h_ir)) # Trim any excess padding to fit IR dimensions
+
     else:
-        # For zoom < 1, crop a rectangle from the RGB image
-        crop_width = int(w_rgb * zoom)
-        crop_height = int(h_rgb * zoom * aspect_factor)
-        x_center = int(w_rgb / 2 + x_offset)
-        y_center = int(h_rgb / 2 + y_offset)
-        x1 = x_center - crop_width // 2
-        y1 = y_center - crop_height // 2
-        x2 = x_center + crop_width // 2
-        y2 = y_center + crop_height // 2
+        # Resize the cropped image directly to the IR dimensions if zoom >= 1 (no padding needed)
+        rgb_dest = cv2.resize(rgb_crop, dim_undis_ir, interpolation=cv2.INTER_AREA)
 
-        # Crop the image
-        rgb_cropped = cv_rgb[max(y1, 0):min(y2, h_rgb), max(x1, 0):min(x2, w_rgb)]
+    # Save resized or padded image
+    cv_write_all_path(rgb_dest, os.path.join(out_folder, 'rescale.JPG'))
 
-    # After cropping, resize and pad rgb_cropped to match IR image dimensions
-    rgb_cropped = resize_and_pad(rgb_cropped, (w_ir, h_ir))
-
-    # Save the resized image
-    cv2.imwrite(os.path.join(out_folder, 'rescale.JPG'), rgb_cropped)
-
-    # Create lines
-    lines_rgb = create_lines(rgb_cropped)
-    cv2.imwrite(rgb_img_path[:-4] + '_rgb_lines.JPG', lines_rgb)
+    # Create lines and save both the RGB and IR versions
+    lines_rgb = create_lines(rgb_dest)
+    cv_write_all_path(lines_rgb, rgb_img_path[:-4] + '_rgb_lines.JPG')
 
     lines_ir = create_lines(cv_ir_un, bil=False)
-    cv2.imwrite(ir_img_path[:-4] + '_ir_lines.JPG', lines_ir)
+    cv_write_all_path( lines_ir, ir_img_path[:-4] + '_ir_lines.JPG')
 
-    # Now lines_rgb and lines_ir should have the same size
     # Compute difference
     diff = cv2.subtract(lines_ir, lines_rgb)
     err = np.sum(diff ** 2)
@@ -1327,8 +1376,6 @@ def process_th_image_with_theta_test(ir_img_path, rgb_img_path, out_folder, thet
     print(f'mse is {mse}')
 
     return mse
-
-
 def process_th_image_with_theta(ir_img_path, rgb_img_path, out_folder, theta, F, CX, CY, d_mat):
     # read images
     cv_rgb = cv_read_all_path(rgb_img_path) # read rgb image
@@ -1366,14 +1413,14 @@ def process_th_image_with_theta(ir_img_path, rgb_img_path, out_folder, theta, F,
 
     # resize
     rgb_dest = cv2.resize(rgb_dest, dim_undis_ir, interpolation=cv2.INTER_AREA)
-    cv2.imwrite(os.path.join(out_folder, 'rescale.JPG'), rgb_dest)
+    cv_write_all_path(os.path.join(out_folder, 'rescale.JPG'), rgb_dest)
 
     # create lines
     lines_rgb = create_lines(rgb_dest)
-    cv2.imwrite(rgb_img_path[:-4] + '_rgb_lines.JPG', lines_rgb)
+    cv_write_all_path(rgb_img_path[:-4] + '_rgb_lines.JPG', lines_rgb)
 
     lines_ir = create_lines(cv_ir_un, bil=False)
-    cv2.imwrite(ir_img_path[:-4] + '_ir_lines.JPG', lines_ir)
+    cv_write_all_path(ir_img_path[:-4] + '_ir_lines.JPG', lines_ir)
 
     # compute difference
     diff = cv2.subtract(lines_ir, lines_rgb)

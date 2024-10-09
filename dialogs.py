@@ -399,7 +399,7 @@ class ImageFusionDialog(QtWidgets.QDialog):
 
 
 class AlignmentDialog(QDialog):
-    def __init__(self, ir_path, rgb_path, temp_folder, F, d_mat, theta=[30, 0, 0]):
+    def __init__(self, ir_path, rgb_path, temp_folder, F, d_mat, theta=[1.1, 0, 0]):
         super().__init__()
 
         # images to process
@@ -417,7 +417,7 @@ class AlignmentDialog(QDialog):
         self.d_mat = d_mat
 
         # Initial theta values
-        # Parameters are [k1, extend, y-offset, x-offset]
+        # Parameters are [zoom, y-offset, x-offset]
         self.theta = theta
 
         # Setup UI
@@ -436,8 +436,8 @@ class AlignmentDialog(QDialog):
         # Sliders and Labels for parameters
         self.sliders = []
         self.labels = []
-        param_names = ["extend", "y-offset", "x-offset"]
-        param_ranges = [(20, 40), (-100, 100), (-100, 100)]
+        param_names = ["zoom", "y-offset", "x-offset"]
+        param_ranges = [(0.5, 2), (-100, 100), (-100, 100)]
 
         for i, (param_name, param_range) in enumerate(zip(param_names, param_ranges)):
             label = QLabel(f"{param_name}: {self.theta[i]}")
@@ -445,9 +445,14 @@ class AlignmentDialog(QDialog):
             self.labels.append(label)
 
             slider = QSlider(Qt.Horizontal)
-            slider.setMinimum(param_range[0] * 10)
-            slider.setMaximum(param_range[1] * 10)
-            slider.setValue(self.theta[i])
+            if i != 0:
+                slider.setMinimum(param_range[0] * 10)
+                slider.setMaximum(param_range[1] * 10)
+                slider.setValue(self.theta[i]*10)
+            else:
+                slider.setMinimum(param_range[0] * 100)
+                slider.setMaximum(param_range[1] * 100)
+                slider.setValue(self.theta[i]*100)
             slider.valueChanged.connect(lambda value, x=i: self.update_parameter(x, value))
             self.sliders.append(slider)
             layout.addWidget(slider)
@@ -473,8 +478,12 @@ class AlignmentDialog(QDialog):
         self.process_images()
 
     def update_parameter(self, index, value):
-        self.theta[index] = value / 10
-        self.labels[index].setText(f"{self.labels[index].text().split(':')[0]}: {value / 10}")
+        if index != 0:
+            self.theta[index] = value / 10
+            self.labels[index].setText(f"{self.labels[index].text().split(':')[0]}: {value / 10}")
+        else:
+            self.theta[index] = value / 100
+            self.labels[index].setText(f"{self.labels[index].text().split(':')[0]}: {value / 100}")
         self.process_images()
 
     def optimize(self):
@@ -496,7 +505,7 @@ class AlignmentDialog(QDialog):
         # Image processing placeholder
         print(f"Processing with theta: {self.theta}")
         # This should call your actual image processing code
-        tt.process_th_image_with_theta(self.ir_path, self.rgb_path, self.temp_folder, self.theta, self.F, self.CX,
+        tt.process_th_image_with_zoom(self.ir_path, self.rgb_path, self.temp_folder, self.theta, self.F, self.CX,
                                        self.CY, self.d_mat)
 
         # Read the original RGB image
