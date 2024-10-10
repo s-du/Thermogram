@@ -67,30 +67,7 @@ class DroneIrWindow(QMainWindow):
         self.__pool = QThreadPool()
         self.__pool.setMaxThreadCount(3)
 
-        # set bool variables
-        self.has_rgb = True  # does the dataset have RGB image
-        self.rgb_shown = False
-        self.save_colormap_info = True  # TODO make use of it... if True, the colormap and temperature options will be stored for each picture
-
-        # set path variables
-        self.list_rgb_paths = ''
-        self.list_ir_paths = ''
-        self.ir_folder = ''
-        self.rgb_folder = ''
-        self.preview_folder = ''
-
-        # set other variables
-        self.colormap = None
-
-        # list thermal images
-        self.ir_imgs = ''
-        self.rgb_imgs = ''
-        self.n_imgs = len(self.ir_imgs)
-        self.nb_sets = 0
-
-        # list images classes (where to store all measurements and annotations)
-        self.images = []
-        self.work_image = None
+        self.initialize_variables()
 
         # edge options
         self.edges = False
@@ -148,24 +125,6 @@ class DroneIrWindow(QMainWindow):
         self.n_colors = 256  # default number of colors
         self.lineEdit_colors.setText(str(256))
 
-        # default thermal options:
-        self.thermal_param = {'emissivity': 0.95, 'distance': 5, 'humidity': 50, 'reflection': 25}
-
-        # image iterator to know which image is active
-        self.active_image = 0
-
-        # Create model (for the tree structure)
-        self.model = QStandardItemModel()
-        self.treeView.setModel(self.model)
-        self.treeView.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.treeView.customContextMenuRequested.connect(self.onContextMenu)
-
-        # add measurement and annotations categories to tree view
-        self.add_item_in_tree(self.model, RECT_MEAS_NAME)
-        self.add_item_in_tree(self.model, POINT_MEAS_NAME)
-        self.add_item_in_tree(self.model, LINE_MEAS_NAME)
-        self.model.setHeaderData(0, Qt.Horizontal, 'Added Data')
-
         # add actions to action group (mutually exclusive functions)
         ag = QActionGroup(self)
         ag.setExclusive(True)
@@ -187,6 +146,51 @@ class DroneIrWindow(QMainWindow):
 
         # create connections (signals)
         self.create_connections()
+
+    def initialize_variables(self):
+        # set bool variables
+        self.has_rgb = True  # does the dataset have RGB image
+        self.rgb_shown = False
+        self.save_colormap_info = True  # TODO make use of it... if True, the colormap and temperature options will be stored for each picture
+
+        # set path variables
+        self.list_rgb_paths = ''
+        self.list_ir_paths = ''
+        self.ir_folder = ''
+        self.rgb_folder = ''
+        self.preview_folder = ''
+
+        # set other variables
+        self.colormap = None
+
+        # list thermal images
+        self.ir_imgs = ''
+        self.rgb_imgs = ''
+        self.n_imgs = len(self.ir_imgs)
+        self.nb_sets = 0
+
+        # list images classes (where to store all measurements and annotations)
+        self.images = []
+        self.work_image = None
+
+        # default thermal options:
+        self.thermal_param = {'emissivity': 0.95, 'distance': 5, 'humidity': 50, 'reflection': 25}
+
+        # image iterator to know which image is active
+        self.active_image = 0
+
+    def initialize_tree_view(self):
+        # Create model (for the tree structure)
+        self.model = QStandardItemModel()
+        self.treeView.setModel(self.model)
+        self.treeView.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.treeView.customContextMenuRequested.connect(self.onContextMenu)
+
+        # add measurement and annotations categories to tree view
+        self.add_item_in_tree(self.model, RECT_MEAS_NAME)
+        self.add_item_in_tree(self.model, POINT_MEAS_NAME)
+        self.add_item_in_tree(self.model, LINE_MEAS_NAME)
+        self.model.setHeaderData(0, Qt.Horizontal, 'Added Data')
 
     def create_connections(self):
         """
@@ -221,7 +225,6 @@ class DroneIrWindow(QMainWindow):
         self.pushButton_delete_points.clicked.connect(lambda: self.remove_annotations('point'))
         self.pushButton_delete_lines.clicked.connect(lambda: self.remove_annotations('line'))
         self.pushButton_delete_area.clicked.connect(lambda: self.remove_annotations('area'))
-
 
         # Dropdowns
         self.comboBox.currentIndexChanged.connect(self.update_img_preview)
@@ -258,14 +261,14 @@ class DroneIrWindow(QMainWindow):
             self.actionLine_meas.setDisabled(False)
 
     def change_slider_values(self):
-        self.slider_sensitive = False # to avoid chain reaction
+        self.slider_sensitive = False  # to avoid chain reaction
 
         try:
             tmin = float(self.lineEdit_min_temp.text())
             tmax = float(self.lineEdit_max_temp.text())
 
             if tmax > tmin:
-                if tmin < self.work_image.tmin: # the encoded value is lower than the minimal value on the image
+                if tmin < self.work_image.tmin:  # the encoded value is lower than the minimal value on the image
                     tmin = self.work_image.tmin
                     self.work_image.tmin_shown = tmin
                     self.lineEdit_min_temp.setText(str(round(self.work_image.tmin_shown, 2)))
@@ -346,6 +349,7 @@ class DroneIrWindow(QMainWindow):
         self.lineEdit_max_temp.setText(str(round(self.tmax, 2)))
 
         self.update_img_preview()
+        self.comboBox_img.clear()
         self.comboBox_img.addItems(self.ir_imgs)
 
         # final progress
@@ -378,7 +382,6 @@ class DroneIrWindow(QMainWindow):
         dialog = dia.AlignmentDialog(ir_path, rgb_path, temp_folder, F, d_mat,
                                      theta=[zoom, y_off, x_off])
         if dialog.exec_():
-
 
             # ask options
             # Create a QMessageBox
@@ -474,7 +477,8 @@ class DroneIrWindow(QMainWindow):
         else:
             dialog = dia.Meas3dDialog_simple(new_rect_annot)
 
-        dialog.surface_from_image_matplot(self.work_image.colormap, self.n_colors, self.user_lim_col_low, self.user_lim_col_high)
+        dialog.surface_from_image_matplot(self.work_image.colormap, self.n_colors, self.user_lim_col_low,
+                                          self.user_lim_col_high)
         if dialog.exec_():
             pass
 
@@ -626,8 +630,6 @@ class DroneIrWindow(QMainWindow):
         except ValueError:
             QMessageBox.warning(self, "Warning",
                                 "Oops! Some of the values are not valid!")
-
-
 
     def estimate_temp(self):
         ref_pic_name = QFileDialog.getOpenFileName(self, 'Open file',
@@ -916,7 +918,7 @@ class DroneIrWindow(QMainWindow):
                 zoom = 1
 
             worker_1 = tt.RunnerDJI(5, 100, self.last_out_folder, self.images, self.work_image, self.edges,
-                                    self.edge_params, undis = undis, zoom=zoom)
+                                    self.edge_params, undis=undis, zoom=zoom)
             worker_1.signals.progressed.connect(lambda value: self.update_progress(value))
             worker_1.signals.messaged.connect(lambda string: self.update_progress(text=string))
 
@@ -1385,39 +1387,11 @@ class DroneIrWindow(QMainWindow):
         """
         Reset all model parameters (image and categories)
         """
-        # set variables
-        self.has_rgb = True  # does the dataset have RGB image
-        self.rgb_shown = False
-
-        # reset param
-        self.thermal_param = {'emissivity': 0.95, 'distance': 5, 'humidity': 50, 'reflection': 25}
-
-        # set paths
-        self.list_rgb_paths = ''
-        self.list_ir_paths = ''
-        self.ir_folder = ''
-        self.rgb_folder = ''
-
-        # list thermal images
-        self.ir_imgs = ''
-        self.rgb_imgs = ''
-        self.n_imgs = len(self.ir_imgs)
-        self.nb_sets = 0
-
-        # list images classes (where to store all measurements and annotations)
-        self.images = []
-        self.img_paths = []  # paths to images
-        self.active_image = 0
-        self.image_loaded = False
-
-        # Create model (for the tree structure)
-        self.model = QStandardItemModel()
-        self.treeView.setModel(self.model)
+        self.initialize_variables()
+        self.initialize_tree_view()
 
         # clean graphicscene
         self.viewer.clean_complete()
-
-        # deactivate actions
 
 
 def main(argv=None):
