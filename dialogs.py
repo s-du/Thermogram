@@ -399,22 +399,25 @@ class ImageFusionDialog(QtWidgets.QDialog):
 
 
 class AlignmentDialog(QDialog):
-    def __init__(self, ir_path, rgb_path, temp_folder, F, d_mat, theta=[1.1, 0, 0]):
+    def __init__(self, img_object, temp_folder, theta=[1.1, 0, 0]):
         super().__init__()
 
         # images to process
         # copy images to temp folder
+        self.img_object = img_object
         self.temp_folder = temp_folder
         self.ir_path = os.path.join(temp_folder, 'IR.JPG')
         self.rgb_path = os.path.join(temp_folder, 'RGB.JPG')
-        copyfile(ir_path, self.ir_path)
-        copyfile(rgb_path, self.rgb_path)
+        copyfile(img_object.path, self.ir_path)
+        copyfile(img_object.rgb_path_original, self.rgb_path)
 
         # get focal and center points
+        """
         self.F = F
         self.CX = 320
         self.CY = 256
         self.d_mat = d_mat
+        """
 
         # Initial theta values
         # Parameters are [zoom, y-offset, x-offset]
@@ -505,11 +508,10 @@ class AlignmentDialog(QDialog):
         # Image processing placeholder
         print(f"Processing with theta: {self.theta}")
         # This should call your actual image processing code
-        tt.process_th_image_with_zoom(self.ir_path, self.rgb_path, self.temp_folder, self.theta, self.F, self.CX,
-                                       self.CY, self.d_mat)
+        tt.process_th_image_with_zoom(self.img_object, self.temp_folder, self.theta)
 
         # Read the original RGB image
-        rgb_image = cv2.imread(os.path.join(self.temp_folder, 'rescale.JPG'))  # Assuming 'rgb_img_path' is defined globally or accessible
+        rgb_image = cv2.imread(os.path.join(self.temp_folder, 'rescale.JPG'))
 
         # Convert RGB image to grayscale for background
         grayscale_rgb_image = cv2.cvtColor(rgb_image, cv2.COLOR_BGR2GRAY)
@@ -517,7 +519,7 @@ class AlignmentDialog(QDialog):
         # Read or process the IR lines image
         # Assuming 'lines_ir' is a binary image with lines as white (255) and background as black (0)
         # For demonstration, replace this with an actual call to your image processing function
-        lines_ir = cv2.imread(os.path.join(self.temp_folder, 'IR_ir_lines.JPG'), cv2.IMREAD_GRAYSCALE)  # Placeholder
+        lines_ir = cv2.imread(os.path.join(self.temp_folder, 'ir_lines.JPG'), cv2.IMREAD_GRAYSCALE)  # Placeholder
 
         # Convert the grayscale image to a 3-channel image to overlay colors
         grayscale_rgb_image_colored = cv2.cvtColor(grayscale_rgb_image, cv2.COLOR_GRAY2BGR)

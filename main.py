@@ -156,6 +156,7 @@ class DroneIrWindow(QMainWindow):
         # set path variables
         self.list_rgb_paths = ''
         self.list_ir_paths = ''
+        self.list_z_paths = ''
         self.ir_folder = ''
         self.rgb_folder = ''
         self.preview_folder = ''
@@ -373,14 +374,14 @@ class DroneIrWindow(QMainWindow):
         # [k1, extend, y - offset, x - offset]
         F = self.drone_model.K_ir[0][0]
         d_mat = self.drone_model.d_ir
+
         zoom = self.drone_model.zoom
         y_off = self.drone_model.y_offset
         x_off = self.drone_model.x_offset
 
-        print(f'Here are the work values! focal:{F}, extend:{zoom}, y offset:{y_off}, x offset: {x_off}')
+        print(f'Here are the work values! zoom:{zoom}, y offset:{y_off}, x offset: {x_off}')
 
-        dialog = dia.AlignmentDialog(ir_path, rgb_path, temp_folder, F, d_mat,
-                                     theta=[zoom, y_off, x_off])
+        dialog = dia.AlignmentDialog(self.work_image, temp_folder, theta=[zoom, y_off, x_off])
         if dialog.exec_():
 
             # ask options
@@ -390,13 +391,14 @@ class DroneIrWindow(QMainWindow):
                                 qm.Yes | qm.No)
 
             if reply == qm.Yes:
+                print('Good choice')
                 # update values
                 zoom, y_off, x_off = dialog.theta
                 self.drone_model.zoom = zoom
-                self.drone_model.y_offset = y_off * 10
-                self.drone_model.x_offset = x_off * 10
+                self.drone_model.y_offset = y_off
+                self.drone_model.x_offset = x_off
 
-                print('Re-creating RGB crop')
+                print(f'Re-creating RGB crop with zoom {zoom}')
 
                 # re-run all miniatures
                 text_status = 'creating rgb miniatures...'
@@ -733,7 +735,7 @@ class DroneIrWindow(QMainWindow):
             self.update_progress(nb=0, text=text_status)
 
             # Identify content of the folder
-            self.list_rgb_paths, self.list_ir_paths = tt.list_th_rgb_images_from_res(self.main_folder)
+            self.list_rgb_paths, self.list_ir_paths, self.list_z_paths = tt.list_th_rgb_images_from_res(self.main_folder)
 
             # create some sub folders for storing images
             self.original_th_img_folder = os.path.join(self.app_folder, ORIGIN_TH_FOLDER)
@@ -757,7 +759,8 @@ class DroneIrWindow(QMainWindow):
                 "Drone model": drone_name,
                 "Number of image pairs": str(len(self.list_ir_paths)),
                 "rgb_paths": self.list_rgb_paths,
-                "ir_paths": self.list_ir_paths
+                "ir_paths": self.list_ir_paths,
+                "zoom_paths": self.list_z_paths
             }
             self.write_json(dictionary)  # store original images paths in a JSON
 
@@ -1199,7 +1202,7 @@ class DroneIrWindow(QMainWindow):
             self.edge_params = [self.edge_method, self.edge_color, self.edge_bil, self.edge_blur, self.edge_blur_size,
                                 self.edge_opacity]
 
-            tt.process_raw_data(img, dest_path_post, self.edges, self.edge_params)
+            tt.process_raw_data(img, dest_path_post, edges=self.edges, edge_params=self.edge_params)
             self.range_slider.setHandleColorsFromColormap(self.work_image.colormap)
 
             # add legend

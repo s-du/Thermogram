@@ -31,6 +31,10 @@ m2t_rgb_xml_path = res.find('other/rgb_cam_calib_m2t_opencv.xml')
 m3t_ir_xml_path = res.find('other/cam_calib_m3t_opencv.xml')
 m3t_rgb_xml_path = res.find('other/rgb_cam_calib_m3t_opencv.xml')
 
+m30t_ir_xml_path = res.find('other/cam_calib_m30t_opencv.xml')
+m30t_rgb_xml_path = res.find('other/rgb_cam_calib_m30t_opencv.xml')
+
+# LISTS __________________________________________________
 OUT_LIM = ['continuous', 'black', 'white', 'red']
 OUT_LIM_MATPLOT = ['c', 'k', 'w', 'r']
 POST_PROCESS = ['none', 'smooth', 'sharpen', 'sharpen strong', 'edge (simple)', 'contours']
@@ -176,7 +180,24 @@ class DroneModel():
             self.zoom = 1.4269
 
         elif name == 'M30T':
-            pass
+            self.rgb_xml_path = m30t_rgb_xml_path
+            self.ir_xml_path = m30t_ir_xml_path
+            sample_rgb_path = res.find('img/M30T_RGB.JPG')
+            sample_ir_path = res.find('img/M30T_IR.JPG')
+            cv_rgb = cv_read_all_path(sample_rgb_path)
+            cv_ir = cv_read_all_path(sample_ir_path)
+            _, self.dim_undis_ir = undis(cv_ir, self.ir_xml_path)
+            _, self.dim_undis_rgb = undis(cv_rgb, self.rgb_xml_path)
+            self.aspect_factor = (self.dim_undis_rgb[0] / self.dim_undis_rgb[1]) / (
+                    self.dim_undis_ir[0] / self.dim_undis_ir[1])
+            # read focal parameters
+            cv_file = cv2.FileStorage(self.ir_xml_path, cv2.FILE_STORAGE_READ)
+            self.K_ir = cv_file.getNode("Camera_Matrix").mat()
+            self.d_ir = cv_file.getNode("Distortion_Coefficients").mat()
+            self.extend = 0.3504
+            self.x_offset = 48
+            self.y_offset = -6.9
+            self.zoom = 1.53
 
 
 class ProcessedIm:
@@ -565,7 +586,7 @@ class RunnerMiniature(QtCore.QRunnable):
             und, _ = undistorter.undis(cv_rgb_img)
 
             # Step 3: Crop based on custom parameters
-            crop = match_rgb_custom_parameters(und, self.drone_model)
+            crop = match_rgb_custom_parameters_zoom(und, self.drone_model)
 
             # Step 4: Resize the image
             width = int(crop.shape[1] * self.scale_percent / 100)
@@ -596,7 +617,7 @@ def re_create_miniature(rgb_path, drone_model, dest_crop_folder, scale_percent=6
     # undistort rgb
     rgb_xml_path = drone_model.rgb_xml_path
     und, _ = undis(cv_rgb_img, rgb_xml_path)
-    crop = match_rgb_custom_parameters(und, drone_model)
+    crop = match_rgb_custom_parameters_zoom(und, drone_model)
     width = int(crop.shape[1] * scale_percent / 100)
     height = int(crop.shape[0] * scale_percent / 100)
     dim = (width, height)
@@ -646,6 +667,7 @@ def cv_write_all_path(img, path):
 def list_th_rgb_images_from_res(img_folder):
     list_rgb_paths = []
     list_ir_paths = []
+    list_z_paths = []
     for file in os.listdir(img_folder):
         path = os.path.join(img_folder, file)
         print(path)
@@ -653,15 +675,19 @@ def list_th_rgb_images_from_res(img_folder):
             im = Image.open(path)
             w, h = im.size
 
-            if w == 640:
+            if w == 640 or w == 1280:
                 list_ir_paths.append(path)
             else:
-                list_rgb_paths.append(path)
+                if '_W' in file:
+                    list_rgb_paths.append(path)
+                elif '_Z' in file:
+                    list_z_paths.append(path)
 
         list_ir_paths.sort()
         list_rgb_paths.sort()
+        list_z_paths.sort()
 
-    return list_rgb_paths, list_ir_paths
+    return list_rgb_paths, list_ir_paths, list_z_paths
 
 
 def list_th_rgb_images(img_folder, string_to_search):
@@ -758,49 +784,69 @@ def undis_kd(cv_img, K, d):
 
 
 # LENS RELATED METHODS (DRONE SPECIFIC) __________________________________________________
-def match_rgb_custom_parameters(cv_img, drone_model, resized=False):
+def match_rgb_custom_parameters_zoom(cv_img, drone_model):
     h2, w2 = cv_img.shape[:2]
     new_h = h2 * drone_model.aspect_factor
-    ret_x = int(drone_model.extend * w2)
-    ret_y = int(drone_model.extend * new_h)
-    rgb_dest = cv_img[int(h2 / 2 + drone_model.y_offset) - ret_y:int(h2 / 2 + drone_model.y_offset) + ret_y,
-               int(w2 / 2 + drone_model.x_offset) - ret_x:int(w2 / 2 + drone_model.x_offset) + ret_x]
-
-    if resized:
-        rgb_dest = cv2.resize(rgb_dest, drone_model.dim_undis_ir, interpolation=cv2.INTER_AREA)
-
-    return rgb_dest
-
-def match_rgb_custom_parameters_zoom(cv_img, drone_model, resized=False):
-    h2, w2 = cv_img.shape[:2]
-    new_h = h2 * drone_model.aspect_factor
+    x_offset = drone_model.x_offset
+    y_offset = drone_model.y_offset
 
     # Adjust crop size based on zoom factor
     ret_x = int((w2 / drone_model.zoom) / 2)
     ret_y = int((new_h / drone_model.zoom) / 2)
 
-    # Compute the region of the RGB image to retain
-    rgb_crop = cv_img[
-               max(0, int(h2 / 2 + drone_model.y_offset) - ret_y):min(h2, int(h2 / 2 + drone_model.y_offset) + ret_y),
-               max(0, int(w2 / 2 + drone_model.x_offset) - ret_x):min(w2, int(w2 / 2 + drone_model.x_offset) + ret_x)
-               ]
+    # Calculate crop bounds
+    x1 = int(w2 / 2 + x_offset) - ret_x
+    x2 = int(w2 / 2 + x_offset) + ret_x
+    y1 = int(h2 / 2 + y_offset) - ret_y
+    y2 = int(h2 / 2 + y_offset) + ret_y
+
+    # Check if crop bounds go beyond the image dimensions
+    pad_top = max(0, -y1)
+    pad_bottom = max(0, y2 - h2)
+    pad_left = max(0, -x1)
+    pad_right = max(0, x2 - w2)
+
+    # Pad the image if necessary
+    if pad_top > 0 or pad_bottom > 0 or pad_left > 0 or pad_right > 0:
+        cv_img = cv2.copyMakeBorder(
+            cv_img,
+            pad_top, pad_bottom, pad_left, pad_right,
+            cv2.BORDER_CONSTANT,
+            value=[0, 0, 0]  # Black padding
+        )
+
+    # Update bounds after padding
+    x1 += pad_left
+    x2 += pad_left
+    y1 += pad_top
+    y2 += pad_top
+
+    rgb_dest = cv_img[y1:y2, x1:x2]
 
     # Handle zoom < 1: padding is needed to match the final size to the infrared image size
     if drone_model.zoom < 1:
-        # Resize cropped region according to zoom
-        rgb_crop_resized = cv2.resize(rgb_crop, (int(w2 * drone_model.zoom), int(new_h * drone_model.zoom)))
+        new_h = int(new_h)
 
-        # Calculate padding required to match IR image size
-        pad_x = max(0, (w2 - rgb_crop_resized.shape[1]) // 2)
-        pad_y = max(0, (new_h - rgb_crop_resized.shape[0]) // 2) # TODO Adapt the decentering
+        # Calculate the new dimensions for the frame (hosting image) based on the zoom
+        frame_w = int(w2 / drone_model.zoom)
+        frame_h = int(new_h / drone_model.zoom)
 
-        # Pad the resized image to fit the infrared image size
-        rgb_dest = cv2.copyMakeBorder(rgb_crop_resized, pad_y, pad_y, pad_x, pad_x, cv2.BORDER_CONSTANT,
-                                      value=[0, 0, 0])
+        # Calculate the padding to center the original image within the new frame
+        pad_x = int((frame_w - w2) // 2)
+        pad_y = int((frame_h - new_h) // 2)
 
-        if resized:
-            rgb_dest = cv2.resize(rgb_dest, drone_model.dim_undis_ir, interpolation=cv2.INTER_AREA)
+        # Create the larger frame (canvas) with the desired size, filled with black (or any other color you want)
+        frame = cv2.copyMakeBorder(
+            rgb_dest,
+            pad_y, pad_y, pad_x, pad_x,
+            cv2.BORDER_CONSTANT,
+            value=[0, 0, 0]  # Black padding
+        )
 
+        # Set the new image to the frame
+        return frame
+
+    else:
         return rgb_dest
 
 # CROP OPS __________________________________________________
@@ -1112,10 +1158,9 @@ def extract_raw_data(param, ir_img_path, undistorder_ir):
     return im, undis_im
 
 
-def process_raw_data(img_object, dest_path, edges, edge_params, radio_param=None, undis=True, custom_params=None, export_tif=False, zoom = 1 ):
+def process_raw_data(img_object, dest_path, edges=False, edge_params=[], radio_param=None, undis=True, custom_params=None, export_tif=False, zoom = 1 ):
     if custom_params is None:
         custom_params = {}
-    ed_met, ed_col, ed_bil, ed_blur, ed_bl_sz, ed_op = edge_params
 
     if radio_param:
         img_object.update_data(radio_param)
@@ -1244,12 +1289,12 @@ def process_raw_data(img_object, dest_path, edges, edge_params, radio_param=None
 
     # check if edges need to be added (parameter 'edge' is a boolean)
     if edges:
+        ed_met, ed_col, ed_bil, ed_blur, ed_bl_sz, ed_op = edge_params
         drone_model_name = get_drone_model_from_exif(exif)
         drone_model = DroneModel(drone_model_name)
         cv_match_rgb_img = cv_read_all_path(img_object.rgb_path)
 
         # Use the extracted mode directly
-        print(f'HERREEEEEE {dest_path}')
         add_lines_from_rgb(dest_path, cv_match_rgb_img, drone_model, dest_path, exif=exif,
                            mode=ed_met, color=ed_col, bilateral=ed_bil, blur=ed_blur, blur_size=ed_bl_sz, opacity=ed_op)
 
@@ -1277,21 +1322,14 @@ def resize_and_pad(img, target_size):
     padded_img = cv2.copyMakeBorder(resized_img, top, bottom, left, right, cv2.BORDER_CONSTANT, value=[0, 0, 0])
     return padded_img
 
-def process_th_image_with_zoom(ir_img_path, rgb_img_path, out_folder, theta, F, CX, CY, d_mat):
+def process_th_image_with_zoom(img_obj, out_folder, theta):
     # read images
-    cv_rgb = cv_read_all_path(rgb_img_path)  # read rgb image
+    cv_rgb = cv_read_all_path(img_obj.rgb_path_original)  # read rgb image
     h_rgb, w_rgb = cv_rgb.shape[:2]
-    cv_ir = cv_read_all_path(ir_img_path)  # read infrared image
+    process_raw_data(img_obj, os.path.join(out_folder, 'IR.JPG'), edges=False)  # read infrared image (undistorded)
+    cv_ir = cv_read_all_path(os.path.join(out_folder, 'IR.JPG'))
 
-    K = np.array([[F, 0, CX],
-                  [0, F, CY],
-                  [0, 0, 1]])  # read optical parameters for infrared image
-
-    d = d_mat
-
-    # undistort infrared image with given parameters
-    cv_ir_un = undis_kd(cv_ir, K, d)
-    h_ir, w_ir = cv_ir_un.shape[:2]  # get resulting dimension of thermal image
+    h_ir, w_ir = cv_ir.shape[:2]  # get resulting dimension of thermal image
     dim_undis_ir = (w_ir, h_ir)  # The size we need to match
 
     zoom = theta[0]  # zoom factor
@@ -1363,10 +1401,10 @@ def process_th_image_with_zoom(ir_img_path, rgb_img_path, out_folder, theta, F, 
 
     # Create lines and save both the RGB and IR versions
     lines_rgb = create_lines(rgb_dest)
-    cv_write_all_path(lines_rgb, rgb_img_path[:-4] + '_rgb_lines.JPG')
+    cv_write_all_path(lines_rgb, os.path.join(out_folder, 'rgb_lines.JPG'))
 
-    lines_ir = create_lines(cv_ir_un, bil=False)
-    cv_write_all_path( lines_ir, ir_img_path[:-4] + '_ir_lines.JPG')
+    lines_ir = create_lines(cv_ir, bil=False)
+    cv_write_all_path( lines_ir, os.path.join(out_folder, 'ir_lines.JPG'))
 
     # Compute difference
     diff = cv2.subtract(lines_ir, lines_rgb)
@@ -1376,6 +1414,41 @@ def process_th_image_with_zoom(ir_img_path, rgb_img_path, out_folder, theta, F, 
     print(f'mse is {mse}')
 
     return mse
+
+def generate_legend(legend_dest_path, custom_params):
+    tmin = custom_params["tmin"]
+    tmax = custom_params["tmax"]
+    color_high = custom_params["col_high"]
+    color_low = custom_params["col_low"]
+    colormap = custom_params["colormap"]
+    n_colors = custom_params["n_colors"]
+
+    fig, ax = plt.subplots()
+    data = np.clip(np.random.randn(10, 10) * 100, tmin, tmax)
+    print(data)
+
+    if colormap in LIST_CUSTOM_CMAPS:
+        custom_cmap = get_custom_cmaps(colormap, n_colors)
+    else:
+        custom_cmap = cm.get_cmap(colormap, n_colors)
+
+    custom_cmap.set_over(color_high)
+    custom_cmap.set_under(color_low)
+
+    cax = ax.imshow(data, cmap=custom_cmap)
+    # Add colorbar, make sure to specify tick locations to match desired ticklabels
+    if n_colors > 12:
+        n_colors = 12
+    ticks = np.linspace(tmin, tmax, n_colors + 1, endpoint=True)
+    fig.colorbar(cax, ticks=ticks, extend='both')
+    ax.remove()
+
+    plt.savefig(legend_dest_path, bbox_inches='tight')
+
+
+"""
+°-°-°-°JUNK°-°-°-°
+"""
 def process_th_image_with_theta(ir_img_path, rgb_img_path, out_folder, theta, F, CX, CY, d_mat):
     # read images
     cv_rgb = cv_read_all_path(rgb_img_path) # read rgb image
@@ -1431,38 +1504,15 @@ def process_th_image_with_theta(ir_img_path, rgb_img_path, out_folder, theta, F,
 
     return mse
 
+def match_rgb_custom_parameters(cv_img, drone_model, resized=False):
+    h2, w2 = cv_img.shape[:2]
+    new_h = h2 * drone_model.aspect_factor
+    ret_x = int(drone_model.extend * w2)
+    ret_y = int(drone_model.extend * new_h)
+    rgb_dest = cv_img[int(h2 / 2 + drone_model.y_offset) - ret_y:int(h2 / 2 + drone_model.y_offset) + ret_y,
+               int(w2 / 2 + drone_model.x_offset) - ret_x:int(w2 / 2 + drone_model.x_offset) + ret_x]
 
-def generate_legend(legend_dest_path, custom_params):
-    tmin = custom_params["tmin"]
-    tmax = custom_params["tmax"]
-    color_high = custom_params["col_high"]
-    color_low = custom_params["col_low"]
-    colormap = custom_params["colormap"]
-    n_colors = custom_params["n_colors"]
+    if resized:
+        rgb_dest = cv2.resize(rgb_dest, drone_model.dim_undis_ir, interpolation=cv2.INTER_AREA)
 
-    fig, ax = plt.subplots()
-    data = np.clip(np.random.randn(10, 10) * 100, tmin, tmax)
-    print(data)
-
-    if colormap in LIST_CUSTOM_CMAPS:
-        custom_cmap = get_custom_cmaps(colormap, n_colors)
-    else:
-        custom_cmap = cm.get_cmap(colormap, n_colors)
-
-    custom_cmap.set_over(color_high)
-    custom_cmap.set_under(color_low)
-
-    cax = ax.imshow(data, cmap=custom_cmap)
-    # Add colorbar, make sure to specify tick locations to match desired ticklabels
-    if n_colors > 12:
-        n_colors = 12
-    ticks = np.linspace(tmin, tmax, n_colors + 1, endpoint=True)
-    fig.colorbar(cax, ticks=ticks, extend='both')
-    ax.remove()
-
-    plt.savefig(legend_dest_path, bbox_inches='tight')
-
-
-"""
-°-°-°-°JUNK°-°-°-°
-"""
+    return rgb_dest
