@@ -4,7 +4,7 @@
 
 
 ## Overview
-Thermogram is an intuitive tool designed for processing infrared (IR) images from drones. This application leverages the capabilities of multiple libraries, such as OpenCV and Pillow, and is compatible with DJI Drones. At the moment, the app includes support for Mavic 2 Enterprise and Mavic 3 Thermal series. The software features a user-friendly GUI, advanced visualization options, many processing options, and batch export possibilities
+Thermogram is an intuitive software designed for processing infrared (IR) images from drones. This application leverages the capabilities of multiple libraries, such as OpenCV and Pillow, and is compatible with DJI Drones. At the moment, the app includes support for Mavic 2 Enterprise, Mavic 3 Thermal series, and M30T. The software features a user-friendly GUI, advanced visualization options, many processing options, and batch export possibilities
 
 **The project is still in pre-release, so do not hesitate to send your recommendations or the bugs you encountered!**
 
@@ -18,6 +18,7 @@ The app offers the following key features:
 - 3D-viewer for viewing temperature data as 'voxels'
 - Advanced color palette options
 - Advanced edge overlay possibilities
+- Create customized composite images, with infrared and color information superimposed on each other 
 - Batch export functionality (including exporting raw data as TIFF files)
 
 <p align="center">
