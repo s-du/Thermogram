@@ -2,11 +2,7 @@ from PyQt6.QtCore import *  # Changed from PySide6.QtCore
 from PyQt6.QtGui import *  # Changed from PySide6.QtGui
 from PyQt6.QtWidgets import *  # Changed from PySide6.QtWidgets
 
-import open3d as o3d
-import open3d.visualization.gui as gui
-import open3d.visualization.rendering as rendering
 from PIL import Image
-import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
 from matplotlib.colors import to_hex

@@ -36,7 +36,7 @@ RECT_MEAS_NAME = 'Rectangle measurements'
 POINT_MEAS_NAME = 'Spot measurements'
 LINE_MEAS_NAME = 'Line measurements'
 
-VIEWS = ['th. undistorted', 'RGB crop', 'Custom']
+VIEWS = ['th. undistorted', 'RGB crop']
 
 
 # USEFUL CLASSES
@@ -152,15 +152,17 @@ class DroneIrWindow(QMainWindow):
         self.save_colormap_info = True  # TODO make use of it... if True, the colormap and temperature options will be stored for each picture
 
         # set path variables
-        self.list_rgb_paths = ''
-        self.list_ir_paths = ''
-        self.list_z_paths = ''
+        self.custom_images = []
+        self.list_rgb_paths = []
+        self.list_ir_paths = []
+        self.list_z_paths = []
         self.ir_folder = ''
         self.rgb_folder = ''
         self.preview_folder = ''
 
         # set other variables
         self.colormap = None
+        self.number_custom_pic = 0
 
         # list thermal images
         self.ir_imgs = ''
@@ -707,7 +709,7 @@ class DroneIrWindow(QMainWindow):
 
     def load_folder_phase1(self):
         # warning message (new project)
-        if self.list_rgb_paths != '':
+        if self.list_rgb_paths != []:
             qm = QMessageBox
             reply = qm.question(self, '', "Are you sure ? It will create a new project", qm.StandardButton.Yes | qm.StandardButton.No)
 
@@ -1031,11 +1033,13 @@ class DroneIrWindow(QMainWindow):
         self.switch_image_data()
 
     def compose_pic(self):
-        dest_path_temp = self.dest_path_post[:-4] + '_temp.png'
+        self.number_custom_pic += 1
+        dest_path_temp = self.dest_path_post[:-4] + f'_custom{self.number_custom_pic}.png'
+        print(dest_path_temp)
         dialog = dia.ImageFusionDialog(self.work_image, self.dest_path_post, dest_path_temp)
         if dialog.exec():
             qm = QMessageBox
-            reply = qm.question(self, '', "Do you want to save the picture?",
+            reply = qm.question(self, '', "Do you want to save the picture on the hard drive?",
                                 qm.StandardButton.Yes | qm.StandardButton.No)
 
             if reply == qm.StandardButton.Yes:
@@ -1048,9 +1052,17 @@ class DroneIrWindow(QMainWindow):
                 if file_path:
                     dialog.exportComposedImage(file_path)
 
+            # add custom image to list
+            dialog.exportComposedImage(dest_path_temp)
+            self.custom_images.append(dest_path_temp)
+            self._view_list.append(f'Custom_img{self.number_custom_pic}')
+            self.update_combo_view()
+        else:
+            self.number_custom_pic -= 1
 
-            else:
-                pass
+    def update_combo_view(self):
+        self.comboBox_view.clear()
+        self.comboBox_view.addItems(self._view_list)
 
     def compile_user_values(self):
         # colormap
@@ -1187,10 +1199,17 @@ class DroneIrWindow(QMainWindow):
             self.viewer.fitInView()
 
             self.viewer.clean_scene()
-            self.viewer.toggleLegendVisibility()
+            if self.viewer.legendLabel.isVisible():
+                self.viewer.toggleLegendVisibility()
 
-        elif v == 2:  # picture-in-picture (or custom)
-            pass
+        elif v > 1:  # picture-in-picture (or custom)
+            self.viewer.setPhoto(QPixmap(self.custom_images[v-2]))
+            # scale view
+            self.viewer.fitInView()
+
+            self.viewer.clean_scene()
+            if self.viewer.legendLabel.isVisible():
+                self.viewer.toggleLegendVisibility()
 
         else:  # IR picture
             self.compile_user_values()  # store combobox choices in img data

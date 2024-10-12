@@ -19,8 +19,6 @@ from PyQt6 import QtCore, QtGui, QtWidgets  # Changed from PySide6
 from PyQt6.QtCore import *
 from PyQt6.QtGui import *
 from PyQt6.QtWidgets import *
-
-# Update for specific imports used in the code
 from PyQt6.uic import loadUi  # PyQt6 has uic to load UI files
 
 # Custom library imports
