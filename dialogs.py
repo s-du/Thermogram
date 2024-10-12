@@ -138,10 +138,17 @@ class HotSpotDialog(QDialog):
         self.normalized_data = self.normalize_data(self.raw_data)  # Normalize raw data to [0, 255]
         self.prominence = 80  # Default prominence factor (relative to 0-255 scale)
         self.structure_size = 35  # Default structure size
+        self.show_labels = True  # Show temperature labels by default
         self.exclude_edges = False  # Whether to exclude maxima and minima at the edges
+        self.selection_mode = 'both'  # Default is to show both maxima and minima
 
-        # List to keep track of hotspot markers (ellipses)
-        self.hotspot_markers = []
+        # List to keep track of spot measurements (both maxima and minima)
+        self.spot_measurements = []
+
+        # pen
+        self.pen = QPen()
+        # self.pen.setStyle(Qt.DashDotLine)
+        self.pen.setWidth(2)
 
         # Layout setup
         self.setWindowTitle("Detect Temperature Hot Spots")
@@ -173,14 +180,33 @@ class HotSpotDialog(QDialog):
 
         self.structure_slider = QSlider(Qt.Orientation.Horizontal)
         self.structure_slider.setMinimum(5)
-        self.structure_slider.setMaximum(100)  # Structure size from 5 to 100
+        self.structure_slider.setMaximum(100)  # Structure size from 1 to 10
         self.structure_slider.setValue(35)
         self.structure_slider.valueChanged.connect(self.update_structure_size)
         self.layout.addWidget(self.structure_slider)
 
+        # ComboBox to choose between maxima, minima, or both
+        self.combo_box_label = QLabel("Show:")
+        self.layout.addWidget(self.combo_box_label)
+
+        self.combo_box = QComboBox()
+        self.combo_box.addItem("Both")
+        self.combo_box.addItem("Only Maxima")
+        self.combo_box.addItem("Only Minima")
+        self.combo_box.currentTextChanged.connect(self.update_selection_mode)
+        self.layout.addWidget(self.combo_box)
+
+        # Checkbox to toggle temperature labels
+        self.show_labels_checkbox = QCheckBox("Show Temperature Labels")
+        self.show_labels_checkbox.setChecked(True)  # Default is checked
+        self.show_labels_checkbox.stateChanged.connect(self.toggle_labels)
+        self.layout.addWidget(self.show_labels_checkbox)
+
         # Checkbox for excluding edge maxima and minima
-        self.checkbox_label = QLabel("Exclude Edge Maxima and Minima")
-        self.layout.addWidget(self.checkbox_label)
+        self.exclude_edges_checkbox = QCheckBox("Exclude Edge Maxima and Minima")
+        self.exclude_edges_checkbox.setChecked(False)
+        self.exclude_edges_checkbox.stateChanged.connect(self.toggle_edge_exclusion)
+        self.layout.addWidget(self.exclude_edges_checkbox)
 
         self.setLayout(self.layout)
 
@@ -219,9 +245,31 @@ class HotSpotDialog(QDialog):
         self.structure_slider_label.setText(f"Structure Size: {self.structure_size}")
         self.detect_hotspots()
 
+    def update_selection_mode(self, mode):
+        """Update whether to show maxima, minima, or both."""
+        if mode == "Only Maxima":
+            self.selection_mode = 'maxima'
+        elif mode == "Only Minima":
+            self.selection_mode = 'minima'
+        else:
+            self.selection_mode = 'both'
+        self.detect_hotspots()
+
+    def toggle_labels(self):
+        # Toggle visibility of temperature labels
+        self.show_labels = self.show_labels_checkbox.isChecked()
+        for spot in self.spot_measurements:
+            if spot.text_item:
+                spot.text_item.setVisible(self.show_labels)
+
+    def toggle_edge_exclusion(self):
+        # Toggle exclusion of edge maxima and minima
+        self.exclude_edges = self.exclude_edges_checkbox.isChecked()
+        self.detect_hotspots()
+
     def detect_hotspots(self):
-        # Remove only the previous hotspot markers, not the entire scene
-        self.clear_hotspot_markers()
+        # Clear previous spots from the scene
+        self.clear_spot_measurements()
 
         # Create a square structure based on the current structure size
         structure = np.ones((self.structure_size, self.structure_size), dtype=bool)
@@ -254,15 +302,18 @@ class HotSpotDialog(QDialog):
         filtered_maxima = self.filter_by_prominence(maxima_indices, is_maxima=True)
         filtered_minima = self.filter_by_prominence(minima_indices, is_maxima=False)
 
-        # Add markers for the filtered maxima (red)
-        for maximum in filtered_maxima:
-            x, y = maximum
-            self.add_hotspot_marker(x, y, color=Qt.GlobalColor.red)
+        # Based on the selection mode, display only maxima, only minima, or both
+        if self.selection_mode in ['maxima', 'both']:
+            # Add markers for the filtered maxima (red)
+            for maximum in filtered_maxima:
+                x, y = maximum
+                self.add_spot(x, y, color=Qt.GlobalColor.red)
 
-        # Add markers for the filtered minima (blue)
-        for minimum in filtered_minima:
-            x, y = minimum
-            self.add_hotspot_marker(x, y, color=Qt.GlobalColor.blue)
+        if self.selection_mode in ['minima', 'both']:
+            # Add markers for the filtered minima (blue)
+            for minimum in filtered_minima:
+                x, y = minimum
+                self.add_spot(x, y, color=Qt.GlobalColor.blue)
 
     def filter_by_prominence(self, extrema_indices, is_maxima=True):
         """Filter detected maxima or minima based on the prominence value."""
@@ -300,20 +351,40 @@ class HotSpotDialog(QDialog):
         else:
             return self.normalized_data[x, y], self.normalized_data[x, y]
 
-    def add_hotspot_marker(self, x, y, color):
-        # Add a small ellipse to the QGraphicsScene at the given coordinates
-        radius = 5
-        ellipse = QGraphicsEllipseItem(0, 0, radius, radius)
-        ellipse.setPos(QPointF(y - radius / 2, x - radius / 2))  # Adjust for centering
-        ellipse.setBrush(color)  # Color for the marker (red for maxima, blue for minima)
-        self.hotspot_markers.append(ellipse)  # Keep track of the marker
-        self.scene.addItem(ellipse)
+    def add_spot(self, x, y, color):
+        # Create a QPointF for the spot location
+        qpoint = QPointF(y, x)
 
-    def clear_hotspot_markers(self):
-        # Remove all previously added hotspot markers from the scene
-        for marker in self.hotspot_markers:
-            self.scene.removeItem(marker)
-        self.hotspot_markers.clear()
+        # Create a PointMeas object
+        spot = tt.PointMeas(qpoint)
+        spot.temp = self.raw_data[x, y]  # Assign the temperature value
+
+        # Create the ellipse and text items
+        spot.create_items()
+
+        # Set ellipse color
+        self.pen.setColor(color)
+        spot.ellipse_item.setPen(self.pen)
+
+        # Add ellipse and text to the scene
+        self.scene.addItem(spot.ellipse_item)
+        if self.show_labels:
+            self.scene.addItem(spot.text_item)
+
+        # Add all items to the scene for future reference
+        spot.all_items.append(spot.ellipse_item)
+        spot.all_items.append(spot.text_item)
+
+        # Store the measurement in the list
+        self.spot_measurements.append(spot)
+
+    def clear_spot_measurements(self):
+        # Remove all previously added items from the scene
+        for spot in self.spot_measurements:
+            for item in spot.all_items:
+                self.scene.removeItem(item)
+        self.spot_measurements.clear()
+
 
 
 class ImageFusionDialog(QtWidgets.QDialog):
