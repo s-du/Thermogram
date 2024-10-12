@@ -14,11 +14,14 @@ import numpy as np
 from PIL import Image
 import qimage2ndarray
 
-# PySide6 imports
-from PySide6 import QtCore, QtGui, QtWidgets
-from PySide6.QtCore import *
-from PySide6.QtGui import *
-from PySide6.QtWidgets import *
+# PyQt6 imports
+from PyQt6 import QtCore, QtGui, QtWidgets  # Changed from PySide6
+from PyQt6.QtCore import *
+from PyQt6.QtGui import *
+from PyQt6.QtWidgets import *
+
+# Update for specific imports used in the code
+from PyQt6.uic import loadUi  # PyQt6 has uic to load UI files
 
 # Custom library imports
 import widgets as wid
@@ -38,13 +41,13 @@ def show_exception_box(log_msg):
     if QtWidgets.QApplication.instance() is not None:
         errorbox = QtWidgets.QMessageBox()
         errorbox.setText("Oops. An unexpected error occured:\n{0}".format(log_msg))
-        errorbox.exec_()
+        errorbox.exec()
     else:
         log.debug("No QApplication instance available.")
 
 
 class UncaughtHook(QtCore.QObject):
-    _exception_caught = QtCore.Signal(object)
+    _exception_caught = QtCore.pyqtSignal(object)
 
     def __init__(self, *args, **kwargs):
         super(UncaughtHook, self).__init__(*args, **kwargs)
@@ -91,11 +94,11 @@ class AboutDialog(QtWidgets.QDialog):
         logos1 = QtWidgets.QLabel()
         pixmap = QtGui.QPixmap(res.find('img/logo_buildwise2.png'))
         w = self.width()
-        pixmap = pixmap.scaledToWidth(100, QtCore.Qt.SmoothTransformation)
+        pixmap = pixmap.scaledToWidth(100, QtCore.Qt.TransformationMode.SmoothTransformation)
         logos1.setPixmap(pixmap)
 
         self.layout.addWidget(about_text)
-        self.layout.addWidget(logos1, alignment=QtCore.Qt.AlignCenter)
+        self.layout.addWidget(logos1, alignment=QtCore.Qt.AlignmentFlag.AlignCenter)
 
         self.setLayout(self.layout)
 
@@ -105,12 +108,12 @@ class CustomGraphicsItem(QGraphicsItem):
         super().__init__(parent)
         self.pixmap = pixmap
         self.opacity = 1.0
-        self.composition_mode = QPainter.CompositionMode_SourceOver
+        self.composition_mode = QtGui.QPainter.CompositionMode.CompositionMode_SourceOver
         self.target_size = target_size
 
         if self.target_size:
-            self.pixmap = self.pixmap.scaled(self.target_size, QtCore.Qt.KeepAspectRatio,
-                                             QtCore.Qt.SmoothTransformation)
+            self.pixmap = self.pixmap.scaled(self.target_size, QtCore.Qt.AspectRatioMode.KeepAspectRatio,
+                                             QtCore.Qt.TransformationMode.SmoothTransformation)
 
     def boundingRect(self):
         return QRectF(self.pixmap.rect())
@@ -123,8 +126,8 @@ class CustomGraphicsItem(QGraphicsItem):
     def setPixmap(self, pixmap, rescale=True):
         self.pixmap = pixmap
         if rescale:
-            self.pixmap = self.pixmap.scaled(self.target_size, QtCore.Qt.KeepAspectRatio,
-                                             QtCore.Qt.SmoothTransformation)
+            self.pixmap = self.pixmap.scaled(self.target_size, QtCore.Qt.AspectRatioMode.KeepAspectRatio,
+                                             QtCore.Qt.TransformationMode.SmoothTransformation)
         self.update()
 
 
@@ -138,7 +141,7 @@ class ImageFusionDialog(QtWidgets.QDialog):
         basepath = os.path.dirname(__file__)
         basename = 'fusion'
         uifile = os.path.join(basepath, 'ui/%s.ui' % basename)
-        wid.loadUi(uifile, self)
+        loadUi(uifile, self)
 
         self.ir_path = ir_img_path
         self.img_object = img_object
@@ -252,8 +255,8 @@ class ImageFusionDialog(QtWidgets.QDialog):
 
     def fitItemsInView(self):
         # Disable scrollbars
-        self.view.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
-        self.view.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        self.view.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.view.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
         # Get the size of the view
         view_rect = self.view.viewport().rect()
@@ -321,7 +324,7 @@ class ImageFusionDialog(QtWidgets.QDialog):
 
         # Load the IR image and convert to NumPy array
         ir_image = QImage(self.ir_path)
-        ir_image = ir_image.convertToFormat(QImage.Format_ARGB32)
+        ir_image = ir_image.convertToFormat(QImage.Format.Format_ARGB32)
         # Convert QImage to a 4-channel NumPy array (RGBA)
         ir_array = qimage2ndarray.byte_view(ir_image)
 
@@ -355,7 +358,7 @@ class ImageFusionDialog(QtWidgets.QDialog):
     def toggleGrayscale(self):
         if self.grayscaleCheckbox.isChecked():
             # Convert to grayscale
-            gray_pixmap = self.colorImageItem.pixmap.toImage().convertToFormat(QImage.Format_Grayscale8)
+            gray_pixmap = self.colorImageItem.pixmap.toImage().convertToFormat(QImage.Format.Format_Grayscale8)
             self.colorImageItem.setPixmap(QPixmap.fromImage(gray_pixmap), rescale=False)
         else:
             # Restore original color image
@@ -372,8 +375,8 @@ class ImageFusionDialog(QtWidgets.QDialog):
         height = self.colorImageItem.pixmap.height()
 
         # Create an empty QImage with the size of the final composed image
-        composed_image = QImage(width, height, QImage.Format_ARGB32)
-        composed_image.fill(QtCore.Qt.transparent)  # Start with a transparent image
+        composed_image = QImage(width, height, QImage.Format.Format_ARGB32)
+        composed_image.fill(QtCore.Qt.GlobalColor.transparent)  # Start with a transparent image
 
         # Initialize a QPainter to draw on the composed QImage
         painter = QPainter(composed_image)
@@ -447,15 +450,15 @@ class AlignmentDialog(QDialog):
             layout.addWidget(label)
             self.labels.append(label)
 
-            slider = QSlider(Qt.Horizontal)
+            slider = QSlider(Qt.Orientation.Horizontal)
             if i != 0:
-                slider.setMinimum(param_range[0] * 10)
-                slider.setMaximum(param_range[1] * 10)
-                slider.setValue(self.theta[i]*10)
+                slider.setMinimum(int(param_range[0] * 10))
+                slider.setMaximum(int(param_range[1] * 10))
+                slider.setValue(self.theta[i] * 10)
             else:
-                slider.setMinimum(param_range[0] * 100)
-                slider.setMaximum(param_range[1] * 100)
-                slider.setValue(self.theta[i]*100)
+                slider.setMinimum(int(param_range[0] * 100))
+                slider.setMaximum(int(param_range[1] * 100))
+                slider.setValue(self.theta[i] * 100)
             slider.valueChanged.connect(lambda value, x=i: self.update_parameter(x, value))
             self.sliders.append(slider)
             layout.addWidget(slider)
@@ -498,10 +501,10 @@ class AlignmentDialog(QDialog):
         if img.ndim == 3:  # Color image
             h, w, ch = img.shape
             bytes_per_line = ch * w
-            qimage = QImage(img.data, w, h, bytes_per_line, QImage.Format_RGB888)
+            qimage = QImage(img.data, w, h, bytes_per_line, QImage.Format.Format_RGB888)
         else:  # Grayscale image
             h, w = img.shape
-            qimage = QImage(img.data, w, h, QImage.Format_Grayscale8)
+            qimage = QImage(img.data, w, h, QImage.Format.Format_Grayscale8)
         return qimage
 
     def process_images(self):
@@ -536,8 +539,6 @@ class AlignmentDialog(QDialog):
         self.scene.addItem(pixmap_item)
 
 
-
-
 class DialogEdgeOptions(QtWidgets.QDialog):
     """
     Dialog that allows the user to choose advances thermography options
@@ -548,7 +549,7 @@ class DialogEdgeOptions(QtWidgets.QDialog):
         basepath = os.path.dirname(__file__)
         basename = 'edge_options'
         uifile = os.path.join(basepath, 'ui/%s.ui' % basename)
-        wid.loadUi(uifile, self)
+        loadUi(uifile, self)
         self.comboBox_blur_size.addItems([str(3), str(5), str(7)])
         self.comboBox_color.addItems(['white', 'black'])
         self.comboBox_method.addItems(['Sobel A', 'Kernel 1', 'Kernel 2', 'Canny', 'Canny-L2', 'ML'])
@@ -567,7 +568,7 @@ class DialogEdgeOptions(QtWidgets.QDialog):
         # Set initial values for combo boxes if parameters are provided
         self.comboBox_method.setCurrentIndex(self.parameters[0])
 
-        index = self.comboBox_color.findText(self.parameters[1], QtCore.Qt.MatchFixedString)
+        index = self.comboBox_color.findText(self.parameters[1], QtCore.Qt.MatchFlag.MatchFixedString)
         if index >= 0:
             self.comboBox_color.setCurrentIndex(index)
 
@@ -581,12 +582,12 @@ class DialogEdgeOptions(QtWidgets.QDialog):
         else:
             self.checkBox.setChecked(False)
 
-        index = self.comboBox_blur_size.findText(str(self.parameters[4]), QtCore.Qt.MatchFixedString)
+        index = self.comboBox_blur_size.findText(str(self.parameters[4]), QtCore.Qt.MatchFlag.MatchFixedString)
         if index >= 0:
             self.comboBox_blur_size.setCurrentIndex(index)
 
         op_value = self.parameters[5]
-        self.horizontalSlider.setValue(op_value * 100)
+        self.horizontalSlider.setValue(int(op_value * 100))
 
     def toggle_combo(self):
         if self.checkBox.isChecked():
@@ -605,7 +606,7 @@ class DialogThParams(QtWidgets.QDialog):
         basepath = os.path.dirname(__file__)
         basename = 'dialog_options'
         uifile = os.path.join(basepath, 'ui/%s.ui' % basename)
-        wid.loadUi(uifile, self)
+        loadUi(uifile, self)
         self.lineEdit_em.setText(str(param['emissivity']))
         self.lineEdit_dist.setText(str(param['distance']))
         self.lineEdit_rh.setText(str(param['humidity']))
@@ -624,7 +625,7 @@ class MeasLineDialog(QtWidgets.QDialog):
         basepath = os.path.dirname(__file__)
         basename = 'meas_dialog_2d'
         uifile = os.path.join(basepath, 'ui/%s.ui' % basename)
-        wid.loadUi(uifile, self)
+        loadUi(uifile, self)
 
         self.data = data
         self.y_values = data
@@ -696,7 +697,7 @@ class Meas3dDialog_simple(QtWidgets.QDialog):
         basepath = os.path.dirname(__file__)
         basename = 'meas_dialog_3d_simple'
         uifile = os.path.join(basepath, 'ui/%s.ui' % basename)
-        wid.loadUi(uifile, self)
+        loadUi(uifile, self)
 
         self.setWindowTitle('Area Measurement')
         self.matplot_c = wid.MplCanvas_project3d(self)
@@ -739,13 +740,14 @@ class Meas3dDialog_simple(QtWidgets.QDialog):
         self.ax.plot_surface(xx, yy, self.data, rstride=1, cstride=1, linewidth=0, cmap=custom_cmap)
         self.matplot_c.figure.canvas.draw_idle()
 
+
 class Meas3dDialog(QtWidgets.QDialog):
     def __init__(self, rect_annot):
         QtWidgets.QDialog.__init__(self)
         basepath = os.path.dirname(__file__)
         basename = 'meas_dialog_3d'
         uifile = os.path.join(basepath, 'ui/%s.ui' % basename)
-        wid.loadUi(uifile, self)
+        loadUi(uifile, self)
 
         self.setWindowTitle('Area Measurement')
         self.matplot_c = wid.MplCanvas_project3d(self)

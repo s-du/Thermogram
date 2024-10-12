@@ -13,12 +13,11 @@ from PIL import Image, ImageOps, ImageFilter
 from matplotlib import cm, pyplot as plt
 import matplotlib.colors as mcol
 from blend_modes import dodge, multiply
-from scipy.optimize import differential_evolution
 
 # PySide6 imports
-from PySide6 import QtCore, QtGui, QtWidgets
-from PySide6.QtCore import QPointF, QRectF
-from PySide6.QtWidgets import QGraphicsEllipseItem, QGraphicsTextItem
+from PyQt6 import QtCore, QtGui, QtWidgets
+from PyQt6.QtCore import QPointF, QRectF
+from PyQt6.QtWidgets import QGraphicsEllipseItem, QGraphicsTextItem
 
 # custom libraries
 import resources as res
@@ -135,7 +134,7 @@ class CameraUndistorter:
         return dest, dim
 
 
-class DroneModel():
+class DroneModel:
     def __init__(self, name):
         if name == 'MAVIC2-ENTERPRISE-ADVANCED':
             self.rgb_xml_path = m2t_rgb_xml_path
@@ -481,9 +480,9 @@ class RectMeas:
 # long tasks runner classes
 # test with runner
 class RunnerSignals(QtCore.QObject):
-    progressed = QtCore.Signal(int)
-    messaged = QtCore.Signal(str)
-    finished = QtCore.Signal()
+    progressed = QtCore.pyqtSignal(int)
+    messaged = QtCore.pyqtSignal(str)
+    finished = QtCore.pyqtSignal()
 
 
 class RunnerDJI(QtCore.QRunnable):
@@ -1449,70 +1448,4 @@ def generate_legend(legend_dest_path, custom_params):
 """
 °-°-°-°JUNK°-°-°-°
 """
-def process_th_image_with_theta(ir_img_path, rgb_img_path, out_folder, theta, F, CX, CY, d_mat):
-    # read images
-    cv_rgb = cv_read_all_path(rgb_img_path) # read rgb image
-    h_rgb, w_rgb = cv_rgb.shape[:2]
-    cv_ir = cv_read_all_path(ir_img_path) # read infrared image
 
-    K = np.array([[F, 0, CX],
-                  [0, F, CY],
-                  [0, 0, 1]]) # read optical parameters for infrared image
-
-    d = d_mat
-
-    # undistort infrared image with given parameters
-    cv_ir_un = undis_kd(cv_ir, K, d)
-    h_ir, w_ir = cv_ir_un.shape[:2] # get resulting dimension of thermal image
-
-    dim_undis_ir = (w_ir, h_ir)
-
-    extend = theta[0] / 100
-    y_offset = theta[1] * 10
-    x_offset = theta[2] * 10
-
-    if h_ir == 0:
-        aspect_factor = 1
-    else:
-        aspect_factor = (w_rgb / h_rgb) / (
-                w_ir / h_ir)  # this is necessary to transform the aspect ratio of the rgb image to fit
-        # the thermal image. The number represent the resolutions of images (rgb and ir respectively) after undistording
-    new_h = h_rgb * aspect_factor
-
-    ret_x = int(extend * w_rgb)
-    ret_y = int(extend * new_h)
-    rgb_dest = cv_rgb[int(h_rgb / 2 + y_offset) - ret_y:int(h_rgb / 2 + y_offset) + ret_y,
-               int(w_rgb / 2 + x_offset) - ret_x:int(w_rgb / 2 + x_offset) + ret_x]
-
-    # resize
-    rgb_dest = cv2.resize(rgb_dest, dim_undis_ir, interpolation=cv2.INTER_AREA)
-    cv_write_all_path(os.path.join(out_folder, 'rescale.JPG'), rgb_dest)
-
-    # create lines
-    lines_rgb = create_lines(rgb_dest)
-    cv_write_all_path(rgb_img_path[:-4] + '_rgb_lines.JPG', lines_rgb)
-
-    lines_ir = create_lines(cv_ir_un, bil=False)
-    cv_write_all_path(ir_img_path[:-4] + '_ir_lines.JPG', lines_ir)
-
-    # compute difference
-    diff = cv2.subtract(lines_ir, lines_rgb)
-    err = np.sum(diff ** 2)
-    mse = err / (float(h_ir * w_ir))
-
-    print(f'mse is {mse}')
-
-    return mse
-
-def match_rgb_custom_parameters(cv_img, drone_model, resized=False):
-    h2, w2 = cv_img.shape[:2]
-    new_h = h2 * drone_model.aspect_factor
-    ret_x = int(drone_model.extend * w2)
-    ret_y = int(drone_model.extend * new_h)
-    rgb_dest = cv_img[int(h2 / 2 + drone_model.y_offset) - ret_y:int(h2 / 2 + drone_model.y_offset) + ret_y,
-               int(w2 / 2 + drone_model.x_offset) - ret_x:int(w2 / 2 + drone_model.x_offset) + ret_x]
-
-    if resized:
-        rgb_dest = cv2.resize(rgb_dest, drone_model.dim_undis_ir, interpolation=cv2.INTER_AREA)
-
-    return rgb_dest

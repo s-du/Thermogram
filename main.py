@@ -1,12 +1,12 @@
 # imports
-from PySide6.QtGui import *
-from PySide6.QtWidgets import *
-from PySide6.QtCore import *
+from PyQt6.QtGui import *  # modified from PySide6.QtGui to PyQt6.QtGui
+from PyQt6.QtWidgets import *  # modified from PySide6.QtWidgets to PyQt6.QtWidgets
+from PyQt6.QtCore import *  # modified from PySide6.QtCore to PyQt6.QtCore
+from PyQt6 import uic
 
 import os
 import json
 
-import PIL
 # custom libraries
 import widgets as wid
 import resources as res
@@ -21,7 +21,6 @@ TODO:
 - Implement 'context' dialog --> Drone info + location
 - Allow the user to define a custom folder
 - Implement save/load project folder
-
 """
 
 # PARAMETERS
@@ -58,7 +57,7 @@ class DroneIrWindow(QMainWindow):
         basename = 'main_window'
         uifile = os.path.join(basepath, 'ui/%s.ui' % basename)
         print(uifile)
-        wid.loadUi(uifile, self)
+        uic.loadUi(uifile, self)
 
         # initialize status
         self.update_progress(nb=100, text="Status: Choose image folder")
@@ -89,7 +88,6 @@ class DroneIrWindow(QMainWindow):
         # add content to comboboxes
         self.comboBox.addItems(self._colormap_names)
         self.comboBox.setCurrentIndex(0)
-        self.comboBox_img.addItems(self.ir_imgs)
 
         self.comboBox_colors_low.addItems(self._out_of_lim)
         self.comboBox_colors_low.setCurrentIndex(0)
@@ -99,7 +97,7 @@ class DroneIrWindow(QMainWindow):
         self.comboBox_view.addItems(self._view_list)
         self.comboBox_post.addItems(self._img_post)
 
-        self.advanced_options = False  # TODO: see if use
+        self.advanced_options = False  # TODO: see if used
         self.skip_update = False
 
         # create double slider
@@ -191,7 +189,7 @@ class DroneIrWindow(QMainWindow):
         self.add_item_in_tree(self.model, RECT_MEAS_NAME)
         self.add_item_in_tree(self.model, POINT_MEAS_NAME)
         self.add_item_in_tree(self.model, LINE_MEAS_NAME)
-        self.model.setHeaderData(0, Qt.Horizontal, 'Added Data')
+        self.model.setHeaderData(0, Qt.Orientation.Horizontal, 'Added Data')
 
     def create_connections(self):
         """
@@ -358,7 +356,7 @@ class DroneIrWindow(QMainWindow):
 
     def show_info(self):
         dialog = dia.AboutDialog()
-        if dialog.exec_():
+        if dialog.exec():
             pass
 
     def image_matching(self):
@@ -382,15 +380,15 @@ class DroneIrWindow(QMainWindow):
         print(f'Here are the work values! zoom:{zoom}, y offset:{y_off}, x offset: {x_off}')
 
         dialog = dia.AlignmentDialog(self.work_image, temp_folder, theta=[zoom, y_off, x_off])
-        if dialog.exec_():
+        if dialog.exec():
 
             # ask options
             # Create a QMessageBox
             qm = QMessageBox
             reply = qm.question(self, '', "Do you want to process all pictures with those new parameters",
-                                qm.Yes | qm.No)
+                                qm.StandardButton.Yes | qm.StandardButton.No)
 
-            if reply == qm.Yes:
+            if reply == qm.StandardButton.Yes:
                 print('Good choice')
                 # update values
                 zoom, y_off, x_off = dialog.theta
@@ -481,7 +479,7 @@ class DroneIrWindow(QMainWindow):
 
         dialog.surface_from_image_matplot(self.work_image.colormap, self.n_colors, self.user_lim_col_low,
                                           self.user_lim_col_high)
-        if dialog.exec_():
+        if dialog.exec():
             pass
 
         # switch back to hand tool
@@ -505,7 +503,7 @@ class DroneIrWindow(QMainWindow):
 
         # bring data 3d figure
         dialog = dia.MeasLineDialog(new_line_annot.data_roi)
-        if dialog.exec_():
+        if dialog.exec():
             pass
 
         self.hand_pan()
@@ -564,7 +562,7 @@ class DroneIrWindow(QMainWindow):
         dialog = dia.DialogThParams(self.thermal_param)
         dialog.setWindowTitle("Choose advanced thermal options")
 
-        if dialog.exec_():
+        if dialog.exec():
             try:
                 self.advanced_options = True
                 em = float(dialog.lineEdit_em.text())
@@ -662,7 +660,7 @@ class DroneIrWindow(QMainWindow):
 
         self.nb_sets += 1
 
-        desc = f'{PROC_TH_FOLDER}_{self.colormap}_{str(round(self.tmin_shown, 0))}_{str(round(self.tmax_shown, 0))}_{self.post_process}_image-set_{self.nb_sets}'
+        desc = f'{PROC_TH_FOLDER}_{self.colormap}_{str(round(self.tmin_shown, 0))}_{str(round(self.tmax_shown, 0))}_{self.post_process}_image-set_{self.nb_sets}_anim'
 
         # create output folder
         self.last_out_folder = os.path.join(self.app_folder, desc)
@@ -670,7 +668,7 @@ class DroneIrWindow(QMainWindow):
             os.mkdir(self.last_out_folder)
 
         worker_1 = tt.RunnerDJI(5, 50, self.last_out_folder, self.images, self.work_image, self.edges,
-                                self.edge_params)
+                                self.edge_params, undis=True)
         worker_1.signals.progressed.connect(lambda value: self.update_progress(value))
         worker_1.signals.messaged.connect(lambda string: self.update_progress(text=string))
 
@@ -679,40 +677,41 @@ class DroneIrWindow(QMainWindow):
 
     def export_video_phase2(self):
         self.update_progress(nb=60, text="Status: Video creation!")
+        video_dir = self.last_out_folder  # Adjust the path to your video's folder
+        video_file = "animation_thermal.mp4"  # Adjust to your video file name if needed
+        video_path = os.path.join(video_dir, video_file)
 
-        tt.create_video(self.last_out_folder, 'animation_thermal.mp4', 3)
+        tt.create_video(self.last_out_folder, video_path, 3)
 
         self.update_progress(nb=100, text="Continue analyses!")
 
-        video_path = self.last_out_folder  # Adjust the path to your video's folder
-        video_file = "animation_thermal.mp4"  # Adjust to your video file name if needed
-
         msg_box = QMessageBox()
         msg_box.setWindowTitle("Video Location")
-        msg_box.setText(f"Your video is located here:\n{video_path}/{video_file}")
+        msg_box.setText(f"Your video is located here:\n{video_path}")
         msg_box.setInformativeText("Click 'Open Folder' to view it.")
 
         # Adding Open Folder button
-        open_button = msg_box.addButton("Open Folder", QMessageBox.ActionRole)
-        msg_box.setStandardButtons(QMessageBox.Ok)
+        open_button = msg_box.addButton("Open Folder", QMessageBox.ButtonRole.ActionRole)
+
+        msg_box.setStandardButtons(QMessageBox.StandardButton.Ok)
 
         # Display the message box and wait for a user action
-        msg_box.exec_()
+        msg_box.exec()
 
         # Check if the Open Folder button was clicked
         if msg_box.clickedButton() == open_button:
             QDesktopServices.openUrl(QUrl.fromLocalFile(video_path))
 
         # Display the message box
-        msg_box.exec_()
+        msg_box.exec()
 
     def load_folder_phase1(self):
         # warning message (new project)
         if self.list_rgb_paths != '':
             qm = QMessageBox
-            reply = qm.question(self, '', "Are you sure ? It will create a new project", qm.Yes | qm.No)
+            reply = qm.question(self, '', "Are you sure ? It will create a new project", qm.StandardButton.Yes | qm.StandardButton.No)
 
-            if reply == qm.Yes:
+            if reply == qm.StandardButton.Yes:
                 # reset all data
                 self.full_reset()
 
@@ -840,8 +839,8 @@ class DroneIrWindow(QMainWindow):
 
     def save_image(self):
         # Create a QImage with the size of the viewport
-        image = QImage(self.viewer.viewport().size(), QImage.Format_ARGB32_Premultiplied)
-        image.fill(Qt.transparent)
+        image = QImage(self.viewer.viewport().size(), QImage.Format.Format_ARGB32_Premultiplied)
+        image.fill(Qt.GlobalColor.transparent)
 
         # Paint the QGraphicsView's viewport onto the QImage
         painter = QPainter(image)
@@ -863,9 +862,9 @@ class DroneIrWindow(QMainWindow):
     def generate_raw_tiff(self):
         qm = QMessageBox
         reply = qm.question(self, '', "Do you want to output TIFF files (Pix4D processing)?",
-                            qm.Yes | qm.No)
+                            qm.StandardButton.Yes | qm.StandardButton.No)
 
-        if reply == qm.Yes:
+        if reply == qm.StandardButton.Yes:
             desc = f'{PROC_TH_FOLDER}_tiff_{str(round(self.tmin_shown, 0))}_{str(round(self.tmax_shown, 0))}_image-set_{self.nb_sets}'
 
             # create output folder
@@ -873,8 +872,8 @@ class DroneIrWindow(QMainWindow):
             if not os.path.exists(out_folder):
                 os.mkdir(out_folder)
             reply = qm.question(self, '', "Do you want to correct deformation?",
-                                qm.Yes | qm.No)
-            if reply == qm.Yes:
+                                qm.StandardButton.Yes | qm.StandardButton.No)
+            if reply == qm.StandardButton.Yes:
                 undis = True
             else:
                 undis = False
@@ -890,14 +889,14 @@ class DroneIrWindow(QMainWindow):
     def process_all_images(self):
         qm = QMessageBox
         reply = qm.question(self, '', "Are you sure to process all pictures with the current parameters?",
-                            qm.Yes | qm.No)
+                            qm.StandardButton.Yes | qm.StandardButton.No)
 
         # get parameters
         self.colormap, self.n_colors, self.user_lim_col_high, self.user_lim_col_low, self.tmin, self.tmax, self.tmin_shown, self.tmax_shown, self.post_process = self.work_image.get_colormap_data()
 
         self.nb_sets += 1
 
-        if reply == qm.Yes:
+        if reply == qm.StandardButton.Yes:
             desc = f'{PROC_TH_FOLDER}_{self.colormap}_{str(round(self.tmin_shown, 0))}_{str(round(self.tmax_shown, 0))}_{self.post_process}_image-set_{self.nb_sets}'
 
             # create output folder
@@ -906,16 +905,16 @@ class DroneIrWindow(QMainWindow):
                 os.mkdir(self.last_out_folder)
 
             reply = qm.question(self, '', "Do you want to correct deformation?",
-                                qm.Yes | qm.No)
-            if reply == qm.Yes:
+                                qm.StandardButton.Yes | qm.StandardButton.No)
+            if reply == qm.StandardButton.Yes:
                 undis = True
             else:
                 undis = False
 
             reply = qm.question(self, '', "Do you want to upscale images (3x)?",
-                                qm.Yes | qm.No)
+                                qm.StandardButton.Yes | qm.StandardButton.No)
 
-            if reply == qm.Yes:
+            if reply == qm.StandardButton.Yes:
                 zoom = 3
             else:
                 zoom = 1
@@ -963,7 +962,7 @@ class DroneIrWindow(QMainWindow):
         }
 
         dialog = dia.DialogEdgeOptions(edge_params)
-        if dialog.exec_():
+        if dialog.exec():
 
             self.edge_color = dialog.comboBox_color.currentText()
             self.edge_method = dialog.comboBox_method.currentIndex()
@@ -993,7 +992,7 @@ class DroneIrWindow(QMainWindow):
         self.add_item_in_tree(self.model, POINT_MEAS_NAME)
         self.add_item_in_tree(self.model, LINE_MEAS_NAME)
 
-        self.model.setHeaderData(0, Qt.Horizontal, 'Added Data')
+        self.model.setHeaderData(0, Qt.Orientation.Horizontal, 'Meas. Data')
 
         point_cat = self.model.findItems(POINT_MEAS_NAME)
         rect_cat = self.model.findItems(RECT_MEAS_NAME)
@@ -1034,12 +1033,12 @@ class DroneIrWindow(QMainWindow):
     def compose_pic(self):
         dest_path_temp = self.dest_path_post[:-4] + '_temp.png'
         dialog = dia.ImageFusionDialog(self.work_image, self.dest_path_post, dest_path_temp)
-        if dialog.exec_():
+        if dialog.exec():
             qm = QMessageBox
             reply = qm.question(self, '', "Do you want to save the picture?",
-                                qm.Yes | qm.No)
+                                qm.StandardButton.Yes | qm.StandardButton.No)
 
-            if reply == qm.Yes:
+            if reply == qm.StandardButton.Yes:
 
                 file_path, _ = QFileDialog.getSaveFileName(
                     None, "Save Image", "", "PNG Image (*.png);;JPEG Image (*.jpg *.jpeg *.JPEG)"
@@ -1129,8 +1128,8 @@ class DroneIrWindow(QMainWindow):
             # update double slider TODO
             self.range_slider.setLowerValue(self.tmin_shown * 100)
             self.range_slider.setUpperValue(self.tmax_shown * 100)
-            self.range_slider.setMinimum(self.tmin * 100)
-            self.range_slider.setMaximum(self.tmax * 100)
+            self.range_slider.setMinimum(int(self.tmin * 100))
+            self.range_slider.setMaximum(int(self.tmax * 100))
             self.range_slider.setHandleColorsFromColormap(self.colormap)
         else:
             # get radiometric data
@@ -1244,7 +1243,7 @@ class DroneIrWindow(QMainWindow):
             showAction.triggered.connect(lambda: self.showAnnotation(item))
 
             # Display the menu
-            contextMenu.exec_(self.treeView.viewport().mapToGlobal(point))
+            contextMenu.exec(self.treeView.viewport().mapToGlobal(point))
 
     def deleteAnnotation(self, item):
         # Implement the logic to delete the annotation
@@ -1292,7 +1291,7 @@ class DroneIrWindow(QMainWindow):
 
                     # bring data 2d figure
                     dialog = dia.MeasLineDialog(interest.data_roi)
-                    if dialog.exec_():
+                    if dialog.exec():
                         pass
         if 'rect' in lookup_text:
             for i, annot in enumerate(self.images[self.active_image].meas_rect_list):
@@ -1324,7 +1323,7 @@ class DroneIrWindow(QMainWindow):
                     dialog.surface_from_image_matplot(self.work_image.colormap, self.n_colors,
                                                       self.user_lim_col_low,
                                                       self.user_lim_col_high)
-                    if dialog.exec_():
+                    if dialog.exec():
                         pass
 
         if 'spot' in lookup_text:
@@ -1420,8 +1419,7 @@ def main(argv=None):
     # create the application if necessary
     if (not QApplication.instance()):
         app = QApplication(argv)
-        app.setStyle('Breeze')
-        # apply_stylesheet(app, theme='light_blue.xml',extra=extra)
+        app.setStyle('Fusion')
 
     # create the main window
 
@@ -1431,7 +1429,7 @@ def main(argv=None):
 
     # run the application if necessary
     if app:
-        return app.exec_()
+        return app.exec()
 
     # no errors since we're not running our own event loop
     return 0

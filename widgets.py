@@ -1,7 +1,6 @@
-from PySide6.QtCore import *
-from PySide6.QtGui import *
-from PySide6.QtWidgets import *
-from PySide6.QtUiTools import QUiLoader
+from PyQt6.QtCore import *  # Changed from PySide6.QtCore
+from PyQt6.QtGui import *  # Changed from PySide6.QtGui
+from PyQt6.QtWidgets import *  # Changed from PySide6.QtWidgets
 
 import open3d as o3d
 import open3d.visualization.gui as gui
@@ -13,8 +12,6 @@ from matplotlib.figure import Figure
 from matplotlib.colors import to_hex
 from matplotlib import cm
 
-
-
 import os
 import numpy as np
 import resources as res
@@ -23,123 +20,12 @@ from tools import thermal_tools as tt
 SCRIPT_DIRECTORY = os.path.dirname(os.path.abspath(__file__))
 
 
-class UiLoader(QUiLoader):
-    """
-    Subclass :class:`~PySide.QtUiTools.QUiLoader` to create the user interface
-    in a base instance.
-
-    Unlike :class:`~PySide.QtUiTools.QUiLoader` itself this class does not
-    create a new instance of the top-level widget, but creates the user
-    interface in an existing instance of the top-level class.
-
-    This mimics the behaviour of :func:`PyQt4.uic.loadUi`.
-    """
-
-    def __init__(self, baseinstance, customWidgets=None):
-        """
-        Create a loader for the given ``baseinstance``.
-
-        The user interface is created in ``baseinstance``, which must be an
-        instance of the top-level class in the user interface to load, or a
-        subclass thereof.
-
-        ``customWidgets`` is a dictionary mapping from class name to class object
-        for widgets that you've promoted in the Qt Designer interface. Usually,
-        this should be done by calling registerCustomWidget on the QUiLoader, but
-        with PySide 1.1.2 on Ubuntu 12.04 x86_64 this causes a segfault.
-
-        ``parent`` is the parent object of this loader.
-        """
-
-        QUiLoader.__init__(self, baseinstance)
-        self.baseinstance = baseinstance
-        self.customWidgets = customWidgets
-
-    def createWidget(self, class_name, parent=None, name=''):
-        """
-        Function that is called for each widget defined in ui file,
-        overridden here to populate baseinstance instead.
-        """
-
-        if parent is None and self.baseinstance:
-            # supposed to create the top-level widget, return the base instance
-            # instead
-            return self.baseinstance
-
-        else:
-            if class_name in self.availableWidgets():
-                # create a new widget for child widgets
-                widget = QUiLoader.createWidget(self, class_name, parent, name)
-
-            else:
-                # if not in the list of availableWidgets, must be a custom widget
-                # this will raise KeyError if the user has not supplied the
-                # relevant class_name in the dictionary, or TypeError, if
-                # customWidgets is None
-                try:
-                    widget = self.customWidgets[class_name](parent)
-
-                except (TypeError, KeyError) as e:
-                    raise Exception(
-                        'No custom widget ' + class_name + ' found in customWidgets param of UiLoader __init__.')
-
-            if self.baseinstance:
-                # set an attribute for the new child widget on the base
-                # instance, just like PyQt4.uic.loadUi does.
-                setattr(self.baseinstance, name, widget)
-
-                # this outputs the various widget names, e.g.
-                # sampleGraphicsView, dockWidget, samplesTableView etc.
-                # print(name)
-
-            return widget
-
-
-def loadUi(uifile, baseinstance=None, customWidgets=None,
-           workingDirectory=None):
-    """
-    Dynamically load a user interface from the given ``uifile``.
-
-    ``uifile`` is a string containing a file name of the UI file to load.
-
-    If ``baseinstance`` is ``None``, the a new instance of the top-level widget
-    will be created.  Otherwise, the user interface is created within the given
-    ``baseinstance``.  In this case ``baseinstance`` must be an instance of the
-    top-level widget class in the UI file to load, or a subclass thereof.  In
-    other words, if you've created a ``QMainWindow`` interface in the designer,
-    ``baseinstance`` must be a ``QMainWindow`` or a subclass thereof, too.  You
-    cannot load a ``QMainWindow`` UI file with a plain
-    :class:`~PySide.QtGui.QWidget` as ``baseinstance``.
-
-    ``customWidgets`` is a dictionary mapping from class name to class object
-    for widgets that you've promoted in the Qt Designer interface. Usually,
-    this should be done by calling registerCustomWidget on the QUiLoader, but
-    with PySide 1.1.2 on Ubuntu 12.04 x86_64 this causes a segfault.
-
-    :method:`~PySide.QtCore.QMetaObject.connectSlotsByName()` is called on the
-    created user interface, so you can implemented your slots according to its
-    conventions in your widget class.
-
-    Return ``baseinstance``, if ``baseinstance`` is not ``None``.  Otherwise
-    return the newly created instance of the user interface.
-    """
-
-    loader = UiLoader(baseinstance, customWidgets)
-
-    if workingDirectory is not None:
-        loader.setWorkingDirectory(workingDirectory)
-
-    widget = loader.load(uifile)
-    QMetaObject.connectSlotsByName(widget)
-    return widget
-
-
 class QRangeSlider(QSlider):
-    lowerValueChanged = Signal(int)
-    upperValueChanged = Signal(int)
+    lowerValueChanged = pyqtSignal(int)
+    upperValueChanged = pyqtSignal(int)
 
     def __init__(self, colormap_name='', parent=None):
-        super(QRangeSlider, self).__init__(Qt.Horizontal, parent)
+        super(QRangeSlider, self).__init__(Qt.Orientation.Horizontal, parent)
 
         self._lowerValue = self.minimum()
         self._upperValue = self.maximum()
@@ -150,8 +36,8 @@ class QRangeSlider(QSlider):
         self.back_color = QColor(200, 200, 200)
 
         # Initialize handle colors
-        self.lowerHandleColor = QColor(100,100,100)
-        self.upperHandleColor = QColor(100,100,100)
+        self.lowerHandleColor = QColor(100, 100, 100)
+        self.upperHandleColor = QColor(100, 100, 100)
 
         if colormap_name:
             self.setHandleColorsFromColormap(colormap_name)
@@ -192,7 +78,7 @@ class QRangeSlider(QSlider):
 
     def paintEvent(self, event):
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
         # Draw the slider track
         rect = QRect(0, (self.height() - self.handleSize) // 2, self.width(), self.handleSize)
@@ -211,8 +97,7 @@ class QRangeSlider(QSlider):
 
     def handleRect(self, value):
         xPos = self.scalePosition(value)
-        return QRect(xPos - self.handleSize // 2, (self.height() - self.handleSize) // 2, self.handleSize,
-                     self.handleSize)
+        return QRect(int(xPos - self.handleSize // 2), int((self.height() - self.handleSize) // 2), int(self.handleSize), int(self.handleSize))
 
     def scalePosition(self, value):
         return ((value - self.minimum()) / (self.maximum() - self.minimum())) * self.width()
@@ -266,7 +151,7 @@ class TableModel(QAbstractTableModel):
         self._data = data
 
     def data(self, index, role):
-        if role == Qt.DisplayRole:
+        if role == Qt.ItemDataRole.DisplayRole:
             # See below for the nested-list data structure.
             # .row() indexes into the outer list,
             # .column() indexes into the sub-list
@@ -289,11 +174,11 @@ def QPixmapFromItem(item):
     :return: QPixmap
     """
     pixmap = QPixmap(item.boundingRect().size().toSize())
-    pixmap.fill(Qt.transparent)
+    pixmap.fill(Qt.GlobalColor.transparent)
     painter = QPainter(pixmap)
     # this line seems to be needed for all items except of a LineItem...
     painter.translate(-item.boundingRect().x(), -item.boundingRect().y())
-    painter.setRenderHint(QPainter.Antialiasing, True)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
     opt = QStyleOptionGraphicsItem()
     item.paint(painter, opt)  # here in some cases the self is needed
     return pixmap
@@ -326,10 +211,10 @@ class DualViewer(QWidget):
         # Create the QGraphicsView widgets
         self.view1 = QGraphicsView()
         self.view2 = QGraphicsView()
-        self.view1.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.view1.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.view2.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.view2.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.view1.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.view1.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.view2.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.view2.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
         # Create the QGraphicsScenes for each view
         self.scene1 = QGraphicsScene()
@@ -358,6 +243,7 @@ class DualViewer(QWidget):
         # Store the zoom scale for synchronization
         self.zoom_scale = 1.0
         self.pan_origin = QPointF()
+
     def refresh(self):
         # Create the QGraphicsScenes for each view
         self.scene1 = QGraphicsScene()
@@ -418,7 +304,7 @@ class DualViewer(QWidget):
         self.view2.setTransform(view2_transform)
 
     def pan_views(self, event):
-        if event.buttons() == Qt.MouseButtons.LeftButton:
+        if event.buttons() == Qt.MouseButton.LeftButton:
             if event.type() == QEvent.Type.MouseButtonPress:
                 # Store the initial mouse position for panning
                 self.pan_origin = event.pos()
@@ -444,6 +330,7 @@ class DualViewer(QWidget):
                 # Reset the pan origin
                 self.pan_origin = QPointF()
 
+
 class LegendContainer(QGraphicsRectItem):
     def __init__(self, width, height, radius, parent=None):
         super().__init__(parent)
@@ -452,8 +339,9 @@ class LegendContainer(QGraphicsRectItem):
 
     def paint(self, painter, option, widget=None):
         painter.setBrush(QColor(255, 255, 255, 128))  # Semi-transparent white
-        painter.setPen(Qt.NoPen)
+        painter.setPen(Qt.PenStyle.NoPen)
         painter.drawRoundedRect(self.rect(), self.radius, self.radius)
+
 
 class ColorMapLegendItem(QGraphicsPixmapItem):
     def __init__(self, colormap_name, n_colors, min_temp, max_temp, parent=None):
@@ -481,11 +369,12 @@ class ColorMapLegendItem(QGraphicsPixmapItem):
             label.setHtml(f"<div style='background-color:rgba(255, 255, 255, 0.3);'><b>{temp:.2f}</b></div>")
             label.setPos(self.x() + 40, y_pos - label.boundingRect().height() / 2)
             scene.addItem(label)
+
     def createLegendPixmap(self):
         height = 200
         width = 20
         pixmap = QPixmap(width, height)
-        pixmap.fill(Qt.transparent)
+        pixmap.fill(Qt.GlobalColor.transparent)
         painter = QPainter(pixmap)
         num_colors = 256
 
@@ -503,11 +392,11 @@ class ColorMapLegendItem(QGraphicsPixmapItem):
 
 
 class PhotoViewer(QGraphicsView):
-    photoClicked = Signal(QPoint)
-    endDrawing_brush_meas = Signal(int)
-    endDrawing_rect_meas = Signal(QGraphicsRectItem)
-    endDrawing_point_meas = Signal(QPointF)
-    endDrawing_line_meas = Signal(QGraphicsLineItem)
+    photoClicked = pyqtSignal(QPoint)
+    endDrawing_brush_meas = pyqtSignal(int)
+    endDrawing_rect_meas = pyqtSignal(QGraphicsRectItem)
+    endDrawing_point_meas = pyqtSignal(QPointF)
+    endDrawing_line_meas = pyqtSignal(QGraphicsLineItem)
 
     def __init__(self, parent):
         super(PhotoViewer, self).__init__(parent)
@@ -517,16 +406,17 @@ class PhotoViewer(QGraphicsView):
         self._photo = QGraphicsPixmapItem()
         self._scene.addItem(self._photo)
         self.setScene(self._scene)
-        self.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
-        self.setResizeAnchor(QGraphicsView.AnchorUnderMouse)
-        self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
-        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
+        self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
+        self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
         self.setBackgroundBrush(QBrush(QColor(255, 255, 255)))
-        self.setFrameShape(QFrame.NoFrame)
-        self.setRenderHints(QPainter.Antialiasing | QPainter.SmoothPixmapTransform)
+        self.setFrameShape(QFrame.Shape.NoFrame)
+        self.setRenderHints(QPainter.RenderHint.Antialiasing | QPainter.RenderHint.SmoothPixmapTransform)
 
-        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
         self.rect_meas = False
         self.point_meas = False
@@ -549,13 +439,13 @@ class PhotoViewer(QGraphicsView):
         self.brush_cur = QCursor(pixmap_scaled)
 
         # measurement main color
-        self.meas_color = QColor(255, 0, 0, a=255)
+        self.meas_color = QColor(255, 0, 0, 255)
         self.pen_meas = QPen()
         # self.pen.setStyle(Qt.DashDotLine)
         self.pen_meas.setWidth(2)
         self.pen_meas.setColor(self.meas_color)
-        self.pen_meas.setCapStyle(Qt.RoundCap)
-        self.pen_meas.setJoinStyle(Qt.RoundJoin)
+        self.pen_meas.setCapStyle(Qt.PenCapStyle.RoundCap)
+        self.pen_meas.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
 
         self.legendContainer = QLabel(self)
         self.legendLabel = QLabel(self)
@@ -565,10 +455,10 @@ class PhotoViewer(QGraphicsView):
         self.categories = None
         self.images = None
         self.active_image = None
+
     def setupLegendLabel(self, img_object):
         # Clear existing legend and tick labels
         self.clearLegend()
-
 
         # Setup for new legend
         if img_object.colormap in tt.LIST_CUSTOM_CMAPS:
@@ -592,8 +482,8 @@ class PhotoViewer(QGraphicsView):
             tick_label_pos_y = 45 + (4 - i) * tick_interval
             tick_label_pos_x = 50 + legendPixmap.width() + 10
 
-            tick_label.move(tick_label_pos_x, tick_label_pos_y)
-            tick_label.setFont(QFont("Calibri", 10, QFont.Bold))
+            tick_label.move(int(tick_label_pos_x), int(tick_label_pos_y))
+            tick_label.setFont(QFont("Calibri", 10, QFont.Weight.Bold))
             tick_label.setStyleSheet("background-color: rgba(255, 255, 255, 128);")
             tick_label.show()
             self.tickLabels.append(tick_label)
@@ -602,7 +492,7 @@ class PhotoViewer(QGraphicsView):
         height = 300
         width = 15
         pixmap = QPixmap(width, height)
-        pixmap.fill(Qt.transparent)
+        pixmap.fill(Qt.GlobalColor.transparent)
         painter = QPainter(pixmap)
 
         for i in range(num_colors):
@@ -612,7 +502,7 @@ class PhotoViewer(QGraphicsView):
             painter.setPen(color)
             painter.setBrush(color)
             y = height - (i * (height / num_colors)) - (height / num_colors)
-            painter.drawRect(0, y, width, height / num_colors)
+            painter.drawRect(0, int(y), int(width), int(height / num_colors))
 
         painter.end()
         return pixmap
@@ -629,11 +519,11 @@ class PhotoViewer(QGraphicsView):
 
         # Create a QPixmap with rounded corners
         pixmap = QPixmap(containerWidth, containerHeight)
-        pixmap.fill(Qt.transparent)
+        pixmap.fill(Qt.GlobalColor.transparent)
         painter = QPainter(pixmap)
-        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setBrush(QColor(120, 120, 120, 75))
-        painter.setPen(Qt.NoPen)
+        painter.setPen(Qt.PenStyle.NoPen)
         rectPath = QPainterPath()
         rectPath.addRoundedRect(QRectF(0, 0, containerWidth, containerHeight), radius, radius)
         painter.drawPath(rectPath)
@@ -673,6 +563,7 @@ class PhotoViewer(QGraphicsView):
                 tick_label.deleteLater()
 
         self.tickLabels.clear()
+
     def has_photo(self):
         return not self._empty
 
@@ -724,7 +615,6 @@ class PhotoViewer(QGraphicsView):
         self._scene.addItem(self._photo)
         self.setScene(self._scene)
 
-
     def draw_all_meas(self, meas_items):
         for item in meas_items:
             if isinstance(item, QGraphicsLineItem) or isinstance(item, QGraphicsRectItem) or isinstance(item,
@@ -736,11 +626,11 @@ class PhotoViewer(QGraphicsView):
         # self._zoom = 0
         if pixmap and not pixmap.isNull():
             self._empty = False
-            self.setDragMode(QGraphicsView.ScrollHandDrag)
+            self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
             self._photo.setPixmap(pixmap)
         else:
             self._empty = True
-            self.setDragMode(QGraphicsView.NoDrag)
+            self.setDragMode(QGraphicsView.DragMode.NoDrag)
             self._photo.setPixmap(QPixmap())
         # self.fitInView()
 
@@ -749,12 +639,12 @@ class PhotoViewer(QGraphicsView):
 
     def toggleDragMode(self):
         if not self.rect_meas or self.point_meas or self.painting:
-            if self.dragMode() == QGraphicsView.ScrollHandDrag:
-                self.setDragMode(QGraphicsView.NoDrag)
+            if self.dragMode() == QGraphicsView.DragMode.ScrollHandDrag:
+                self.setDragMode(QGraphicsView.DragMode.NoDrag)
             elif not self._photo.pixmap().isNull():
-                self.setDragMode(QGraphicsView.ScrollHandDrag)
+                self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
         else:
-            self.setDragMode(QGraphicsView.NoDrag)
+            self.setDragMode(QGraphicsView.DragMode.NoDrag)
 
     def get_current_image(self):
         return self.active_image

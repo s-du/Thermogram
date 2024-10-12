@@ -92,8 +92,7 @@ background-color:rgb(207,207,207);
 QProgressBar:chunk {
 background-color:#9B1F6F;
 border-radius: 10px;
-}
-</string>
+}</string>
   </property>
   <widget class="QWidget" name="centralwidget">
    <layout class="QGridLayout" name="gridLayout">
