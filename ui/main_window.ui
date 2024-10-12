@@ -376,6 +376,7 @@ border-radius: 10px;
    <addaction name="separator"/>
    <addaction name="actionCompose"/>
    <addaction name="action3D_temperature"/>
+   <addaction name="actionFind_maxima"/>
   </widget>
   <widget class="QDockWidget" name="dockWidget">
    <property name="enabled">
@@ -1170,6 +1171,14 @@ border-radius: 10px;
    </property>
    <property name="toolTip">
     <string>Create animation from all images</string>
+   </property>
+  </action>
+  <action name="actionFind_maxima">
+   <property name="enabled">
+    <bool>false</bool>
+   </property>
+   <property name="text">
+    <string>Find maxima</string>
    </property>
   </action>
  </widget>

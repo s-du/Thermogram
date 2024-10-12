@@ -210,6 +210,7 @@ class DroneIrWindow(QMainWindow):
         self.action3D_temperature.triggered.connect(self.show_viz_threed)
         self.actionCompose.triggered.connect(self.compose_pic)
         self.actionCreate_anim.triggered.connect(self.export_anim)
+        self.actionFind_maxima.triggered.connect(self.find_maxima)
 
         self.viewer.endDrawing_rect_meas.connect(self.add_rect_meas)
         self.viewer.endDrawing_point_meas.connect(self.add_point_meas)
@@ -828,6 +829,7 @@ class DroneIrWindow(QMainWindow):
         self.actionSpot_meas.setEnabled(True)
         self.actionLine_meas.setEnabled(True)
         self.action3D_temperature.setEnabled(True)
+        self.actionFind_maxima.setEnabled(True)
 
         # RGB condition
         if self.has_rgb:
@@ -1031,6 +1033,11 @@ class DroneIrWindow(QMainWindow):
     def change_meas_color(self):
         self.viewer.change_meas_color()
         self.switch_image_data()
+
+    def find_maxima(self):
+        dialog = dia.HotSpotDialog(self.dest_path_post, self.work_image.raw_data_undis)
+        if dialog.exec():
+            pass
 
     def compose_pic(self):
         self.number_custom_pic += 1
@@ -1403,6 +1410,7 @@ class DroneIrWindow(QMainWindow):
         self.add_icon(res.find('img/line.png'), self.actionLine_meas)
         self.add_icon(res.find('img/compare.png'), self.actionCompose)
         self.add_icon(res.find('img/3d.png'), self.action3D_temperature)
+        self.add_icon(res.find('img/maxima.png'), self.actionFind_maxima)
 
     def full_reset(self):
         """

@@ -25,6 +25,7 @@ from PyQt6.uic import loadUi  # PyQt6 has uic to load UI files
 import widgets as wid
 import resources as res
 from tools import thermal_tools as tt
+from scipy.ndimage import maximum_filter, minimum_filter
 
 # basic logger functionality
 log = logging.getLogger(__name__)
@@ -127,6 +128,192 @@ class CustomGraphicsItem(QGraphicsItem):
             self.pixmap = self.pixmap.scaled(self.target_size, QtCore.Qt.AspectRatioMode.KeepAspectRatio,
                                              QtCore.Qt.TransformationMode.SmoothTransformation)
         self.update()
+
+
+class HotSpotDialog(QDialog):
+    def __init__(self, thermal_image, raw_data, parent=None):
+        super().__init__(parent)
+        self.raw_data = raw_data  # Store the raw temperature data (NumPy array)
+        self.thermal_image = thermal_image  # Path or QImage to the thermal JPEG
+        self.normalized_data = self.normalize_data(self.raw_data)  # Normalize raw data to [0, 255]
+        self.prominence = 80  # Default prominence factor (relative to 0-255 scale)
+        self.structure_size = 35  # Default structure size
+        self.exclude_edges = False  # Whether to exclude maxima and minima at the edges
+
+        # List to keep track of hotspot markers (ellipses)
+        self.hotspot_markers = []
+
+        # Layout setup
+        self.setWindowTitle("Detect Temperature Hot Spots")
+        self.layout = QVBoxLayout()
+
+        # Create a QGraphicsView to show the thermal image
+        self.graphics_view = QGraphicsView()
+        self.scene = QGraphicsScene(self)
+        self.graphics_view.setScene(self.scene)
+        self.layout.addWidget(self.graphics_view)
+
+        # Display the image
+        self.display_image()
+
+        # Slider to adjust the prominence factor
+        self.slider_label = QLabel("Prominence Factor: 80")
+        self.layout.addWidget(self.slider_label)
+
+        self.prominence_slider = QSlider(Qt.Orientation.Horizontal)
+        self.prominence_slider.setMinimum(1)
+        self.prominence_slider.setMaximum(255)  # Adjust as needed
+        self.prominence_slider.setValue(80)
+        self.prominence_slider.valueChanged.connect(self.update_prominence)
+        self.layout.addWidget(self.prominence_slider)
+
+        # Slider to adjust the structure size
+        self.structure_slider_label = QLabel("Structure Size: 35")
+        self.layout.addWidget(self.structure_slider_label)
+
+        self.structure_slider = QSlider(Qt.Orientation.Horizontal)
+        self.structure_slider.setMinimum(5)
+        self.structure_slider.setMaximum(100)  # Structure size from 5 to 100
+        self.structure_slider.setValue(35)
+        self.structure_slider.valueChanged.connect(self.update_structure_size)
+        self.layout.addWidget(self.structure_slider)
+
+        # Checkbox for excluding edge maxima and minima
+        self.checkbox_label = QLabel("Exclude Edge Maxima and Minima")
+        self.layout.addWidget(self.checkbox_label)
+
+        self.setLayout(self.layout)
+
+    def normalize_data(self, raw_data):
+        """Normalize the raw temperature data to the 0-255 range."""
+        min_val = np.min(raw_data)
+        max_val = np.max(raw_data)
+        normalized = 255 * (raw_data - min_val) / (max_val - min_val)
+        return normalized
+
+    def display_image(self):
+        # Convert thermal_image to a QPixmap and display it in the QGraphicsView
+        if isinstance(self.thermal_image, str):  # If it's a path, load the image
+            image = QImage(self.thermal_image)
+        elif isinstance(self.thermal_image, QImage):
+            image = self.thermal_image
+        else:
+            raise ValueError("Invalid thermal image format")
+
+        pixmap = QPixmap.fromImage(image)
+        self.pixmap_item = QGraphicsPixmapItem(pixmap)
+        self.scene.addItem(self.pixmap_item)  # Add the pixmap to the scene
+
+        # Detect local maxima and minima and display them on the image
+        self.detect_hotspots()
+
+    def update_prominence(self):
+        # Update prominence factor and refresh hot spot detection
+        self.prominence = self.prominence_slider.value()
+        self.slider_label.setText(f"Prominence Factor: {self.prominence}")
+        self.detect_hotspots()
+
+    def update_structure_size(self):
+        # Update structure size and refresh hot spot detection
+        self.structure_size = self.structure_slider.value()
+        self.structure_slider_label.setText(f"Structure Size: {self.structure_size}")
+        self.detect_hotspots()
+
+    def detect_hotspots(self):
+        # Remove only the previous hotspot markers, not the entire scene
+        self.clear_hotspot_markers()
+
+        # Create a square structure based on the current structure size
+        structure = np.ones((self.structure_size, self.structure_size), dtype=bool)
+
+        # Detect local maxima
+        local_max = (self.normalized_data == maximum_filter(self.normalized_data, footprint=structure))
+
+        # Detect local minima (inverted maxima detection)
+        local_min = (self.normalized_data == minimum_filter(self.normalized_data, footprint=structure))
+
+        # Exclude maxima and minima near the edges if requested
+        if self.exclude_edges:
+            local_max[0, :] = False
+            local_max[-1, :] = False
+            local_max[:, 0] = False
+            local_max[:, -1] = False
+
+            local_min[0, :] = False
+            local_min[-1, :] = False
+            local_min[:, 0] = False
+            local_min[:, -1] = False
+
+        # Get indices of the detected local maxima
+        maxima_indices = np.argwhere(local_max)
+
+        # Get indices of the detected local minima
+        minima_indices = np.argwhere(local_min)
+
+        # Filter maxima and minima based on prominence
+        filtered_maxima = self.filter_by_prominence(maxima_indices, is_maxima=True)
+        filtered_minima = self.filter_by_prominence(minima_indices, is_maxima=False)
+
+        # Add markers for the filtered maxima (red)
+        for maximum in filtered_maxima:
+            x, y = maximum
+            self.add_hotspot_marker(x, y, color=Qt.GlobalColor.red)
+
+        # Add markers for the filtered minima (blue)
+        for minimum in filtered_minima:
+            x, y = minimum
+            self.add_hotspot_marker(x, y, color=Qt.GlobalColor.blue)
+
+    def filter_by_prominence(self, extrema_indices, is_maxima=True):
+        """Filter detected maxima or minima based on the prominence value."""
+        filtered_extrema = []
+        for point in extrema_indices:
+            x, y = point
+            point_value = self.normalized_data[x, y]
+
+            # Get the neighborhood around the point based on structure size
+            min_surrounding_value, max_surrounding_value = self.get_surrounding_extrema(x, y, self.structure_size)
+
+            # Calculate prominence
+            if is_maxima:
+                prominence = point_value - min_surrounding_value  # Prominence for maxima
+            else:
+                prominence = max_surrounding_value - point_value  # Prominence for minima
+
+            if prominence >= self.prominence:
+                filtered_extrema.append(point)
+
+        return filtered_extrema
+
+    def get_surrounding_extrema(self, x, y, structure_size):
+        """Calculate the minimum and maximum values around a point based on the structure size."""
+        neighbors = []
+
+        # Adjust the neighborhood size based on structure size
+        for i in range(max(0, x - structure_size), min(self.raw_data.shape[0], x + structure_size + 1)):
+            for j in range(max(0, y - structure_size), min(self.raw_data.shape[1], y + structure_size + 1)):
+                if (i, j) != (x, y):  # Exclude the point itself
+                    neighbors.append(self.normalized_data[i, j])
+
+        if neighbors:
+            return min(neighbors), max(neighbors)
+        else:
+            return self.normalized_data[x, y], self.normalized_data[x, y]
+
+    def add_hotspot_marker(self, x, y, color):
+        # Add a small ellipse to the QGraphicsScene at the given coordinates
+        radius = 5
+        ellipse = QGraphicsEllipseItem(0, 0, radius, radius)
+        ellipse.setPos(QPointF(y - radius / 2, x - radius / 2))  # Adjust for centering
+        ellipse.setBrush(color)  # Color for the marker (red for maxima, blue for minima)
+        self.hotspot_markers.append(ellipse)  # Keep track of the marker
+        self.scene.addItem(ellipse)
+
+    def clear_hotspot_markers(self):
+        # Remove all previously added hotspot markers from the scene
+        for marker in self.hotspot_markers:
+            self.scene.removeItem(marker)
+        self.hotspot_markers.clear()
 
 
 class ImageFusionDialog(QtWidgets.QDialog):
