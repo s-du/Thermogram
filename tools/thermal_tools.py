@@ -1445,7 +1445,9 @@ def generate_legend(legend_dest_path, custom_params):
     plt.savefig(legend_dest_path, bbox_inches='tight')
 
 
+
+
+
 """
 °-°-°-°JUNK°-°-°-°
 """
-

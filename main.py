@@ -211,6 +211,8 @@ class DroneIrWindow(QMainWindow):
         self.actionCompose.triggered.connect(self.compose_pic)
         self.actionCreate_anim.triggered.connect(self.export_anim)
         self.actionFind_maxima.triggered.connect(self.find_maxima)
+        self.actionConvert_FLIR.triggered.connect(self.convert_flir)
+        self.actionDetect_object.triggered.connect(self.detect_object)
 
         self.viewer.endDrawing_rect_meas.connect(self.add_rect_meas)
         self.viewer.endDrawing_point_meas.connect(self.add_point_meas)
@@ -830,6 +832,7 @@ class DroneIrWindow(QMainWindow):
         self.actionLine_meas.setEnabled(True)
         self.action3D_temperature.setEnabled(True)
         self.actionFind_maxima.setEnabled(True)
+        self.actionDetect_object.setEnabled(True)
 
         # RGB condition
         if self.has_rgb:
@@ -863,6 +866,8 @@ class DroneIrWindow(QMainWindow):
             else:
                 image.save(file_path)  # PNG is lossless by default
 
+    def convert_flir(self):
+        tt.convert_dji_to_flir_format(self.work_image.raw_data_undis, 'test.tiff')
     def generate_raw_tiff(self):
         qm = QMessageBox
         reply = qm.question(self, '', "Do you want to output TIFF files (Pix4D processing)?",
@@ -1359,6 +1364,13 @@ class DroneIrWindow(QMainWindow):
 
         # show dialog:
 
+    # AI METHODS __________________________________________________________________________
+    def detect_object(self):
+        if self.work_image:
+            dialog = dia.DetectionDialog(self.work_image.rgb_path, self)
+            dialog.exec()
+
+
     # GENERAL GUI METHODS __________________________________________________________________________
     def hand_pan(self):
         # switch back to hand tool
@@ -1411,6 +1423,7 @@ class DroneIrWindow(QMainWindow):
         self.add_icon(res.find('img/compare.png'), self.actionCompose)
         self.add_icon(res.find('img/3d.png'), self.action3D_temperature)
         self.add_icon(res.find('img/maxima.png'), self.actionFind_maxima)
+        self.add_icon(res.find('img/robot.png'), self.actionDetect_object)
 
     def full_reset(self):
         """

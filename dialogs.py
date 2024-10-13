@@ -25,12 +25,22 @@ from PyQt6.uic import loadUi  # PyQt6 has uic to load UI files
 import widgets as wid
 import resources as res
 from tools import thermal_tools as tt
+from tools import ai_tools as ai
 from scipy.ndimage import maximum_filter, minimum_filter
 
 # basic logger functionality
 log = logging.getLogger(__name__)
 handler = logging.StreamHandler(stream=sys.stdout)
 log.addHandler(handler)
+
+CLASS_COLORS = {
+    0: QColor(255, 0, 0),   # Red for class 0
+    1: QColor(0, 255, 0),   # Green for class 1
+    2: QColor(0, 0, 255),   # Blue for class 2
+    3: QColor(255, 255, 0), # Yellow for class 3
+    4: QColor(255, 0, 255), # Magenta for class 4
+    # Add more colors as needed for additional classes
+}
 
 
 def show_exception_box(log_msg):
@@ -1049,3 +1059,275 @@ class Meas3dDialog(QtWidgets.QDialog):
         xx, yy = np.mgrid[0:self.data.shape[0], 0:self.data.shape[1]]
         self.ax.plot_surface(xx, yy, self.data, rstride=1, cstride=1, linewidth=0, cmap=custom_cmap)
         self.matplot_c.figure.canvas.draw_idle()
+
+class ZoomableGraphicsView(QGraphicsView):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._zoom_factor = 1.25  # Factor for zooming in/out
+        self._current_zoom = 0     # Keep track of current zoom level
+        self._zoom_clamp_min = -10  # Min zoom level
+        self._zoom_clamp_max = 10   # Max zoom level
+
+        # Enable antialiasing and smooth pixmap transformation
+        self.setRenderHint(QPainter.RenderHint.Antialiasing)
+        self.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+
+    def wheelEvent(self, event):
+        """
+        Override the wheel event to zoom in or out on scroll.
+        """
+        if event.angleDelta().y() > 0:
+            self.zoom_in()
+        else:
+            self.zoom_out()
+
+    def zoom_in(self):
+        if self._current_zoom < self._zoom_clamp_max:
+            self.scale(self._zoom_factor, self._zoom_factor)
+            self._current_zoom += 1
+
+    def zoom_out(self):
+        if self._current_zoom > self._zoom_clamp_min:
+            self.scale(1 / self._zoom_factor, 1 / self._zoom_factor)
+            self._current_zoom -= 1
+class DetectionDialog(QDialog):
+    box_exported = pyqtSignal(QRectF)  # Signal to return the bounding box coordinates
+
+    def __init__(self, image_path, parent=None):
+        super().__init__(parent)
+        self.image_path = image_path
+        self.ontology = {}
+        self.rect_items = []  # To store the QGraphicsRectItems
+        self.class_denominations = []
+        self.setWindowTitle("Object Detection Control")
+
+        # QGraphicsView and Scene for displaying the image
+        self.graphics_view = ZoomableGraphicsView()
+        self.scene = QGraphicsScene()
+        self.graphics_view.setScene(self.scene)
+
+        # Load the image into the graphics view
+        self.load_image(self.image_path)
+
+        # List widget to display detection classes
+        self.class_list = QListWidget()
+
+        # TreeView to display detections grouped by class (on the right side)
+        self.tree_view = QTreeView()
+        self.model = QStandardItemModel()
+        self.model.setHorizontalHeaderLabels(["Detections"])
+        self.tree_view.setModel(self.model)
+
+        # Enable custom context menu for the TreeView
+        self.tree_view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.tree_view.customContextMenuRequested.connect(self.open_context_menu)
+
+        # Connect selection change to a method to highlight the corresponding rectangle
+        self.tree_view.selectionModel().selectionChanged.connect(self.on_tree_selection_changed)
+
+        # LineEdit for class input
+        self.class_input = QLineEdit()
+        self.class_input.setPlaceholderText("Enter class name")
+
+        # Button to add class
+        self.add_class_button = QPushButton("Add Class")
+        self.add_class_button.clicked.connect(self.add_class)
+
+        # Button to run segmentation
+        self.run_button = QPushButton("Run Detection")
+        self.run_button.clicked.connect(self.run_segmentation)
+
+        # Layouts: Split left and right sections
+        left_layout = QVBoxLayout()
+        class_layout = QHBoxLayout()
+        class_layout.addWidget(self.class_input)
+        class_layout.addWidget(self.add_class_button)
+        left_layout.addWidget(self.graphics_view)
+        left_layout.addWidget(self.class_list)
+        left_layout.addLayout(class_layout)
+        left_layout.addWidget(self.run_button)
+
+        main_layout = QHBoxLayout()
+        main_layout.addLayout(left_layout)  # All widgets on the left side
+        main_layout.addWidget(self.tree_view)  # TreeView on the right side
+
+        self.setLayout(main_layout)
+
+    def load_image(self, image_path):
+        # Load the image into the QGraphicsScene
+        pixmap = QPixmap(image_path)
+        self.image_item = QGraphicsPixmapItem(pixmap)
+        self.scene.clear()  # Clear any previous items
+        self.scene.addItem(self.image_item)
+
+        # Convert QRect to QRectF for setSceneRect
+        self.graphics_view.setSceneRect(QRectF(pixmap.rect()))
+        self.graphics_view.fitInView(self.image_item, Qt.AspectRatioMode.KeepAspectRatio)
+
+    def add_class(self):
+        class_name = self.class_input.text().strip()
+        if class_name and class_name not in self.ontology:
+            self.ontology[class_name] = class_name  # Add class to ontology dict
+            self.class_list.addItem(class_name)
+            self.class_input.clear()
+            self.class_denominations.append(class_name)
+
+    def run_segmentation(self):
+        if not self.ontology:
+            print("No classes to detect!")
+            return
+
+        # Assuming GroundingDINO and CaptionOntology are set up
+        results = ai.run_g_dino(self.image_path, self.ontology)
+
+        # Plot the results on the image using the GroundingDINO results and your plotting function
+        self.plot_results(results)
+
+    def plot_results(self, detections):
+        """
+        Plot bounding boxes and populate the TreeView with the results.
+        Group detections by class.
+        """
+        self.rect_items.clear()  # Clear previous detection rectangles
+        self.model.clear()  # Clear the tree view model
+
+        pixmap = self.image_item.pixmap()
+        image_width = pixmap.width()
+        image_height = pixmap.height()
+
+        # Dictionary to store the class items in the tree
+        class_items = {}
+
+        global_index_counter = 0
+
+        # Loop over detections and group by class
+        for idx, detection in enumerate(detections):
+            box = detection[0]  # Bounding box coordinates
+            confidence = detection[2]  # Confidence score
+            class_number = detection[3]  # Class number
+
+            # Create the bounding box rectangle
+            x_min = box[0]
+            y_min = box[1]
+            x_max = box[2]
+            y_max = box[3]
+            rect = QRectF(x_min, y_min, x_max - x_min, y_max - y_min)
+
+            # Set the color based on the class number
+            pen_color = CLASS_COLORS.get(class_number, QColor(0, 0, 0))  # Default to black
+            pen = QPen(pen_color)
+            pen.setWidth(5)
+
+            rect_item = QGraphicsRectItem(rect)
+            rect_item.setPen(pen)
+
+            self.scene.addItem(rect_item)
+            self.rect_items.append(rect_item)  # Store the rectangle for later highlighting
+
+            # Get class name for the current detection (you can customize this as needed)
+            class_to_be_used = self.class_denominations[class_number]
+            class_name = f"{class_to_be_used}"  # Example class name
+
+            # Create the class item if it doesn't already exist
+            if class_name not in class_items:
+                class_item = QStandardItem(class_name)
+                class_items[class_name] = class_item
+                self.model.appendRow(class_item)
+
+            # Add detection under the corresponding class
+            detection_item = QStandardItem(f"Detection {idx + 1}")
+            confidence_item = QStandardItem(f"Confidence: {confidence:.2f}")
+
+            # Store the global index in the detection item using UserRole
+            detection_item.setData(global_index_counter, Qt.ItemDataRole.UserRole)
+
+            # Add children (confidence) to detection item
+            detection_item.appendRow(confidence_item)
+
+            # Add the detection item to the class item
+            class_items[class_name].appendRow(detection_item)
+
+            # Increment the global index counter
+            global_index_counter += 1
+
+        # Refit the view to account for the bounding boxes
+        self.graphics_view.fitInView(self.scene.itemsBoundingRect(), Qt.AspectRatioMode.KeepAspectRatio)
+        self.model.setHorizontalHeaderLabels(["Detections"])
+
+    def open_context_menu(self, position: QPoint):
+        """
+        Open context menu when right-clicking on a detection in the tree view.
+        """
+        # Get the index of the selected item
+        index = self.tree_view.indexAt(position)
+        if not index.isValid():
+            return
+
+        # Create a context menu
+        context_menu = QMenu(self)
+
+        # Add the "Export this box" option
+        export_action = QAction("Export this box", self)
+        export_action.triggered.connect(lambda: self.export_box(index))
+        context_menu.addAction(export_action)
+
+        # Open the menu at the cursor position
+        context_menu.exec(self.tree_view.viewport().mapToGlobal(position))
+
+    def export_box(self, index):
+        """
+        Export the bounding box coordinates for the selected detection.
+        """
+        # Find the detection index (the grandchild of the class item)
+        if index.parent().isValid():  # Ensure it's a child under a detection item
+            detection_index = index.parent().row()
+
+            if 0 <= detection_index < len(self.rect_items):
+                # Get the corresponding QRectF for the selected detection
+                selected_rect = self.rect_items[detection_index].rect()
+
+                # Emit the signal with the exported rectangle coordinates
+                self.box_exported.emit(selected_rect)
+
+                # Close the dialog
+                self.accept()
+
+    def on_tree_selection_changed(self, selected, deselected):
+        """
+        Highlight the corresponding rectangle when a detection or class is selected in the tree view.
+        """
+        # Clear previous bold rectangles
+        for rect_item in self.rect_items:
+            rect_item.setPen(QPen(rect_item.pen().color(), 5))  # Reset to normal width
+
+        # Get the index of the selected item
+        selected_index = selected.indexes()[0] if selected.indexes() else None
+        print(selected_index)
+        if not selected_index:
+            return
+
+        # Get the QStandardItem from the selected index
+        selected_item = self.model.itemFromIndex(selected_index)
+
+        # Check if the selected item has the global index stored (valid only for detection items)
+        global_index = selected_item.data(Qt.ItemDataRole.UserRole)
+        print(global_index)
+        if global_index is not None and isinstance(global_index, int):
+            # If the selected item is a detection, highlight its rectangle
+            if 0 <= global_index < len(self.rect_items):
+                rect_item = self.rect_items[global_index]
+                pen = QPen(rect_item.pen().color())
+                pen.setWidth(20)  # Make the rectangle outline bold
+                rect_item.setPen(pen)
+        elif not selected_index.parent().isValid():  # This is a top-level (class) item
+            class_item = self.model.itemFromIndex(selected_index)
+            # Iterate through all children (detections) of the class and highlight their rectangles
+            for row in range(class_item.rowCount()):
+                detection_item = class_item.child(row)  # Get the detection item
+                global_index = detection_item.data(Qt.ItemDataRole.UserRole)  # Get the stored global index
+
+                if global_index is not None and 0 <= global_index < len(self.rect_items):
+                    rect_item = self.rect_items[global_index]
+                    pen = QPen(rect_item.pen().color())
+                    pen.setWidth(20)  # Make the rectangle outline bold
+                    rect_item.setPen(pen)
