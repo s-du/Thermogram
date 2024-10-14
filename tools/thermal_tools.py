@@ -248,6 +248,7 @@ class ProcessedIm:
         return self._exif
 
     def update_data(self, new_params):
+        print(new_params)
         self.thermal_param = new_params
         self.raw_data, self.raw_data_undis = extract_raw_data(self.thermal_param, self.path, self.undistorder_ir)
         self.tmin = np.amin(self.raw_data)
@@ -271,11 +272,16 @@ class ProcessedIm:
                 self.n_colors,
                 self.user_lim_col_high,
                 self.user_lim_col_low,
-                self.tmin,
+                self.post_process)
+
+    def get_temp_data(self):
+        return (self.tmin,
                 self.tmax,
                 self.tmin_shown,
-                self.tmax_shown,
-                self.post_process)
+                self.tmax_shown)
+    def get_thermal_param(self):
+        return self.thermal_param
+
 
 
 class PointMeas:

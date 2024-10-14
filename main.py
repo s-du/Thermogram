@@ -13,6 +13,7 @@ import resources as res
 import dialogs as dia
 from tools import thermal_tools as tt
 from tools import thermal_3d as t3d
+import copy
 
 """
 Any remarks, questions: sdu@bbri.be
@@ -230,6 +231,7 @@ class DroneIrWindow(QMainWindow):
         self.pushButton_delete_points.clicked.connect(lambda: self.remove_annotations('point'))
         self.pushButton_delete_lines.clicked.connect(lambda: self.remove_annotations('line'))
         self.pushButton_delete_area.clicked.connect(lambda: self.remove_annotations('area'))
+        self.pushButton_reset_range.clicked.connect(self.reset_temp_range)
 
         # Dropdowns
         self.comboBox.currentIndexChanged.connect(self.update_img_preview)
@@ -264,6 +266,17 @@ class DroneIrWindow(QMainWindow):
             self.actionRectangle_meas.setDisabled(False)
             self.actionSpot_meas.setDisabled(False)
             self.actionLine_meas.setDisabled(False)
+
+    def reset_temp_range(self):
+        self.work_image.update_data(self.work_image.thermal_param)
+        self.tmin, self.tmax,self.tmin_shown, self.tmax_shown = self.work_image.get_temp_data()
+        # fill values lineedits
+        self.lineEdit_min_temp.setText(str(round(self.tmin_shown, 2)))
+        self.lineEdit_max_temp.setText(str(round(self.tmax_shown, 2)))
+        self.range_slider.setLowerValue(self.tmin_shown * 100)
+        self.range_slider.setUpperValue(self.tmax_shown * 100)
+        self.range_slider.setMinimum(int(self.tmin * 100))
+        self.range_slider.setMaximum(int(self.tmax * 100))
 
     def change_slider_values(self):
         self.slider_sensitive = False  # to avoid chain reaction
@@ -810,6 +823,7 @@ class DroneIrWindow(QMainWindow):
         self.lineEdit_emissivity.setEnabled(True)
         self.lineEdit_refl_temp.setEnabled(True)
         self.pushButton_estimate.setEnabled(True)
+        self.pushButton_reset_range.setEnabled(True)
 
         self.comboBox.setEnabled(True)
         self.lineEdit_colors.setEnabled(True)
@@ -1123,8 +1137,8 @@ class DroneIrWindow(QMainWindow):
         self.work_image = self.images[self.active_image]
 
         # if 'keep parameters' is not checked, change all parameters according to stored data
-        if not self.checkBox_keep.isChecked():
-            self.colormap, self.n_colors, self.user_lim_col_high, self.user_lim_col_low, self.tmin, self.tmax, self.tmin_shown, self.tmax_shown, self.post_process = self.work_image.get_colormap_data()
+        if not self.checkBox_keep_palette.isChecked():
+            self.colormap, self.n_colors, self.user_lim_col_high, self.user_lim_col_low, self.post_process = self.work_image.get_colormap_data()
 
             # find correspondances in comboboxes
             a = self._colormap_list.index(self.colormap)
@@ -1137,29 +1151,39 @@ class DroneIrWindow(QMainWindow):
             self.comboBox_colors_high.setCurrentIndex(b)
             self.comboBox_colors_low.setCurrentIndex(c)
             self.comboBox_post.setCurrentIndex(d)
+            self.lineEdit_colors.setText(str(self.n_colors))
+            self.range_slider.setHandleColorsFromColormap(self.colormap)
+
+        if not self.checkBox_keep_temp.isChecked():
+            self.tmin, self.tmax, self.tmin_shown, self.tmax_shown = self.work_image.get_temp_data()
 
             # fill values lineedits
-            self.lineEdit_colors.setText(str(self.n_colors))
             self.lineEdit_min_temp.setText(str(round(self.tmin_shown, 2)))
             self.lineEdit_max_temp.setText(str(round(self.tmax_shown, 2)))
-
-            # load radiometeric parameters
-            self.thermal_param = self.work_image.thermal_param
-
-            self.lineEdit_emissivity.setText(str(round(self.thermal_param['emissivity'], 2)))
-            self.lineEdit_distance.setText(str(round(self.thermal_param['distance'], 2)))
-            self.lineEdit_refl_temp.setText(str(round(self.thermal_param['reflection'], 2)))
-
-            # update double slider TODO
             self.range_slider.setLowerValue(self.tmin_shown * 100)
             self.range_slider.setUpperValue(self.tmax_shown * 100)
             self.range_slider.setMinimum(int(self.tmin * 100))
             self.range_slider.setMaximum(int(self.tmax * 100))
-            self.range_slider.setHandleColorsFromColormap(self.colormap)
+
         else:
-            # get radiometric data
-            self.work_image.thermal_param = self.thermal_param
-            self.work_image.update_data(self.thermal_param)
+            # get min max temp
+            self.tmin, self.tmax, _, _ = self.work_image.get_temp_data()
+            if self.tmax_shown < self.tmax:
+                self.range_slider.setMaximum(int(self.tmax * 100))
+            if self.tmin_shown > self.tmin:
+                self.range_slider.setMinimum(int(self.tmin * 100))
+
+        if not self.checkBox_keep_radiometric.isChecked():
+            # load radiometric parameters
+            self.thermal_param = copy.deepcopy(self.work_image.get_thermal_param())
+
+            self.lineEdit_emissivity.setText(str(round(self.thermal_param['emissivity'], 2)))
+            self.lineEdit_distance.setText(str(round(self.thermal_param['distance'], 2)))
+            self.lineEdit_refl_temp.setText(str(round(self.thermal_param['reflection'], 2)))
+        else:
+            # assign a **copy** of the current radiometric parameters to the image
+            self.work_image.update_data(copy.deepcopy(self.thermal_param))
+
 
         # clean measurements and annotations
         self.retrace_items()
