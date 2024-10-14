@@ -720,11 +720,11 @@ class AlignmentDialog(QDialog):
             if i != 0:
                 slider.setMinimum(int(param_range[0] * 10))
                 slider.setMaximum(int(param_range[1] * 10))
-                slider.setValue(self.theta[i] * 10)
+                slider.setValue(int(self.theta[i] * 10))
             else:
                 slider.setMinimum(int(param_range[0] * 100))
                 slider.setMaximum(int(param_range[1] * 100))
-                slider.setValue(self.theta[i] * 100)
+                slider.setValue(int(self.theta[i] * 100))
             slider.valueChanged.connect(lambda value, x=i: self.update_parameter(x, value))
             self.sliders.append(slider)
             layout.addWidget(slider)

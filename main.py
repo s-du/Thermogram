@@ -184,7 +184,7 @@ class DroneIrWindow(QMainWindow):
         # Create model (for the tree structure)
         self.model = QStandardItemModel()
         self.treeView.setModel(self.model)
-        self.treeView.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.treeView.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.treeView.customContextMenuRequested.connect(self.onContextMenu)
 
         # add measurement and annotations categories to tree view

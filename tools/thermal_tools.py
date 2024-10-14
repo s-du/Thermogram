@@ -585,7 +585,7 @@ class RunnerMiniature(QtCore.QRunnable):
             und, _ = undistorter.undis(cv_rgb_img)
 
             # Step 3: Crop based on custom parameters
-            crop = match_rgb_custom_parameters_zoom(und, self.drone_model)
+            crop = match_rgb_custom_parameters_zoom(cv_rgb_img, self.drone_model)
 
             # Step 4: Resize the image
             width = int(crop.shape[1] * self.scale_percent / 100)
@@ -616,7 +616,7 @@ def re_create_miniature(rgb_path, drone_model, dest_crop_folder, scale_percent=6
     # undistort rgb
     rgb_xml_path = drone_model.rgb_xml_path
     und, _ = undis(cv_rgb_img, rgb_xml_path)
-    crop = match_rgb_custom_parameters_zoom(und, drone_model)
+    crop = match_rgb_custom_parameters_zoom(cv_rgb_img, drone_model)
     width = int(crop.shape[1] * scale_percent / 100)
     height = int(crop.shape[0] * scale_percent / 100)
     dim = (width, height)
