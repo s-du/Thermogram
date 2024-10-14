@@ -424,6 +424,10 @@ class ImageFusionDialog(QtWidgets.QDialog):
         max_temp_scaled = self.scale_temperature(img_object.tmax)
         min_shown_temp_scaled = self.scale_temperature(img_object.tmin_shown)
         max_shown_temp_scaled = self.scale_temperature(img_object.tmax_shown)
+        if min_shown_temp_scaled < min_temp_scaled:
+            min_shown_temp_scaled = min_temp_scaled
+        if max_shown_temp_scaled > max_temp_scaled:
+            max_shown_temp_scaled = max_temp_scaled
 
         # range slider for shown data
         self.range_slider_shown = wid.QRangeSlider()

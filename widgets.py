@@ -343,7 +343,7 @@ class ColorMapLegendItem(QGraphicsPixmapItem):
     def __init__(self, colormap_name, n_colors, min_temp, max_temp, parent=None):
         super().__init__(parent)
 
-        if colormap_name == 'Artic' or colormap_name == 'Iron' or colormap_name == 'Rainbow':
+        if colormap_name in tt.LIST_CUSTOM_CMAPS:
             custom_cmap = tt.get_custom_cmaps(colormap_name, n_colors)
         else:
             custom_cmap = cm.get_cmap(colormap_name, n_colors)

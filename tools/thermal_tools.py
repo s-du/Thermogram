@@ -785,7 +785,12 @@ def undis_kd(cv_img, K, d):
 # LENS RELATED METHODS (DRONE SPECIFIC) __________________________________________________
 def match_rgb_custom_parameters_zoom(cv_img, drone_model):
     h2, w2 = cv_img.shape[:2]
-    new_h = h2 * drone_model.aspect_factor
+    w_ir, h_ir = drone_model.dim_undis_ir
+
+    aspect_factor = (w2 / h2) / (
+            w_ir / h_ir)  # Aspect ratio adjustment to fit RGB image to IR
+
+    new_h = h2 * aspect_factor
     x_offset = drone_model.x_offset
     y_offset = drone_model.y_offset
 

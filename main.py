@@ -67,6 +67,7 @@ class DroneIrWindow(QMainWindow):
         self.__pool.setMaxThreadCount(3)
 
         self.initialize_variables()
+        self.initialize_tree_view()
 
         # edge options
         self.edges = False
@@ -832,7 +833,6 @@ class DroneIrWindow(QMainWindow):
         self.actionLine_meas.setEnabled(True)
         self.action3D_temperature.setEnabled(True)
         self.actionFind_maxima.setEnabled(True)
-        self.actionDetect_object.setEnabled(True)
 
         # RGB condition
         if self.has_rgb:
@@ -841,6 +841,7 @@ class DroneIrWindow(QMainWindow):
             self.actionCompose.setEnabled(True)
             self.pushButton_match.setEnabled(True)
             self.tab_2.setEnabled(True)
+            self.actionDetect_object.setEnabled(True)
 
         print('all action enabled!')
 
@@ -1254,6 +1255,7 @@ class DroneIrWindow(QMainWindow):
 
     # CONTEXT MENU IN TREEVIEW _________________________________________________
     def onContextMenu(self, point):
+        print("Context menu requested at:", point)  # Debug print
         # Get the index of the item that was clicked
         index = self.treeView.indexAt(point)
         if not index.isValid():
@@ -1264,7 +1266,7 @@ class DroneIrWindow(QMainWindow):
         # Check if the clicked item is a second level item (annotation object)
         if item and item.parent() and item.parent().text() in [RECT_MEAS_NAME, POINT_MEAS_NAME, LINE_MEAS_NAME]:
             # Create Context Menu
-            contextMenu = QMenu(self.treeView)
+            contextMenu = QMenu(self.treeView)  # Use None as parent if self.treeView causes issues
 
             deleteAction = contextMenu.addAction("Delete Annotation")
             showAction = contextMenu.addAction("Show Annotation")
@@ -1274,7 +1276,8 @@ class DroneIrWindow(QMainWindow):
             showAction.triggered.connect(lambda: self.showAnnotation(item))
 
             # Display the menu
-            contextMenu.exec(self.treeView.viewport().mapToGlobal(point))
+            global_point = self.treeView.viewport().mapToGlobal(point)
+            contextMenu.exec(global_point)
 
     def deleteAnnotation(self, item):
         # Implement the logic to delete the annotation
