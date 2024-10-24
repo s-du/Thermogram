@@ -13,16 +13,24 @@ Thermogram is an intuitive software designed for processing infrared (IR) images
 
 ## Features
 The app offers the following key features:
-- User-friendly GUI for simple measurements (spot, line or rectangle)
-- All DJI palettes + custom ones
-- Dual viewer for simultaneously inspecting RGB and IR data
-- 3D-viewer for viewing temperature data as 'voxels'
-- Advanced temperature control
-- Advanced edge overlay possibilities
-- Create customized composite images, with infrared and color information superimposed on each other 
-- Batch export functionality (including exporting raw data as TIFF files)
-- Upscale thermal images
-- Segment Anything (SAM) for object segmentation
+- Usage and visualization
+    - User-friendly GUI 
+    - Dual viewer for simultaneous inspection of RGB and IR data
+    - 3D-viewer for viewing temperature data as 'voxels'
+- Palette and temperature control
+    - Includes all DJI palettes plus some custom ones
+    - Advanced temperature adjustment controls
+- Compositing
+    - Sophisticated edge overlay capabilities
+    - Create customized composite images with infrared and color information superimposed
+- Measurement and Analysis
+    - Spot, line and rectangle measurements
+    - Advanced maxima detection (local maxima and minima)
+    - Grounded-DINO for object detection
+    - Segment Anything (SAM) for object segmentation
+- Exporting
+    - Batch export functionality, including the ability to export raw data as TIFF files
+    - Upscaling for thermal images
 - ...
 
 <p align="center">
