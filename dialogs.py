@@ -26,7 +26,7 @@ import widgets as wid
 import resources as res
 from tools import thermal_tools as tt
 from tools import ai_tools as ai
-from scipy.ndimage import maximum_filter, minimum_filter
+from scipy.ndimage import maximum_filter, minimum_filter, zoom
 
 # basic logger functionality
 log = logging.getLogger(__name__)
@@ -997,7 +997,16 @@ class Meas3dDialog_simple(QtWidgets.QDialog):
         pass
 
     def surface_from_image_matplot(self, colormap, n_colors, col_low, col_high):
-        # colormap operation
+        # Step 1: Resize data if any dimension is greater than 100
+        max_dim = 100  # Set the maximum dimension size
+
+        # Determine the resize factor based on the larger scaling required
+        if self.data.shape[0] > max_dim or self.data.shape[1] > max_dim:
+            resize_factor = min(1.0, max_dim / max(self.data.shape[0], self.data.shape[1]))
+            # Apply the same resize factor to both dimensions to maintain aspect ratio
+            self.data = zoom(self.data, (resize_factor, resize_factor), order=1)
+
+        # Step 2: Colormap operation
         if colormap in tt.LIST_CUSTOM_CMAPS:
             custom_cmap = tt.get_custom_cmaps(colormap, n_colors)
         else:
@@ -1006,8 +1015,38 @@ class Meas3dDialog_simple(QtWidgets.QDialog):
         custom_cmap.set_over(col_high)
         custom_cmap.set_under(col_low)
 
+        # Step 3: Create meshgrid for plotting
         xx, yy = np.mgrid[0:self.data.shape[0], 0:self.data.shape[1]]
+
+        # Clear the existing plot before plotting new data to avoid memory issues
+        self.ax.clear()
+
+        # Step 4: Plot surface
         self.ax.plot_surface(xx, yy, self.data, rstride=1, cstride=1, linewidth=0, cmap=custom_cmap)
+
+        # Step 5: Set aspect ratio correction
+        # Adjust the axis limits to match the aspect ratio of the data
+        self.ax.set_xlim(0, self.data.shape[0])
+        self.ax.set_ylim(0, self.data.shape[1])
+        self.ax.set_zlim(np.min(self.data), np.max(self.data))
+
+        self.ax.set_xticks([])  # Remove X-axis ticks
+        self.ax.set_yticks([])  # Remove Y-axis ticks
+        self.ax.set_zlabel('Temperature [°C]')
+
+        # Calculate the Z scaling factor to match the maximum extent of the X or Y axis
+        max_data_dim = max(self.data.shape[0], self.data.shape[1])
+        z_extent = np.max(self.data) - np.min(self.data)
+
+        if z_extent != 0:  # To prevent division by zero if data is constant
+            z_scaling_factor = max_data_dim / z_extent
+        else:
+            z_scaling_factor = 1  # Default to 1 if no variation in data
+
+        # Set the box aspect ratio to ensure Z-axis matches the X and Y axes proportionally
+        self.ax.set_box_aspect((self.data.shape[0], self.data.shape[1], z_scaling_factor*z_extent))
+
+        # Step 6: Draw the figure
         self.matplot_c.figure.canvas.draw_idle()
 
 
@@ -1051,7 +1090,16 @@ class Meas3dDialog(QtWidgets.QDialog):
         pass
 
     def surface_from_image_matplot(self, colormap, n_colors, col_low, col_high):
-        # colormap operation
+        # Step 1: Resize data if any dimension is greater than 100
+        max_dim = 100  # Set the maximum dimension size
+
+        # Determine the resize factor based on the larger scaling required
+        if self.data.shape[0] > max_dim or self.data.shape[1] > max_dim:
+            resize_factor = min(1.0, max_dim / max(self.data.shape[0], self.data.shape[1]))
+            # Apply the same resize factor to both dimensions to maintain aspect ratio
+            self.data = zoom(self.data, (resize_factor, resize_factor), order=1)
+
+        # Step 2: Colormap operation
         if colormap in tt.LIST_CUSTOM_CMAPS:
             custom_cmap = tt.get_custom_cmaps(colormap, n_colors)
         else:
@@ -1060,8 +1108,38 @@ class Meas3dDialog(QtWidgets.QDialog):
         custom_cmap.set_over(col_high)
         custom_cmap.set_under(col_low)
 
+        # Step 3: Create meshgrid for plotting
         xx, yy = np.mgrid[0:self.data.shape[0], 0:self.data.shape[1]]
+
+        # Clear the existing plot before plotting new data to avoid memory issues
+        self.ax.clear()
+
+        # Step 4: Plot surface
         self.ax.plot_surface(xx, yy, self.data, rstride=1, cstride=1, linewidth=0, cmap=custom_cmap)
+
+        # Step 5: Set aspect ratio correction
+        # Adjust the axis limits to match the aspect ratio of the data
+        self.ax.set_xlim(0, self.data.shape[0])
+        self.ax.set_ylim(0, self.data.shape[1])
+        self.ax.set_zlim(np.min(self.data), np.max(self.data))
+
+        self.ax.set_xticks([])  # Remove X-axis ticks
+        self.ax.set_yticks([])  # Remove Y-axis ticks
+        self.ax.set_zlabel('Temperature [°C]')
+
+        # Calculate the Z scaling factor to match the maximum extent of the X or Y axis
+        max_data_dim = max(self.data.shape[0], self.data.shape[1])
+        z_extent = np.max(self.data) - np.min(self.data)
+
+        if z_extent != 0:  # To prevent division by zero if data is constant
+            z_scaling_factor = max_data_dim / z_extent
+        else:
+            z_scaling_factor = 1  # Default to 1 if no variation in data
+
+        # Set the box aspect ratio to ensure Z-axis matches the X and Y axes proportionally
+        self.ax.set_box_aspect((self.data.shape[0], self.data.shape[1], z_scaling_factor*z_extent))
+
+        # Step 6: Draw the figure
         self.matplot_c.figure.canvas.draw_idle()
 
 class ZoomableGraphicsView(QGraphicsView):

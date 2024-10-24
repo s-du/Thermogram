@@ -64,6 +64,7 @@ COLORMAP_NAMES = ['WhiteHot',
                   'DJI_Rainbow1',
                   'DJI_Rainbow2',
                   'DJI_Tint',
+                  'Pyplot_Hot',
                   'Pyplot_BlueToRed',
                   'Pyplot_BlueWhiteRed',
                   'Pyplot_Plasma',
@@ -87,6 +88,7 @@ COLORMAPS = ['Greys_r',
              'Rainbow1',
              'Rainbow2',
              'Tint',
+             'hot',
              'coolwarm',
              'BlueWhiteRed',
              'plasma',
@@ -224,8 +226,8 @@ class ProcessedIm:
         self.tmin_shown = self.tmin
         self.tmax_shown = self.tmax
 
-        self.user_lim_col_low = 'w'
-        self.user_lim_col_high = 'w'
+        self.user_lim_col_low = 'c'
+        self.user_lim_col_high = 'c'
         self.post_process = 'none'
 
         # for annotations
@@ -1157,6 +1159,7 @@ def extract_raw_data(param, ir_img_path, undistorder_ir):
     cols = 640
     f = np.fromfile(fd, dtype='<f4', count=rows * cols)
     im = f.reshape((rows, cols))  # notice row, column format
+    # create_vector_plot(im)
     fd.close()
 
     # Step 3: Create an undistorted version of the temperature map
@@ -1455,7 +1458,62 @@ def generate_legend(legend_dest_path, custom_params):
 
     plt.savefig(legend_dest_path, bbox_inches='tight')
 
+def create_vector_plot(img_obj):
+    thermal_image = img_obj.raw_data_undis
+    colormap = img_obj.colormap
+    n_colors = img_obj.n_colors
+    tmin = img_obj.tmin_shown
+    tmax = img_obj.tmax_shown
+    custom_cmap = cm.get_cmap('Greys_r', n_colors)
 
+    """
+    if colormap in LIST_CUSTOM_CMAPS:
+        custom_cmap = get_custom_cmaps(colormap, n_colors)
+    else:
+        custom_cmap = cm.get_cmap(colormap, n_colors)
+    """
+    # Step 2: Calculate the gradients using Sobel filters.
+    # Use OpenCV's Sobel function to get the x and y gradients.
+    grad_x = cv2.Sobel(thermal_image, cv2.CV_64F, 1, 0, ksize=5)
+    grad_y = cv2.Sobel(thermal_image, cv2.CV_64F, 0, 1, ksize=5)
+
+    # Step 3: Normalize the gradients to keep the arrows at a consistent length.
+    # Normalize grad_x and grad_y to a range between -1 and 1.
+    grad_x_normalized = -grad_x / (np.max(np.abs(grad_x)) + 1e-5)
+    grad_y_normalized = -grad_y / (np.max(np.abs(grad_y)) + 1e-5)
+
+    # Step 4: Calculate the magnitude and direction of the gradients.
+    magnitude = np.sqrt(grad_x ** 2 + grad_y ** 2)
+
+    # Step 5: Downsample the gradients for easier visualization.
+    # This helps reduce the number of arrows, making the visualization clearer.
+    step = 5  # You can adjust this value to change arrow density
+    X, Y = np.meshgrid(np.arange(0, thermal_image.shape[1], step),
+                       np.arange(0, thermal_image.shape[0], step))
+
+    U = grad_x_normalized[::step, ::step]  # Normalized gradient in x-direction
+    V = grad_y_normalized[::step, ::step]  # Normalized gradient in y-direction
+    scaling_factor = 30  # Adjust this factor to make arrows larger or smaller as needed
+    U *= scaling_factor
+    V *= scaling_factor
+
+    M = magnitude[::step, ::step]  # Magnitude of gradients for visualization
+
+    # Step 6: Plot the quiver plot.
+
+    plt.imshow(thermal_image, cmap=custom_cmap, origin='upper', vmin=tmin, vmax=tmax)  # Display thermal image
+    plt.colorbar(label='Temperature (°C)')  # Add a colorbar to indicate temperature
+
+    # Plot the quiver plot (vector arrows representing gradient)
+    # Use 'M' (magnitude) to color-code the arrows for better visualization of gradient strength.
+    # Adjust the 'scale' parameter to make arrows larger.
+    plt.quiver(X, Y, U, V, M, angles='xy', scale_units='xy', scale=1, cmap='cool', headwidth=3, headlength=5)
+
+    plt.title('Temperature Gradient Analysis')
+    plt.xlabel('X-axis')
+    plt.ylabel('Y-axis')
+    # plt.grid()
+    plt.show()
 
 
 

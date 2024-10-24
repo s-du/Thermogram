@@ -165,33 +165,6 @@ border-radius: 10px;
           </item>
          </layout>
         </item>
-        <item>
-         <widget class="QCheckBox" name="checkBox_keep_temp">
-          <property name="text">
-           <string>Keep temperature range when switching image</string>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <widget class="QCheckBox" name="checkBox_keep_palette">
-          <property name="text">
-           <string>Keep palette settings when switching images</string>
-          </property>
-          <property name="checked">
-           <bool>true</bool>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <widget class="QCheckBox" name="checkBox_keep_radiometric">
-          <property name="text">
-           <string>keep radiometric parameters when switching images</string>
-          </property>
-          <property name="checked">
-           <bool>true</bool>
-          </property>
-         </widget>
-        </item>
        </layout>
       </item>
      </layout>
@@ -418,6 +391,13 @@ border-radius: 10px;
    <widget class="QWidget" name="dockWidgetContents">
     <layout class="QVBoxLayout" name="verticalLayout_2">
      <item>
+      <widget class="QCheckBox" name="checkBox_keep_temp">
+       <property name="text">
+        <string>Keep temperature range when switching image</string>
+       </property>
+      </widget>
+     </item>
+     <item>
       <layout class="QHBoxLayout" name="horizontalLayout_2">
        <item>
         <widget class="QLabel" name="label_2">
@@ -571,12 +551,19 @@ border-radius: 10px;
    <widget class="QWidget" name="dockWidgetContents_2">
     <layout class="QVBoxLayout" name="verticalLayout_4">
      <item>
-      <widget class="QPushButton" name="pushButton_match">
-       <property name="enabled">
-        <bool>false</bool>
-       </property>
+      <widget class="QCheckBox" name="checkBox_keep_palette">
        <property name="text">
-        <string>Align RGB/IR</string>
+        <string>Keep palette settings when switching images</string>
+       </property>
+       <property name="checked">
+        <bool>true</bool>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLabel" name="label_11">
+       <property name="text">
+        <string>Palette:</string>
        </property>
       </widget>
      </item>
@@ -777,24 +764,58 @@ border-radius: 10px;
       </layout>
      </item>
      <item>
-      <widget class="QCheckBox" name="checkBox_edges">
-       <property name="enabled">
-        <bool>false</bool>
+      <spacer name="verticalSpacer_4">
+       <property name="orientation">
+        <enum>Qt::Vertical</enum>
        </property>
+       <property name="sizeHint" stdset="0">
+        <size>
+         <width>20</width>
+         <height>40</height>
+        </size>
+       </property>
+      </spacer>
+     </item>
+     <item>
+      <widget class="QLabel" name="label_6">
        <property name="text">
-        <string>Add edges from RGB</string>
+        <string>Highlight edges:</string>
        </property>
       </widget>
      </item>
      <item>
-      <widget class="QPushButton" name="pushButton_edge_options">
+      <widget class="QPushButton" name="pushButton_match">
        <property name="enabled">
         <bool>false</bool>
        </property>
        <property name="text">
-        <string>Edge detection options</string>
+        <string>Align RGB/IR</string>
        </property>
       </widget>
+     </item>
+     <item>
+      <layout class="QHBoxLayout" name="horizontalLayout_10">
+       <item>
+        <widget class="QCheckBox" name="checkBox_edges">
+         <property name="enabled">
+          <bool>false</bool>
+         </property>
+         <property name="text">
+          <string>Add edges from RGB</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="pushButton_edge_options">
+         <property name="enabled">
+          <bool>false</bool>
+         </property>
+         <property name="text">
+          <string>Options</string>
+         </property>
+        </widget>
+       </item>
+      </layout>
      </item>
      <item>
       <spacer name="verticalSpacer_2">
@@ -823,7 +844,7 @@ border-radius: 10px;
     <set>Qt::BottomDockWidgetArea|Qt::LeftDockWidgetArea|Qt::RightDockWidgetArea</set>
    </property>
    <property name="windowTitle">
-    <string>Annotations</string>
+    <string>Analysis</string>
    </property>
    <attribute name="dockWidgetArea">
     <number>2</number>
@@ -875,6 +896,13 @@ border-radius: 10px;
       </widget>
      </item>
      <item>
+      <widget class="QPushButton" name="pushButton_heatflow">
+       <property name="text">
+        <string>Visualize heat flow</string>
+       </property>
+      </widget>
+     </item>
+     <item>
       <widget class="QLabel" name="label_summary">
        <property name="minimumSize">
         <size>
@@ -905,6 +933,16 @@ border-radius: 10px;
    </attribute>
    <widget class="QWidget" name="dockWidgetContents_4">
     <layout class="QVBoxLayout" name="verticalLayout_12">
+     <item>
+      <widget class="QCheckBox" name="checkBox_keep_radiometric">
+       <property name="text">
+        <string>keep radiometric parameters when switching images</string>
+       </property>
+       <property name="checked">
+        <bool>false</bool>
+       </property>
+      </widget>
+     </item>
      <item>
       <layout class="QHBoxLayout" name="horizontalLayout_11">
        <item>

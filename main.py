@@ -247,6 +247,7 @@ class DroneIrWindow(QMainWindow):
         self.pushButton_delete_lines.clicked.connect(lambda: self.remove_annotations('line'))
         self.pushButton_delete_area.clicked.connect(lambda: self.remove_annotations('area'))
         self.pushButton_reset_range.clicked.connect(self.reset_temp_range)
+        self.pushButton_heatflow.clicked.connect(self.viz_heatflow)
 
         # Dropdowns
         self.comboBox.currentIndexChanged.connect(self.update_img_preview)
@@ -459,6 +460,8 @@ class DroneIrWindow(QMainWindow):
         self.update_img_preview(refresh_dual=True)
 
     # ANNOTATIONS _________________________________________________________________
+    def viz_heatflow(self):
+        tt.create_vector_plot(self.work_image)
     def add_rect_meas(self, rect_item):
         """
         Add a region of interest coming from the rectangle tool
@@ -514,8 +517,8 @@ class DroneIrWindow(QMainWindow):
         else:
             dialog = dia.Meas3dDialog_simple(new_rect_annot)
 
-        dialog.surface_from_image_matplot(self.work_image.colormap, self.n_colors, self.user_lim_col_low,
-                                          self.user_lim_col_high)
+        dialog.surface_from_image_matplot(self.work_image.colormap, self.work_image.n_colors, self.work_image.user_lim_col_low,
+                                          self.work_image.user_lim_col_high)
         if dialog.exec():
             pass
 
@@ -1360,9 +1363,9 @@ class DroneIrWindow(QMainWindow):
                     else:
                         dialog = dia.Meas3dDialog_simple(interest)
 
-                    dialog.surface_from_image_matplot(self.work_image.colormap, self.n_colors,
-                                                      self.user_lim_col_low,
-                                                      self.user_lim_col_high)
+                    dialog.surface_from_image_matplot(self.work_image.colormap, self.work_image.n_colors,
+                                                      self.work_image.user_lim_col_low,
+                                                      self.work_image.user_lim_col_high)
                     if dialog.exec():
                         pass
 
