@@ -247,14 +247,15 @@ class ProcessedIm:
             self._exif = extract_exif(self.path)
         return self._exif
 
-    def update_data(self, new_params):
+    def update_data(self, new_params, change_shown=True):
         print(new_params)
         self.thermal_param = new_params
         self.raw_data, self.raw_data_undis = extract_raw_data(self.thermal_param, self.path, self.undistorder_ir)
         self.tmin = np.amin(self.raw_data)
         self.tmax = np.amax(self.raw_data)
-        self.tmin_shown = self.tmin
-        self.tmax_shown = self.tmax
+        if change_shown:
+            self.tmin_shown = self.tmin
+            self.tmax_shown = self.tmax
 
         self.has_data = True
 
@@ -551,7 +552,8 @@ class RunnerDJI(QtCore.QRunnable):
                              custom_params=self.custom_params,
                              export_tif=self.export_tif,
                              undis=self.undis,
-                             zoom=self.zoom)
+                             zoom=self.zoom,
+                             change_shown=False)
 
             if i == len(self.img_objects) - 1:
                 legend_dest_path = os.path.join(self.dest_folder, 'plot_onlycbar_tight.png')
@@ -923,9 +925,7 @@ def add_lines_from_rgb(path_ir, cv_match_rgb_img, drone_model, dest_path,
         pil_edges = Image.fromarray(edges)
 
     elif mode == 5:
-        edge_detector = cv2.ximgproc.createStructuredEdgeDetection('model.yml/model.yml')
-        # detect the edges
-        edges = edge_detector.detectEdges(cv_match_rgb_img)
+        pass
 
     if color == 'black':
         pil_edges = ImageOps.invert(pil_edges)
@@ -1168,18 +1168,18 @@ def extract_raw_data(param, ir_img_path, undistorder_ir):
     return im, undis_im
 
 
-def process_raw_data(img_object, dest_path, edges=False, edge_params=[], radio_param=None, undis=True, custom_params=None, export_tif=False, zoom = 1 ):
+def process_raw_data(img_object, dest_path, edges=False, edge_params=[], radio_param=None, undis=True, custom_params=None, export_tif=False, zoom = 1, change_shown=True ):
     if custom_params is None:
         custom_params = {}
 
     if radio_param:
-        img_object.update_data(radio_param)
+        img_object.update_data(radio_param, change_shown=change_shown)
 
     if not img_object.has_data:
         if radio_param:
-            img_object.update_data(radio_param)
+            img_object.update_data(radio_param, change_shown=change_shown)
         else:
-            img_object.update_data(img_object.thermal_param)
+            img_object.update_data(img_object.thermal_param, change_shown=change_shown)
     # data
     if undis:
         im = img_object.raw_data_undis

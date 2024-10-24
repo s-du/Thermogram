@@ -165,6 +165,33 @@ border-radius: 10px;
           </item>
          </layout>
         </item>
+        <item>
+         <widget class="QCheckBox" name="checkBox_keep_temp">
+          <property name="text">
+           <string>Keep temperature range when switching image</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QCheckBox" name="checkBox_keep_palette">
+          <property name="text">
+           <string>Keep palette settings when switching images</string>
+          </property>
+          <property name="checked">
+           <bool>true</bool>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QCheckBox" name="checkBox_keep_radiometric">
+          <property name="text">
+           <string>keep radiometric parameters when switching images</string>
+          </property>
+          <property name="checked">
+           <bool>true</bool>
+          </property>
+         </widget>
+        </item>
        </layout>
       </item>
      </layout>
@@ -313,7 +340,7 @@ border-radius: 10px;
      <x>0</x>
      <y>0</y>
      <width>1496</width>
-     <height>26</height>
+     <height>21</height>
     </rect>
    </property>
    <widget class="QMenu" name="menuFile">
@@ -510,13 +537,6 @@ border-radius: 10px;
       </widget>
      </item>
      <item>
-      <widget class="QCheckBox" name="checkBox_keep_temp">
-       <property name="text">
-        <string>Keep temperature range when switching image</string>
-       </property>
-      </widget>
-     </item>
-     <item>
       <spacer name="verticalSpacer">
        <property name="orientation">
         <enum>Qt::Vertical</enum>
@@ -573,7 +593,7 @@ border-radius: 10px;
        </property>
        <property name="maximumSize">
         <size>
-         <width>250</width>
+         <width>16777215</width>
          <height>16777215</height>
         </size>
        </property>
@@ -773,13 +793,6 @@ border-radius: 10px;
        </property>
        <property name="text">
         <string>Edge detection options</string>
-       </property>
-      </widget>
-     </item>
-     <item>
-      <widget class="QCheckBox" name="checkBox_keep_palette">
-       <property name="text">
-        <string>Keep palette settings when switching images</string>
        </property>
       </widget>
      </item>
@@ -1017,13 +1030,6 @@ border-radius: 10px;
         </widget>
        </item>
       </layout>
-     </item>
-     <item>
-      <widget class="QCheckBox" name="checkBox_keep_radiometric">
-       <property name="text">
-        <string>keep radiometric parameter when switching</string>
-       </property>
-      </widget>
      </item>
      <item>
       <spacer name="verticalSpacer_3">

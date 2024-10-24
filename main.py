@@ -25,7 +25,7 @@ TODO:
 """
 
 # PARAMETERS
-APP_FOLDER = 'ThermogramApp'
+APP_FOLDER = 'ThermogramApp_'
 ORIGIN_THERMAL_IMAGES_NAME = 'Original Thermal Images'
 RGB_ORIGINAL_NAME = 'Original RGB Images'
 RGB_CROPPED_NAME = 'Cropped RGB Images'
@@ -39,6 +39,21 @@ LINE_MEAS_NAME = 'Line measurements'
 
 VIEWS = ['th. undistorted', 'RGB crop']
 
+
+def get_next_available_folder(base_folder, app_folder_base_name=APP_FOLDER):
+    # Start with the initial folder name (i.e., 'ThermogramApp_1')
+    folder_number = 1
+    while True:
+        # Construct the folder name with the current number
+        app_folder = os.path.join(base_folder, f"{app_folder_base_name}{folder_number}")
+
+        # Check if the folder already exists
+        if not os.path.exists(app_folder):
+            # If it doesn't exist, return the folder name
+            return app_folder
+
+        # Increment the folder number and try again
+        folder_number += 1
 
 # USEFUL CLASSES
 class DroneIrWindow(QMainWindow):
@@ -268,7 +283,7 @@ class DroneIrWindow(QMainWindow):
             self.actionLine_meas.setDisabled(False)
 
     def reset_temp_range(self):
-        self.work_image.update_data(self.work_image.thermal_param)
+        self.work_image.update_data(copy.deepcopy(self.work_image.thermal_param))
         self.tmin, self.tmax,self.tmin_shown, self.tmax_shown = self.work_image.get_temp_data()
         # fill values lineedits
         self.lineEdit_min_temp.setText(str(round(self.tmin_shown, 2)))
@@ -322,10 +337,13 @@ class DroneIrWindow(QMainWindow):
         self.ir_folder = self.original_th_img_folder
         if self.has_rgb:
             self.rgb_folder = self.rgb_crop_img_folder
-            self.rgb_imgs = os.listdir(self.rgb_folder)
+            rgb_imgs = os.listdir(self.rgb_folder)
+            self.rgb_imgs = sorted(rgb_imgs)
+
 
         # list thermal images
-        self.ir_imgs = os.listdir(self.ir_folder)
+        ir_imgs = os.listdir(self.ir_folder)
+        self.ir_imgs = sorted(ir_imgs)
         self.n_imgs = len(self.ir_imgs)
 
         if self.n_imgs > 1:
@@ -360,8 +378,8 @@ class DroneIrWindow(QMainWindow):
             os.mkdir(self.preview_folder)
 
         # quickly compute temperature delta on first image
-        self.tmin = self.work_image.tmin
-        self.tmax = self.work_image.tmax
+        self.tmin = copy.deepcopy(self.work_image.tmin)
+        self.tmax = copy.deepcopy(self.work_image.tmax)
 
         self.lineEdit_min_temp.setText(str(round(self.tmin, 2)))
         self.lineEdit_max_temp.setText(str(round(self.tmax, 2)))
@@ -577,45 +595,6 @@ class DroneIrWindow(QMainWindow):
         self.retrace_items()
 
     # THERMAL-RELATED FUNCTIONS __________________________________________________________________________
-    def define_options_old(self):
-        dialog = dia.DialogThParams(self.thermal_param)
-        dialog.setWindowTitle("Choose advanced thermal options")
-
-        if dialog.exec():
-            try:
-                self.advanced_options = True
-                em = float(dialog.lineEdit_em.text())
-                if em < 0.1 or em > 1:
-                    raise ValueError
-                else:
-                    self.thermal_param['emissivity'] = em
-                dist = float(dialog.lineEdit_dist.text())
-                if dist < 1 or dist > 25:
-                    raise ValueError
-                else:
-                    self.thermal_param['distance'] = dist
-                rh = float(dialog.lineEdit_rh.text())
-                if rh < 20 or rh > 100:
-                    raise ValueError
-                else:
-                    self.thermal_param['humidity'] = rh
-                refl_temp = float(dialog.lineEdit_temp.text())
-                if refl_temp < -40 or refl_temp > 500:
-                    raise ValueError
-                else:
-                    self.thermal_param['reflection'] = refl_temp
-
-                # update image data
-                self.work_image.update_data(self.thermal_param)
-                self.switch_image_data()
-                self.update_img_preview()
-
-
-            except ValueError:
-                QMessageBox.warning(self, "Warning",
-                                    "Oops! Some of the values are not valid!")
-                self.define_options()
-
     def define_options(self):
         try:
             self.advanced_options = True
@@ -641,7 +620,7 @@ class DroneIrWindow(QMainWindow):
                 self.thermal_param['reflection'] = refl_temp
 
             # update image data
-            self.work_image.update_data(self.thermal_param)
+            self.work_image.update_data(copy.deepcopy(self.thermal_param))
             self.switch_image_data()
             self.update_img_preview()
 
@@ -675,8 +654,8 @@ class DroneIrWindow(QMainWindow):
     def export_anim(self):
         # export all images
         # get parameters
-        self.colormap, self.n_colors, self.user_lim_col_high, self.user_lim_col_low, self.tmin, self.tmax, self.tmin_shown, self.tmax_shown, self.post_process = self.work_image.get_colormap_data()
-
+        self.colormap, self.n_colors, self.user_lim_col_high, self.user_lim_col_low, self.post_process = self.work_image.get_colormap_data()
+        self.tmin, self.tmax, self.tmin_shown, self.tmax_shown = self.work_image.get_temp_data()
         self.nb_sets += 1
 
         desc = f'{PROC_TH_FOLDER}_{self.colormap}_{str(round(self.tmin_shown, 0))}_{str(round(self.tmax_shown, 0))}_{self.post_process}_image-set_{self.nb_sets}_anim'
@@ -743,7 +722,7 @@ class DroneIrWindow(QMainWindow):
         if not folder == '':  # if user cancel selection, stop function
 
             self.main_folder = folder
-            self.app_folder = os.path.join(folder, APP_FOLDER)
+            self.app_folder = get_next_available_folder(self.main_folder)
 
             # update json path
             self.json_file = os.path.join(self.app_folder, 'data.json')
@@ -916,7 +895,10 @@ class DroneIrWindow(QMainWindow):
                             qm.StandardButton.Yes | qm.StandardButton.No)
 
         # get parameters
-        self.colormap, self.n_colors, self.user_lim_col_high, self.user_lim_col_low, self.tmin, self.tmax, self.tmin_shown, self.tmax_shown, self.post_process = self.work_image.get_colormap_data()
+        self.colormap, self.n_colors, self.user_lim_col_high, self.user_lim_col_low, self.post_process = self.work_image.get_colormap_data()
+        self.tmin, self.tmax, self.tmin_shown, self.tmax_shown = self.work_image.get_temp_data()
+
+        print(self.tmin, self.tmax, self.tmin_shown, self.tmax_shown)
 
         self.nb_sets += 1
 
