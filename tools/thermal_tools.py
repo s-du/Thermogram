@@ -717,12 +717,11 @@ def re_create_miniature(rgb_path, drone_model, dest_crop_folder, scale_percent=6
     cv_write_all_path(crop, dest_path)
 
 
-def create_video(image_folder, video_name, fps):
-    images = [img for img in os.listdir(image_folder) if img.endswith(".jpg") or img.endswith(".JPG")]
+def create_video(images, video_name, fps):
     images.sort()  # Sort the images if needed
 
     # Determine the width and height from the first image
-    frame = cv_read_all_path(os.path.join(image_folder, images[0]))
+    frame = cv_read_all_path(images[0])
     height, width, layers = frame.shape
 
     # Initialize video writer
@@ -730,7 +729,7 @@ def create_video(image_folder, video_name, fps):
     video = cv2.VideoWriter(video_name, fourcc, fps, (width, height))
 
     for image in images:
-        video.write(cv_read_all_path(os.path.join(image_folder, image)))
+        video.write(cv_read_all_path(image))
 
     cv2.destroyAllWindows()
     video.release()

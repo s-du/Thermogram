@@ -654,56 +654,49 @@ class DroneIrWindow(QMainWindow):
 
     # LOAD AND SAVE ACTIONS ______________________________________________________________________________
     def export_anim(self):
-        # export all images
-        # get parameters
-        self.colormap, self.n_colors, self.user_lim_col_high, self.user_lim_col_low, self.post_process = self.work_image.get_colormap_data()
-        self.tmin, self.tmax, self.tmin_shown, self.tmax_shown = self.work_image.get_temp_data()
-        self.nb_sets += 1
+        # select folder
+        # Define the starting directory
+        starting_directory = self.last_out_folder  # Change this to the desired starting path
 
-        desc = f'{PROC_TH_FOLDER}_{self.colormap}_{str(round(self.tmin_shown, 0))}_{str(round(self.tmax_shown, 0))}_{self.post_process}_image-set_{self.nb_sets}_anim'
+        # Open the file selection dialog for multiple images
+        files, _ = QFileDialog.getOpenFileNames(
+            self,
+            "Select Images",
+            starting_directory,
+            "Images (*.png *.xpm *.jpg *.jpeg *.bmp *.tiff *.gif)"  # File filter to select image types
+        )
 
-        # create output folder
-        self.last_out_folder = os.path.join(self.app_folder, desc)
-        if not os.path.exists(self.last_out_folder):
-            os.mkdir(self.last_out_folder)
+        # If the user selects files, update the label
+        if files:
 
-        worker_1 = tt.RunnerDJI(5, 50, self.last_out_folder, self.images, self.work_image, self.edges,
-                                self.edge_params, undis=True)
-        worker_1.signals.progressed.connect(lambda value: self.update_progress(value))
-        worker_1.signals.messaged.connect(lambda string: self.update_progress(text=string))
+            self.update_progress(nb=20, text="Status: Video creation!")
+            video_dir = self.last_out_folder  # Adjust the path to your video's folder
+            video_file = "animation_thermal.mp4"  # Adjust to your video file name if needed
+            video_path = os.path.join(video_dir, video_file)
 
-        self.__pool.start(worker_1)
-        worker_1.signals.finished.connect(self.export_video_phase2)
+            tt.create_video(files, video_path, 3)
 
-    def export_video_phase2(self):
-        self.update_progress(nb=60, text="Status: Video creation!")
-        video_dir = self.last_out_folder  # Adjust the path to your video's folder
-        video_file = "animation_thermal.mp4"  # Adjust to your video file name if needed
-        video_path = os.path.join(video_dir, video_file)
+            self.update_progress(nb=100, text="Continue analyses!")
 
-        tt.create_video(self.last_out_folder, video_path, 3)
+            msg_box = QMessageBox()
+            msg_box.setWindowTitle("Video Location")
+            msg_box.setText(f"Your video is located here:\n{video_path}")
+            msg_box.setInformativeText("Click 'Open Folder' to view it.")
 
-        self.update_progress(nb=100, text="Continue analyses!")
+            # Adding Open Folder button
+            open_button = msg_box.addButton("Open Folder", QMessageBox.ButtonRole.ActionRole)
 
-        msg_box = QMessageBox()
-        msg_box.setWindowTitle("Video Location")
-        msg_box.setText(f"Your video is located here:\n{video_path}")
-        msg_box.setInformativeText("Click 'Open Folder' to view it.")
+            msg_box.setStandardButtons(QMessageBox.StandardButton.Ok)
 
-        # Adding Open Folder button
-        open_button = msg_box.addButton("Open Folder", QMessageBox.ButtonRole.ActionRole)
+            # Display the message box and wait for a user action
+            msg_box.exec()
 
-        msg_box.setStandardButtons(QMessageBox.StandardButton.Ok)
+            # Check if the Open Folder button was clicked
+            if msg_box.clickedButton() == open_button:
+                QDesktopServices.openUrl(QUrl.fromLocalFile(video_path))
 
-        # Display the message box and wait for a user action
-        msg_box.exec()
-
-        # Check if the Open Folder button was clicked
-        if msg_box.clickedButton() == open_button:
-            QDesktopServices.openUrl(QUrl.fromLocalFile(video_path))
-
-        # Display the message box
-        msg_box.exec()
+            # Display the message box
+            msg_box.exec()
 
     def load_folder_phase1(self):
         # warning message (new project)
