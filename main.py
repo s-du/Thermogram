@@ -656,7 +656,7 @@ class DroneIrWindow(QMainWindow):
     def export_anim(self):
         # select folder
         # Define the starting directory
-        starting_directory = self.last_out_folder  # Change this to the desired starting path
+        starting_directory = self.app_folder  # Change this to the desired starting path
 
         # Open the file selection dialog for multiple images
         files, _ = QFileDialog.getOpenFileNames(
@@ -668,9 +668,9 @@ class DroneIrWindow(QMainWindow):
 
         # If the user selects files, update the label
         if files:
-
+            print(files)
             self.update_progress(nb=20, text="Status: Video creation!")
-            video_dir = self.last_out_folder  # Adjust the path to your video's folder
+            video_dir = self.app_folder  # Adjust the path to your video's folder
             video_file = "animation_thermal.mp4"  # Adjust to your video file name if needed
             video_path = os.path.join(video_dir, video_file)
 
@@ -681,21 +681,7 @@ class DroneIrWindow(QMainWindow):
             msg_box = QMessageBox()
             msg_box.setWindowTitle("Video Location")
             msg_box.setText(f"Your video is located here:\n{video_path}")
-            msg_box.setInformativeText("Click 'Open Folder' to view it.")
 
-            # Adding Open Folder button
-            open_button = msg_box.addButton("Open Folder", QMessageBox.ButtonRole.ActionRole)
-
-            msg_box.setStandardButtons(QMessageBox.StandardButton.Ok)
-
-            # Display the message box and wait for a user action
-            msg_box.exec()
-
-            # Check if the Open Folder button was clicked
-            if msg_box.clickedButton() == open_button:
-                QDesktopServices.openUrl(QUrl.fromLocalFile(video_path))
-
-            # Display the message box
             msg_box.exec()
 
     def load_folder_phase1(self):
@@ -822,6 +808,7 @@ class DroneIrWindow(QMainWindow):
         self.action3D_temperature.setEnabled(True)
         self.actionFind_maxima.setEnabled(True)
         self.actionProcess_all.setEnabled(True)
+        self.actionCreate_anim.setEnabled(True)
 
         # RGB condition
         if self.has_rgb:

@@ -725,13 +725,12 @@ def create_video(images, video_name, fps):
     height, width, layers = frame.shape
 
     # Initialize video writer
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')  # For mp4 videos
+    fourcc = cv2.VideoWriter_fourcc(*'MJPG')  # For mp4 videos
     video = cv2.VideoWriter(video_name, fourcc, fps, (width, height))
 
     for image in images:
         video.write(cv_read_all_path(image))
 
-    cv2.destroyAllWindows()
     video.release()
 
 
