@@ -809,6 +809,44 @@ class AlignmentDialog(QDialog):
         self.scene.addItem(pixmap_item)
 
 
+class DialogBatchExport(QtWidgets.QDialog):
+    """
+    Dialog that allows the user to choose batch export options
+    """
+
+    def __init__(self, default_folder, parameters_style, parameters_temp, parameters_radiometric, parent=None):
+        QtWidgets.QDialog.__init__(self)
+        basepath = os.path.dirname(__file__)
+        basename = 'export_dialog'
+        uifile = os.path.join(basepath, 'ui/%s.ui' % basename)
+        loadUi(uifile, self)
+        self.comboBox_naming.addItems(['Rename files', 'Keep IR names', 'Match IR with RGB names'])
+        self.comboBox_img_format.addItems(['PNG', 'JPG'])
+
+        # button actions
+        self.buttonBox.accepted.connect(self.accept)
+        self.buttonBox.rejected.connect(self.reject)
+
+        # change enabled options
+
+        # set initial parameters
+        desc = (f'Palette parameters: \n'
+                f'- palette: {parameters_style[0]}')
+        self.label_current_settings.setText(desc)
+
+        self.lineEdit.setText(default_folder)
+
+        # browse folder
+        self.pushButton.clicked.connect(self.browse_folder)
+
+    def browse_folder(self):
+        # Open a QFileDialog to select a folder
+        folder_path = QFileDialog.getExistingDirectory(self, "Select Folder")
+
+        # If a folder is selected, set the folder path in the line edit
+        if folder_path:
+            self.lineEdit.setText(folder_path)
+
 class DialogEdgeOptions(QtWidgets.QDialog):
     """
     Dialog that allows the user to choose advances thermography options

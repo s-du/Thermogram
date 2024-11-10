@@ -222,8 +222,7 @@ class DroneIrWindow(QMainWindow):
         self.actionReset_all.triggered.connect(self.full_reset)
         self.actionInfo.triggered.connect(self.show_info)
         self.actionSave_Image.triggered.connect(self.save_image)
-        self.actionProcess_all.triggered.connect(self.process_all_images)
-        self.actionConvert_to_RAW_TIFF.triggered.connect(self.generate_raw_tiff)
+        self.actionProcess_all.triggered.connect(self.batch_export)
         self.action3D_temperature.triggered.connect(self.show_viz_threed)
         self.actionCompose.triggered.connect(self.compose_pic)
         self.actionCreate_anim.triggered.connect(self.export_anim)
@@ -365,9 +364,9 @@ class DroneIrWindow(QMainWindow):
                 print('Has rgb!')
                 image = tt.ProcessedIm(os.path.join(self.ir_folder, im),
                                        os.path.join(self.rgb_folder, self.rgb_imgs[i]),
-                                       self.list_rgb_paths[i], self.ir_undistorder)
+                                       self.list_rgb_paths[i], self.ir_undistorder, self.drone_model)
             else:
-                image = tt.ProcessedIm(os.path.join(self.ir_folder, im), '', '', self.ir_undistorder)
+                image = tt.ProcessedIm(os.path.join(self.ir_folder, im), '', '', self.ir_undistorder, self.drone_model)
             self.images.append(image)
 
         self.active_image = 0
@@ -829,6 +828,7 @@ class DroneIrWindow(QMainWindow):
         self.actionLine_meas.setEnabled(True)
         self.action3D_temperature.setEnabled(True)
         self.actionFind_maxima.setEnabled(True)
+        self.actionProcess_all.setEnabled(True)
 
         # RGB condition
         if self.has_rgb:
@@ -865,32 +865,63 @@ class DroneIrWindow(QMainWindow):
 
     def convert_flir(self):
         tt.convert_dji_to_flir_format(self.work_image.raw_data_undis, 'test.tiff')
-    def generate_raw_tiff(self):
-        qm = QMessageBox
-        reply = qm.question(self, '', "Do you want to output TIFF files (Pix4D processing)?",
-                            qm.StandardButton.Yes | qm.StandardButton.No)
 
-        if reply == qm.StandardButton.Yes:
-            desc = f'{PROC_TH_FOLDER}_tiff_{str(round(self.tmin_shown, 0))}_{str(round(self.tmax_shown, 0))}_image-set_{self.nb_sets}'
+    def batch_export(self):
+        # get all processing parameters from current image
+        self.colormap, self.n_colors, self.user_lim_col_high, self.user_lim_col_low, self.post_process = self.work_image.get_colormap_data()
+        self.tmin, self.tmax, self.tmin_shown, self.tmax_shown = self.work_image.get_temp_data()
+        parameters_style = [self.colormap, self.n_colors, self.user_lim_col_high, self.user_lim_col_low, self.post_process]
+        parameters_temp = [self.tmin, self.tmax, self.tmin_shown, self.tmax_shown]
+        parameters_radio = self.work_image.thermal_param
 
-            # create output folder
-            out_folder = os.path.join(self.app_folder, desc)
-            if not os.path.exists(out_folder):
-                os.mkdir(out_folder)
-            reply = qm.question(self, '', "Do you want to correct deformation?",
-                                qm.StandardButton.Yes | qm.StandardButton.No)
-            if reply == qm.StandardButton.Yes:
-                undis = True
-            else:
-                undis = False
+        # launch dialog
+        desc = f'{PROC_TH_FOLDER}_{self.colormap}_{str(round(self.tmin_shown, 0))}_{str(round(self.tmax_shown, 0))}_{self.post_process}_image-set_{self.nb_sets}'
 
-            worker_1 = tt.RunnerDJI(5, 100, out_folder, self.images, self.work_image, self.edges, self.edge_params,
-                                    export_tif=True, undis=undis)
+        # create output folder
+        self.last_out_folder = os.path.join(self.app_folder, desc)
+        if not os.path.exists(self.last_out_folder):
+            os.mkdir(self.last_out_folder)
+
+        dialog = dia.DialogBatchExport(self.last_out_folder, parameters_style, parameters_temp, parameters_radio)
+
+        if dialog.exec():
+            # get user options
+            list_ir_export = []
+            list_rgb_export = []
+            undis = dialog.checkBox_undis.isChecked()
+            zoom = dialog.spinBox.value()
+            if dialog.checkBox_exp_ir.isChecked():
+                list_ir_export.append('IR')
+            if dialog.checkBox_exp_tif.isChecked():
+                list_ir_export.append('IR_TIF')
+            if dialog.checkBox_exp_picpic.isChecked():
+                list_ir_export.append('PICPIC')
+            if dialog.checkBox_exp_rgb.isChecked():
+                list_rgb_export.append('RGB')
+            if dialog.checkBox_exp_crop.isChecked():
+                list_rgb_export.append('RGB_CROP')
+
+            selected_option = dialog.comboBox_naming.currentIndex()
+
+            # Determine naming_type based on the selected option
+            if selected_option == 0:
+                naming_type = 'rename'
+            elif selected_option == 1:
+                naming_type = 'keep_ir'
+            elif selected_option == 2:
+                naming_type = 'match_rgb'
+
+            out_folder = dialog.lineEdit.text()
+
+            worker_1 = tt.RunnerDJI(5, 100, out_folder, self.images, self.work_image, self.edges,
+                                    self.edge_params, undis=undis, zoom=zoom, naming_type=naming_type,
+                                    list_of_ir_export=list_ir_export, list_of_rgb_export=list_rgb_export)
             worker_1.signals.progressed.connect(lambda value: self.update_progress(value))
             worker_1.signals.messaged.connect(lambda string: self.update_progress(text=string))
 
             self.__pool.start(worker_1)
             worker_1.signals.finished.connect(self.process_all_phase2)
+
 
     def process_all_images(self):
         qm = QMessageBox
@@ -1436,6 +1467,8 @@ class DroneIrWindow(QMainWindow):
         self.add_icon(res.find('img/3d.png'), self.action3D_temperature)
         self.add_icon(res.find('img/maxima.png'), self.actionFind_maxima)
         self.add_icon(res.find('img/robot.png'), self.actionDetect_object)
+        self.add_icon(res.find('img/layers.png'), self.actionProcess_all)
+
 
     def full_reset(self):
         """

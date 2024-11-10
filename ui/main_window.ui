@@ -313,7 +313,7 @@ border-radius: 10px;
      <x>0</x>
      <y>0</y>
      <width>1496</width>
-     <height>21</height>
+     <height>26</height>
     </rect>
    </property>
    <widget class="QMenu" name="menuFile">
@@ -323,7 +323,6 @@ border-radius: 10px;
     <addaction name="actionLoad_folder"/>
     <addaction name="actionSave_Image"/>
     <addaction name="actionProcess_all"/>
-    <addaction name="actionConvert_to_RAW_TIFF"/>
     <addaction name="actionCreate_anim"/>
    </widget>
    <widget class="QMenu" name="menuAbout">
@@ -371,6 +370,7 @@ border-radius: 10px;
    <addaction name="action3D_temperature"/>
    <addaction name="actionFind_maxima"/>
    <addaction name="actionDetect_object"/>
+   <addaction name="actionProcess_all"/>
   </widget>
   <widget class="QDockWidget" name="dockWidget">
    <property name="enabled">
@@ -1200,6 +1200,9 @@ border-radius: 10px;
    </property>
   </action>
   <action name="actionProcess_all">
+   <property name="enabled">
+    <bool>false</bool>
+   </property>
    <property name="text">
     <string>Batch export</string>
    </property>
@@ -1261,6 +1264,11 @@ border-radius: 10px;
    </property>
    <property name="text">
     <string>Detect object</string>
+   </property>
+  </action>
+  <action name="actionExport_Pic_in_pic">
+   <property name="text">
+    <string>Batch Export Pic-in-pic</string>
    </property>
   </action>
  </widget>

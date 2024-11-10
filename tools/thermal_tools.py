@@ -1,4 +1,5 @@
 # Standard library imports
+import copy
 import os
 import subprocess
 from pathlib import Path
@@ -202,7 +203,7 @@ class DroneModel:
 
 
 class ProcessedIm:
-    def __init__(self, path, rgb_path, original_path, undistorder_ir, delayed_compute=False):
+    def __init__(self, path, rgb_path, original_path, undistorder_ir, drone_model, delayed_compute=False):
         # general infos
         self.path = path
         self.rgb_path = rgb_path
@@ -216,6 +217,7 @@ class ProcessedIm:
         self._exif = None
 
         self.has_data = False
+        self.drone_model = drone_model
 
         # ir infos
         self.thermal_param = {'emissivity': 0.95, 'distance': 5, 'humidity': 50, 'reflection': 25}
@@ -496,12 +498,13 @@ class RunnerSignals(QtCore.QObject):
 
 class RunnerDJI(QtCore.QRunnable):
     def __init__(self, start, stop, out_folder, img_objects, ref_im, edges, edges_params, individual_settings=False,
-                 export_tif=False, undis=False, zoom=1):
+                 undis=False, zoom=1, naming_type='rename', file_format='PNG', list_of_ir_export=['IR'], list_of_rgb_export=[]):
+        # TODO: move edge parameters to image class
         super().__init__()
         self.img_objects = img_objects
         self.edges = edges
         self.edges_params = edges_params
-        self.export_tif = export_tif
+        self.ref_im = ref_im
 
         self.start = start
         self.stop = stop
@@ -511,6 +514,10 @@ class RunnerDJI(QtCore.QRunnable):
         self.undis = undis
         self.zoom = zoom
         self.radio_param = None
+        self.naming_type = naming_type
+        self.file_format = file_format
+        self.list_of_ir_export = list_of_ir_export
+        self.list_of_rgb_export = list_of_rgb_export
 
         if not individual_settings:  # if global export from current image settings
             self.custom_params = {
@@ -529,37 +536,107 @@ class RunnerDJI(QtCore.QRunnable):
         # create raw outputs for each image
         nb_im = len(self.img_objects)
         for i, img in enumerate(self.img_objects):
-            print(i)
-            iter = i * (self.stop - self.start) / nb_im
-
-            self.signals.progressed.emit(self.start + iter)
-            self.signals.messaged.emit(f'Processing image {i}/{nb_im} with DJI SDK')
-
-            img_path = img.path
-
             if i < 9:
                 prefix = '000'
             elif 9 < i < 99:
                 prefix = '00'
             elif 99 < i < 999:
                 prefix = '0'
-            _, filename = os.path.split(str(img_path))
-            dest_path = os.path.join(self.dest_folder, f'thermal_{prefix}{i}.JPG')
 
+            iter = int(i * (self.stop - self.start) / nb_im)
+
+            self.signals.progressed.emit(self.start + iter)
+            self.signals.messaged.emit(f'Processing image {i}/{nb_im} with DJI SDK')
+
+            # EXPORT IR IMAGE
+            ir_subfolder = os.path.join(self.dest_folder, 'IR_Images')
+            if not os.path.exists(ir_subfolder):
+                os.mkdir(ir_subfolder)
+
+            # name the file according to naming convention
+            if self.naming_type == 'rename':
+                name = f'thermal_{prefix}{i}.' + self.file_format
+            elif self.naming_type == 'keep_ir':
+                img_path = img.path
+                _, filename = os.path.split(str(img_path))
+                name = filename[:-3] + self.file_format
+            elif self.naming_type == 'match_rgb':
+                img_path = img.rgb_path_original
+                _, filename = os.path.split(str(img_path))
+                name =  filename[:-3] + self.file_format
+
+            dest_path = os.path.join(ir_subfolder, name)
+
+            # first run
             process_raw_data(img,
                              dest_path,
                              edges=self.edges,
                              radio_param=self.radio_param,
                              edge_params=self.edges_params,
                              custom_params=self.custom_params,
-                             export_tif=self.export_tif,
                              undis=self.undis,
                              zoom=self.zoom,
                              change_shown=False)
 
+            export_tif = False
+            if 'IR_TIF' in self.list_of_ir_export:
+
+                tiff_subfolder = os.path.join(self.dest_folder, 'TIFF_Images')
+                if not os.path.exists(tiff_subfolder):
+                    os.mkdir(tiff_subfolder)
+
+                dest_path_tiff = os.path.join(tiff_subfolder, name)
+
+                process_raw_data(img,
+                                 dest_path_tiff,
+                                 edges=self.edges,
+                                 radio_param=self.radio_param,
+                                 edge_params=self.edges_params,
+                                 custom_params=self.custom_params,
+                                 export_tif=True, # here the change
+                                 undis=self.undis,
+                                 zoom=self.zoom,
+                                 change_shown=False)
+
+            # MOVE IMAGEs IN RIGHT SUBFOLDERS
+            if 'PICPIC' in self.list_of_ir_export:
+                picpic_subfolder = os.path.join(self.dest_folder, 'Pic-in-Pic_Images')
+                if not os.path.exists(picpic_subfolder):
+                    os.mkdir(picpic_subfolder)
+                # EXPORT PIC_IN_PIC
+                drone_model = img.drone_model
+                picpic_path = os.path.join(picpic_subfolder, name)
+                insert_th_in_rgb(img, dest_path, picpic_path, drone_model)
+
+
+            # EXPORT RGB IMAGE
+            if 'RGB' in self.list_of_rgb_export:
+                rgb_subfolder = os.path.join(self.dest_folder, 'RGB')
+                if not os.path.exists(rgb_subfolder):
+                    os.mkdir(rgb_subfolder)
+
+                _,name = os.path.split(img.rgb_path_original)
+                rgb_im = cv_read_all_path(img.rgb_path_original)
+                rgb_path = os.path.join(rgb_subfolder, name)
+                cv_write_all_path(rgb_im, rgb_path)
+
+            if 'RGB_CROP' in self.list_of_rgb_export:
+                rgb_crop_subfolder = os.path.join(self.dest_folder, 'RGB_CROP')
+                if not os.path.exists(rgb_crop_subfolder):
+                    os.mkdir(rgb_crop_subfolder)
+
+                _, name = os.path.split(img.rgb_path)
+                rgb_im = cv_read_all_path(img.rgb_path)
+                rgb_crop_path = os.path.join(rgb_crop_subfolder, name)
+                cv_write_all_path(rgb_im, rgb_crop_path)
+
+            # generate legend in last step
             if i == len(self.img_objects) - 1:
                 legend_dest_path = os.path.join(self.dest_folder, 'plot_onlycbar_tight.png')
                 generate_legend(legend_dest_path, self.custom_params)
+
+            # generate text summary
+            # TODO add summary
 
         self.signals.finished.emit()
 
@@ -879,8 +956,7 @@ def get_corresponding_crop_rectangle(p1, p2, scale):
 
 
 # LINES __________________________________________________
-def add_lines_from_rgb(path_ir, cv_match_rgb_img, drone_model, dest_path,
-                       exif=None, mode=1, color='white', bilateral=True, blur=True, blur_size=3, opacity=0.7):
+def add_lines_from_rgb(path_ir, cv_match_rgb_img, drone_model, mode=1, color='white', bilateral=True, blur=True, blur_size=3, opacity=0.7):
     cv_ir_img = cv_read_all_path(path_ir)
     img_gray = cv2.cvtColor(cv_match_rgb_img, cv2.COLOR_BGR2GRAY)
 
@@ -956,10 +1032,7 @@ def add_lines_from_rgb(path_ir, cv_match_rgb_img, drone_model, dest_path,
     blended_img_raw = Image.fromarray(blended_img)
     blended_img_raw = blended_img_raw.convert('RGB')
 
-    if exif is None:
-        blended_img_raw.save(dest_path)
-    else:
-        blended_img_raw.save(dest_path, exif=exif)
+    return blended_img_raw
 
 
 def create_lines(cv_img, bil=True):
@@ -1171,7 +1244,7 @@ def extract_raw_data(param, ir_img_path, undistorder_ir):
     return im, undis_im
 
 
-def process_raw_data(img_object, dest_path, edges=False, edge_params=[], radio_param=None, undis=True, custom_params=None, export_tif=False, zoom = 1, change_shown=True ):
+def process_raw_data(img_object, dest_path, edges=False, edge_params=[], radio_param=None, undis=True, custom_params=None, export_tif=False, zoom = 1, change_shown=True):
     if custom_params is None:
         custom_params = {}
 
@@ -1233,9 +1306,9 @@ def process_raw_data(img_object, dest_path, edges=False, edge_params=[], radio_p
                                          Image.LANCZOS)  # Use LANCZOS interpolation for high-quality upscaling
 
     if export_tif:
-        dest_path = dest_path[:-4] + '.tiff'
-        img_thermal = Image.fromarray(im)  # export as 32bit array (floating point)
-        img_thermal.save(dest_path)
+        dest_path_tif = dest_path[:-4] + '.tiff'
+        img_thermal_tiff = Image.fromarray(im)  # export as 32bit array (floating point)
+        img_thermal_tiff.save(dest_path_tif)
 
     elif post_process == 'none':
         img_thermal.save(dest_path, exif=exif)
@@ -1308,8 +1381,13 @@ def process_raw_data(img_object, dest_path, edges=False, edge_params=[], radio_p
         cv_match_rgb_img = cv_read_all_path(img_object.rgb_path)
 
         # Use the extracted mode directly
-        add_lines_from_rgb(dest_path, cv_match_rgb_img, drone_model, dest_path, exif=exif,
-                           mode=ed_met, color=ed_col, bilateral=ed_bil, blur=ed_blur, blur_size=ed_bl_sz, opacity=ed_op)
+        edged_image = add_lines_from_rgb(dest_path, cv_match_rgb_img, drone_model, mode=ed_met, color=ed_col, bilateral=ed_bil, blur=ed_blur, blur_size=ed_bl_sz, opacity=ed_op)
+
+        if exif is None:
+            edged_image.save(dest_path)
+        else:
+            edged_image.save(dest_path, exif=exif)
+
 
 
 def resize_and_pad(img, target_size):
@@ -1335,7 +1413,7 @@ def resize_and_pad(img, target_size):
     padded_img = cv2.copyMakeBorder(resized_img, top, bottom, left, right, cv2.BORDER_CONSTANT, value=[0, 0, 0])
     return padded_img
 
-def process_th_image_with_zoom(img_obj, out_folder, theta):
+def process_th_image_with_zoom(img_obj, out_folder, theta, replace_rgb_with_th=False):
     # read images
     cv_rgb = cv_read_all_path(img_obj.rgb_path_original)  # read rgb image
     h_rgb, w_rgb = cv_rgb.shape[:2]
@@ -1390,6 +1468,17 @@ def process_th_image_with_zoom(img_obj, out_folder, theta):
 
     rgb_crop = cv_rgb[y1:y2, x1:x2]
 
+    if replace_rgb_with_th:
+        cv_rgb_copy = copy.deepcopy(cv_rgb)
+        # Get the dimensions of the RGB cropped region
+        target_h, target_w = rgb_crop.shape[:2]
+
+        # Resize the infrared image to match the cropped RGB region dimensions
+        cv_ir_resized = cv2.resize(cv_ir, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
+
+        # Replace the RGB crop with the resized infrared image
+        cv_rgb_copy[y1:y2, x1:x2] = cv_ir_resized
+
     # Handle zoom < 1: padding is needed to match the final size to the infrared image size
     if zoom < 1:
         # Resize cropped region according to zoom
@@ -1428,6 +1517,73 @@ def process_th_image_with_zoom(img_obj, out_folder, theta):
 
     return mse
 
+def insert_th_in_rgb(img_obj, ir_path, dest_path, drone_model):
+    print(dest_path)
+    # read images
+    cv_rgb = cv_read_all_path(img_obj.rgb_path_original)  # read rgb image
+    h_rgb, w_rgb = cv_rgb.shape[:2]
+    cv_ir = cv_read_all_path(ir_path)
+
+    h_ir, w_ir = cv_ir.shape[:2]  # get resulting dimension of thermal image
+
+    zoom = drone_model.zoom  # zoom factor
+    y_offset = drone_model.y_offset  # vertical shift
+    x_offset = drone_model.x_offset # horizontal shift
+
+    if h_ir == 0:
+        aspect_factor = 1
+    else:
+        aspect_factor = (w_rgb / h_rgb) / (
+                w_ir / h_ir)  # Aspect ratio adjustment to fit RGB image to IR
+
+    new_h = h_rgb * aspect_factor
+
+    # Adjust crop size based on zoom factor
+    ret_x = int((w_rgb / zoom) / 2)
+    ret_y = int((new_h / zoom) / 2)
+
+    # Calculate crop bounds
+    x1 = int(w_rgb / 2 + x_offset) - ret_x
+    x2 = int(w_rgb / 2 + x_offset) + ret_x
+    y1 = int(h_rgb / 2 + y_offset) - ret_y
+    y2 = int(h_rgb / 2 + y_offset) + ret_y
+
+    # Check if crop bounds go beyond the image dimensions
+    pad_top = max(0, -y1)
+    pad_bottom = max(0, y2 - h_rgb)
+    pad_left = max(0, -x1)
+    pad_right = max(0, x2 - w_rgb)
+
+    # Pad the image if necessary
+    if pad_top > 0 or pad_bottom > 0 or pad_left > 0 or pad_right > 0:
+        cv_rgb = cv2.copyMakeBorder(
+            cv_rgb,
+            pad_top, pad_bottom, pad_left, pad_right,
+            cv2.BORDER_CONSTANT,
+            value=[0, 0, 0]  # Black padding
+        )
+
+    # Update bounds after padding
+    x1 += pad_left
+    x2 += pad_left
+    y1 += pad_top
+    y2 += pad_top
+
+    rgb_crop = cv_rgb[y1:y2, x1:x2]
+
+    # Get the dimensions of the RGB cropped region
+    target_h, target_w = rgb_crop.shape[:2]
+
+    # Resize the infrared image to match the cropped RGB region dimensions
+    cv_ir_resized = cv2.resize(cv_ir, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
+
+    # Replace the RGB crop with the resized infrared image
+    cv_rgb[y1:y2, x1:x2] = cv_ir_resized
+
+    # Save resized or padded image
+    cv_write_all_path(cv_rgb, dest_path)
+
+
 def generate_legend(legend_dest_path, custom_params):
     tmin = custom_params["tmin"]
     tmax = custom_params["tmax"]
@@ -1445,8 +1601,10 @@ def generate_legend(legend_dest_path, custom_params):
     else:
         custom_cmap = cm.get_cmap(colormap, n_colors)
 
-    custom_cmap.set_over(color_high)
-    custom_cmap.set_under(color_low)
+    if color_high != 'c':
+        custom_cmap.set_over(color_high)
+    if color_low != 'c':
+        custom_cmap.set_under(color_low)
 
     cax = ax.imshow(data, cmap=custom_cmap)
     # Add colorbar, make sure to specify tick locations to match desired ticklabels
