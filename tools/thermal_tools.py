@@ -5,7 +5,7 @@ import subprocess
 from pathlib import Path
 from shutil import copyfile, copytree
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Third-party imports
 import cv2
@@ -252,7 +252,7 @@ class ProcessedIm:
         return self._exif
 
     def update_data(self, new_params, change_shown=True):
-        print(new_params)
+        # print(new_params)
         self.thermal_param = new_params
         self.raw_data, self.raw_data_undis = extract_raw_data(self.thermal_param, self.path, self.undistorder_ir)
         self.tmin = np.amin(self.raw_data)
@@ -459,8 +459,8 @@ class RectMeas:
         else:
             xmax, ymax = None, None  # or some default value
 
-        print(f'Minimum position: {xmin, ymin}')
-        print(f'Maximum position: {xmax, ymax}')
+        # print(f'Minimum position: {xmin, ymin}')
+        # print(f'Maximum position: {xmax, ymax}')
 
         temp_min = str(round(self.tmin, 2))
         temp_max = str(round(self.tmax, 2))
@@ -496,11 +496,12 @@ class RunnerSignals(QtCore.QObject):
     finished = QtCore.pyqtSignal()
 
 
+
 class RunnerDJI(QtCore.QRunnable):
     def __init__(self, start, stop, out_folder, img_objects, ref_im, edges, edges_params, individual_settings=False,
                  undis=False, zoom=1, naming_type='rename', file_format='PNG', list_of_ir_export=['IR'], list_of_rgb_export=[]):
-        # TODO: move edge parameters to image class
         super().__init__()
+
         self.img_objects = img_objects
         self.edges = edges
         self.edges_params = edges_params
@@ -513,7 +514,6 @@ class RunnerDJI(QtCore.QRunnable):
         self.signals = RunnerSignals()
         self.undis = undis
         self.zoom = zoom
-        self.radio_param = None
         self.naming_type = naming_type
         self.file_format = file_format
         self.list_of_ir_export = list_of_ir_export
@@ -533,9 +533,28 @@ class RunnerDJI(QtCore.QRunnable):
             self.radio_param = ref_im.thermal_param
 
     def run(self):
-        # create raw outputs for each image
-        nb_im = len(self.img_objects)
-        for i, img in enumerate(self.img_objects):
+        # Create necessary subfolders upfront to avoid repeated I/O operations
+        ir_subfolder = os.path.join(self.dest_folder, 'IR_Images')
+        os.makedirs(ir_subfolder, exist_ok=True)
+
+        tiff_subfolder = os.path.join(self.dest_folder, 'TIFF_Images') if 'IR_TIF' in self.list_of_ir_export else None
+        if tiff_subfolder:
+            os.makedirs(tiff_subfolder, exist_ok=True)
+
+        picpic_subfolder = os.path.join(self.dest_folder, 'Pic-in-Pic_Images') if 'PICPIC' in self.list_of_ir_export else None
+        if picpic_subfolder:
+            os.makedirs(picpic_subfolder, exist_ok=True)
+
+        rgb_subfolder = os.path.join(self.dest_folder, 'RGB') if 'RGB' in self.list_of_rgb_export else None
+        if rgb_subfolder:
+            os.makedirs(rgb_subfolder, exist_ok=True)
+
+        rgb_crop_subfolder = os.path.join(self.dest_folder, 'RGB_CROP') if 'RGB_CROP' in self.list_of_rgb_export else None
+        if rgb_crop_subfolder:
+            os.makedirs(rgb_crop_subfolder, exist_ok=True)
+
+        # Define a worker function for parallel execution
+        def process_image(i, img):
             if i < 9:
                 prefix = '000'
             elif 9 < i < 99:
@@ -543,17 +562,12 @@ class RunnerDJI(QtCore.QRunnable):
             elif 99 < i < 999:
                 prefix = '0'
 
-            iter = int(i * (self.stop - self.start) / nb_im)
+            iter = int(i * (self.stop - self.start) / len(self.img_objects))
 
             self.signals.progressed.emit(self.start + iter)
-            self.signals.messaged.emit(f'Processing image {i}/{nb_im} with DJI SDK')
+            self.signals.messaged.emit(f'Processing image {i}/{len(self.img_objects)} with DJI SDK')
 
-            # EXPORT IR IMAGE
-            ir_subfolder = os.path.join(self.dest_folder, 'IR_Images')
-            if not os.path.exists(ir_subfolder):
-                os.mkdir(ir_subfolder)
-
-            # name the file according to naming convention
+            # Naming the file according to naming convention
             if self.naming_type == 'rename':
                 name = f'thermal_{prefix}{i}.' + self.file_format
             elif self.naming_type == 'keep_ir':
@@ -563,11 +577,11 @@ class RunnerDJI(QtCore.QRunnable):
             elif self.naming_type == 'match_rgb':
                 img_path = img.rgb_path_original
                 _, filename = os.path.split(str(img_path))
-                name =  filename[:-3] + self.file_format
+                name = filename[:-3] + self.file_format
 
             dest_path = os.path.join(ir_subfolder, name)
 
-            # first run
+            # Process raw data for IR image
             process_raw_data(img,
                              dest_path,
                              edges=self.edges,
@@ -578,67 +592,52 @@ class RunnerDJI(QtCore.QRunnable):
                              zoom=self.zoom,
                              change_shown=False)
 
-            export_tif = False
-            if 'IR_TIF' in self.list_of_ir_export:
-
-                tiff_subfolder = os.path.join(self.dest_folder, 'TIFF_Images')
-                if not os.path.exists(tiff_subfolder):
-                    os.mkdir(tiff_subfolder)
-
+            # Export IR TIFF if needed
+            if tiff_subfolder:
                 dest_path_tiff = os.path.join(tiff_subfolder, name)
-
                 process_raw_data(img,
                                  dest_path_tiff,
                                  edges=self.edges,
                                  radio_param=self.radio_param,
                                  edge_params=self.edges_params,
                                  custom_params=self.custom_params,
-                                 export_tif=True, # here the change
+                                 export_tif=True,
                                  undis=self.undis,
                                  zoom=self.zoom,
                                  change_shown=False)
 
-            # MOVE IMAGEs IN RIGHT SUBFOLDERS
-            if 'PICPIC' in self.list_of_ir_export:
-                picpic_subfolder = os.path.join(self.dest_folder, 'Pic-in-Pic_Images')
-                if not os.path.exists(picpic_subfolder):
-                    os.mkdir(picpic_subfolder)
-                # EXPORT PIC_IN_PIC
-                drone_model = img.drone_model
+            # Export Pic-in-Pic if needed
+            if picpic_subfolder:
                 picpic_path = os.path.join(picpic_subfolder, name)
-                insert_th_in_rgb(img, dest_path, picpic_path, drone_model)
+                insert_th_in_rgb(img, dest_path, picpic_path, img.drone_model, self.file_format)
 
+            # Export RGB Image if needed
+            if rgb_subfolder:
+                _, rgb_name = os.path.split(img.rgb_path_original)
+                with Image.open(img.rgb_path_original) as rgb_im:
+                    exif = rgb_im.getexif()
+                    rgb_path = os.path.join(rgb_subfolder, rgb_name[:-3] + self.file_format)
+                    rgb_im.save(rgb_path, exif=exif, compress_level=0)
 
-            # EXPORT RGB IMAGE
-            if 'RGB' in self.list_of_rgb_export:
-                rgb_subfolder = os.path.join(self.dest_folder, 'RGB')
-                if not os.path.exists(rgb_subfolder):
-                    os.mkdir(rgb_subfolder)
-
-                _,name = os.path.split(img.rgb_path_original)
-                rgb_im = cv_read_all_path(img.rgb_path_original)
-                rgb_path = os.path.join(rgb_subfolder, name)
-                cv_write_all_path(rgb_im, rgb_path)
-
-            if 'RGB_CROP' in self.list_of_rgb_export:
-                rgb_crop_subfolder = os.path.join(self.dest_folder, 'RGB_CROP')
-                if not os.path.exists(rgb_crop_subfolder):
-                    os.mkdir(rgb_crop_subfolder)
-
-                _, name = os.path.split(img.rgb_path)
+            # Export RGB Crop if needed
+            if rgb_crop_subfolder:
+                _, crop_name = os.path.split(img.rgb_path)
                 rgb_im = cv_read_all_path(img.rgb_path)
-                rgb_crop_path = os.path.join(rgb_crop_subfolder, name)
-                cv_write_all_path(rgb_im, rgb_crop_path)
+                rgb_crop_path = os.path.join(rgb_crop_subfolder, crop_name[:-3] + self.file_format)
+                cv_write_all_path(rgb_im, rgb_crop_path, extension=self.file_format)
 
-            # generate legend in last step
-            if i == len(self.img_objects) - 1:
-                legend_dest_path = os.path.join(self.dest_folder, 'plot_onlycbar_tight.png')
-                generate_legend(legend_dest_path, self.custom_params)
+        # Use ThreadPoolExecutor to process images in parallel
+        with ThreadPoolExecutor() as executor:
+            futures = [executor.submit(process_image, i, img) for i, img in enumerate(self.img_objects)]
+            for future in as_completed(futures):
+                future.result()  # To raise any exceptions that occurred during processing
 
-            # generate text summary
-            # TODO add summary
+        # Generate legend in the last step
+        legend_dest_path = os.path.join(self.dest_folder, 'plot_onlycbar_tight.png')
+        generate_legend(legend_dest_path, self.custom_params)
 
         self.signals.finished.emit()
+
 
 
 class RunnerMiniature(QtCore.QRunnable):
@@ -686,7 +685,7 @@ class RunnerMiniature(QtCore.QRunnable):
             dest_path = os.path.join(self.dest_crop_folder, new_name)
             cv_write_all_path(crop, dest_path)
 
-            print(f"Iteration {i} - Total iteration time: {time.time() - iter_start_time} seconds")
+            # print(f"Iteration {i} - Total iteration time: {time.time() - iter_start_time} seconds")
 
         with ThreadPoolExecutor() as executor:
             for i, rgb_path in enumerate(self.list_rgb_paths):
@@ -743,8 +742,8 @@ def cv_read_all_path(path):
     return img
 
 
-def cv_write_all_path(img, path):
-    is_success, im_buf_arr = cv2.imencode(".JPG", img)
+def cv_write_all_path(img, path, extension='PNG'):
+    is_success, im_buf_arr = cv2.imencode('.' + extension, img)
     im_buf_arr.tofile(path)
 
 
@@ -754,7 +753,7 @@ def list_th_rgb_images_from_res(img_folder):
     list_z_paths = []
     for file in os.listdir(img_folder):
         path = os.path.join(img_folder, file)
-        print(path)
+
         if file.endswith('.jpg') or file.endswith('.JPG'):
             im = Image.open(path)
             w, h = im.size
@@ -948,7 +947,7 @@ def get_corresponding_crop_rectangle(p1, p2, scale):
     crop_tl = (min(p1_large[0], p2_large[0]), min(p1_large[1], p2_large[1]))
     crop_br = (max(p1_large[0], p2_large[0]), max(p1_large[1], p2_large[1]))
 
-    print(p1, p2, crop_tl, crop_br)
+    # print(p1, p2, crop_tl, crop_br)
 
     return crop_tl, crop_br
 
@@ -1201,10 +1200,11 @@ def read_dji_image(img_in, raw_out, param={'emissivity': 0.95, 'distance': 5, 'h
         )
 
         # Always print stdout and stderr for debugging
-        print("STDOUT:")
+        """print("STDOUT:")
         print(result.stdout)
         print("STDERR:")
-        print(result.stderr)
+        print(result.stderr)"""
+
 
         # Check if the subprocess completed successfully
         if result.returncode != 0:
@@ -1312,11 +1312,17 @@ def process_raw_data(img_object, dest_path, edges=False, edge_params=[], radio_p
         img_thermal.save(dest_path, exif=exif)
     elif post_process == 'sharpen':
         img_th_sharpened = img_thermal.filter(ImageFilter.SHARPEN)
-        img_th_sharpened.save(dest_path, exif=exif)
+        if dest_path.endswith('JPG'):
+            img_th_sharpened.save(dest_path, exif=exif, quality=0.99)
+        elif dest_path.endswith('PNG'):
+            img_th_sharpened.save(dest_path, exif=exif, compression_level=0)
     elif post_process == 'sharpen strong':
         img_th_sharpened = img_thermal.filter(ImageFilter.SHARPEN)
         img_th_sharpened2 = img_th_sharpened.filter(ImageFilter.SHARPEN)
-        img_th_sharpened2.save(dest_path, exif=exif)
+        if dest_path.endswith('JPG'):
+            img_th_sharpened2.save(dest_path, exif=exif, quality=0.99)
+        elif dest_path.endswith('PNG'):
+            img_th_sharpened2.save(dest_path, exif=exif, compression_level=0)
     elif post_process == 'edge (simple)':
         img_th_smooth = img_thermal.filter(ImageFilter.SMOOTH)
         img_th_findedge = img_th_smooth.filter(ImageFilter.Kernel((3, 3), (-1, -1, -1, -1, 8,
@@ -1333,10 +1339,16 @@ def process_raw_data(img_object, dest_path, edges=False, edge_params=[], radio_p
         blended_img = np.uint8(blended)
         blended_img_raw = Image.fromarray(blended_img)
         blended_img_raw = blended_img_raw.convert('RGB')
-        blended_img_raw.save(dest_path, exif=exif)
+        if dest_path.endswith('JPG'):
+            blended_img_raw.save(dest_path, exif=exif, quality=0.99)
+        elif dest_path.endswith('PNG'):
+            blended_img_raw.save(dest_path, exif=exif, compression_level=0)
     elif post_process == 'smooth':
         img_th_smooth = img_thermal.filter(ImageFilter.SMOOTH)
-        img_th_smooth.save(dest_path, exif=exif)
+        if dest_path.endswith('JPG'):
+            img_th_smooth.save(dest_path, exif=exif, quality=0.99)
+        elif dest_path.endswith('PNG'):
+            img_th_smooth.save(dest_path, exif=exif, compression_level=0)
     elif post_process == 'contours':
         thermal_normalized_clipped = np.clip(thermal_normalized, 0, 1)
 
@@ -1369,7 +1381,10 @@ def process_raw_data(img_object, dest_path, edges=False, edge_params=[], radio_p
 
         # Save the blended image
         img_with_contours = Image.fromarray(contour_canvas)
-        img_with_contours.save(dest_path, exif=exif)
+        if dest_path.endswith('JPG'):
+            img_with_contours.save(dest_path, exif=exif, quality=0.99)
+        elif dest_path.endswith('PNG'):
+            img_with_contours.save(dest_path, exif=exif, compression_level=0)
 
     # check if edges need to be added (parameter 'edge' is a boolean)
     if edges:
@@ -1382,9 +1397,15 @@ def process_raw_data(img_object, dest_path, edges=False, edge_params=[], radio_p
         edged_image = add_lines_from_rgb(dest_path, cv_match_rgb_img, drone_model, mode=ed_met, color=ed_col, bilateral=ed_bil, blur=ed_blur, blur_size=ed_bl_sz, opacity=ed_op)
 
         if exif is None:
-            edged_image.save(dest_path)
+            if dest_path.endswith('JPG'):
+                edged_image.save(dest_path, exif=exif, quality=0.99)
+            elif dest_path.endswith('PNG'):
+                edged_image.save(dest_path, exif=exif, compression_level=0)
         else:
-            edged_image.save(dest_path, exif=exif)
+            if dest_path.endswith('JPG'):
+                edged_image.save(dest_path, exif=exif, quality=0.99)
+            elif dest_path.endswith('PNG'):
+                edged_image.save(dest_path, exif=exif, compression_level=0)
 
 
 
@@ -1515,8 +1536,8 @@ def process_th_image_with_zoom(img_obj, out_folder, theta, replace_rgb_with_th=F
 
     return mse
 
-def insert_th_in_rgb(img_obj, ir_path, dest_path, drone_model):
-    print(dest_path)
+def insert_th_in_rgb(img_obj, ir_path, dest_path, drone_model, extension):
+
     # read images
     cv_rgb = cv_read_all_path(img_obj.rgb_path_original)  # read rgb image
     h_rgb, w_rgb = cv_rgb.shape[:2]
@@ -1579,7 +1600,7 @@ def insert_th_in_rgb(img_obj, ir_path, dest_path, drone_model):
     cv_rgb[y1:y2, x1:x2] = cv_ir_resized
 
     # Save resized or padded image
-    cv_write_all_path(cv_rgb, dest_path)
+    cv_write_all_path(cv_rgb, dest_path, extension=extension)
 
 
 def generate_legend(legend_dest_path, custom_params):
@@ -1592,7 +1613,7 @@ def generate_legend(legend_dest_path, custom_params):
 
     fig, ax = plt.subplots()
     data = np.clip(np.random.randn(10, 10) * 100, tmin, tmax)
-    print(data)
+    # print(data)
 
     if colormap in LIST_CUSTOM_CMAPS:
         custom_cmap = get_custom_cmaps(colormap, n_colors)
@@ -1616,7 +1637,6 @@ def generate_legend(legend_dest_path, custom_params):
 
 def create_vector_plot(img_obj):
     thermal_image = img_obj.raw_data_undis
-    colormap = img_obj.colormap
     n_colors = img_obj.n_colors
     tmin = img_obj.tmin_shown
     tmax = img_obj.tmax_shown

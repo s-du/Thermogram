@@ -1,4 +1,5 @@
 # imports
+
 from PyQt6.QtGui import *  # modified from PySide6.QtGui to PyQt6.QtGui
 from PyQt6.QtWidgets import *  # modified from PySide6.QtWidgets to PyQt6.QtWidgets
 from PyQt6.QtCore import *  # modified from PySide6.QtCore to PyQt6.QtCore
@@ -56,6 +57,10 @@ def get_next_available_folder(base_folder, app_folder_base_name=APP_FOLDER):
         folder_number += 1
 
 # USEFUL CLASSES
+class SplashScreen(QSplashScreen):
+    def __init__(self):
+        super().__init__(QPixmap(res.find('img/splash.png')))
+
 class DroneIrWindow(QMainWindow):
     """
     Main Window class for Thermogram
@@ -881,9 +886,17 @@ class DroneIrWindow(QMainWindow):
             if dialog.checkBox_exp_crop.isChecked():
                 list_rgb_export.append('RGB_CROP')
 
-            selected_option = dialog.comboBox_naming.currentIndex()
+
+            # Determining file format
+            format_idx = dialog.comboBox_img_format.currentIndex()
+            if format_idx == 0:
+                format = 'PNG'
+            elif format_idx == 1:
+                format = 'JPG'
+
 
             # Determine naming_type based on the selected option
+            selected_option = dialog.comboBox_naming.currentIndex()
             if selected_option == 0:
                 naming_type = 'rename'
             elif selected_option == 1:
@@ -894,7 +907,7 @@ class DroneIrWindow(QMainWindow):
             out_folder = dialog.lineEdit.text()
 
             worker_1 = tt.RunnerDJI(5, 100, out_folder, self.images, self.work_image, self.edges,
-                                    self.edge_params, undis=undis, zoom=zoom, naming_type=naming_type,
+                                    self.edge_params, undis=undis, zoom=zoom, naming_type=naming_type, file_format=format,
                                     list_of_ir_export=list_ir_export, list_of_rgb_export=list_rgb_export)
             worker_1.signals.progressed.connect(lambda value: self.update_progress(value))
             worker_1.signals.messaged.connect(lambda string: self.update_progress(text=string))
@@ -1057,7 +1070,7 @@ class DroneIrWindow(QMainWindow):
 
     def compose_pic(self):
         self.number_custom_pic += 1
-        dest_path_temp = self.dest_path_post[:-4] + f'_custom{self.number_custom_pic}.png'
+        dest_path_temp = self.dest_path_post[:-4] + f'_custom{self.number_custom_pic}.PNG'
         print(dest_path_temp)
         dialog = dia.ImageFusionDialog(self.work_image, self.dest_path_post, dest_path_temp)
         if dialog.exec():
@@ -1246,7 +1259,7 @@ class DroneIrWindow(QMainWindow):
 
         else:  # IR picture
             self.compile_user_values()  # store combobox choices in img data
-            dest_path_post = os.path.join(self.preview_folder, 'preview_post.png')
+            dest_path_post = os.path.join(self.preview_folder, 'preview_post.PNG')
             img = self.work_image
 
             # get edge detection parameters
@@ -1463,41 +1476,33 @@ class DroneIrWindow(QMainWindow):
 
 def main(argv=None):
     """
-    Creates the main window for the application and begins the \
-    QApplication if necessary.
-
-    :param      argv | [, ..] || None
-
-    :return      error code
+    Creates the main window for the application and begins the QApplication if necessary.
     """
+    import time  # Simulate loading delay for demo purposes
 
-    # Define installation path
-    install_folder = os.path.dirname(__file__)
+    # Create the application if necessary
+    app = QApplication(argv)
+    app.setStyle('Fusion')
 
-    app = None
-    extra = {
+    # Show the splash screen
+    splash_pixmap = QPixmap(res.find('img/splash.png'))  # Provide path to splash image
+    splash = QSplashScreen(splash_pixmap)
+    splash.show()
+    app.processEvents()  # Ensure the splash screen is shown immediately
 
-        # Density Scale
-        'density_scale': '-3',
-    }
+    # Simulate heavy initializations (remove or replace with real initializations)
+    time.sleep(3)  # Replace this with actual loading tasks
 
-    # create the application if necessary
-    if (not QApplication.instance()):
-        app = QApplication(argv)
-        app.setStyle('Fusion')
-
-    # create the main window
-
+    # Create and show the main window
     window = DroneIrWindow()
     window.setWindowIcon(QIcon(res.find('img/icone.png')))
     window.showMaximized()
 
-    # run the application if necessary
-    if app:
-        return app.exec()
+    # Close the splash screen once the main window is ready
+    splash.finish(window)
 
-    # no errors since we're not running our own event loop
-    return 0
+    # Run the application
+    return app.exec()
 
 
 if __name__ == '__main__':
