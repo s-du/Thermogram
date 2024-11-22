@@ -20,79 +20,7 @@
    <string>Thermogram</string>
   </property>
   <property name="styleSheet">
-   <string notr="true">QPushButton{
-border-style: solid;
-border-top-color: qlineargradient(spread:pad, x1:0.5, y1:1, x2:0.5, y2:0, stop:0 rgb(215, 215, 215), stop:1 rgb(222, 222, 222));
-border-right-color: qlineargradient(spread:pad, x1:0, y1:0.5, x2:1, y2:0.5, stop:0 rgb(217, 217, 217), stop:1 rgb(227, 227, 227));
-border-left-color: qlineargradient(spread:pad, x1:0, y1:0.5, x2:1, y2:0.5, stop:0 rgb(227, 227, 227), stop:1 rgb(217, 217, 217));
-border-bottom-color: qlineargradient(spread:pad, x1:0.5, y1:1, x2:0.5, y2:0, stop:0 rgb(215, 215, 215), stop:1 rgb(222, 222, 222));
-border-width: 1px;
-border-radius: 5px;
-color: rgb(0,0,0);
-padding: 2px;
-background-color: rgb(255,255,255);
-}
-QPushButton::default{
-border-style: solid;
-border-top-color: qlineargradient(spread:pad, x1:0.5, y1:1, x2:0.5, y2:0, stop:0 rgb(215, 215, 215), stop:1 rgb(222, 222, 222));
-border-right-color: qlineargradient(spread:pad, x1:0, y1:0.5, x2:1, y2:0.5, stop:0 rgb(217, 217, 217), stop:1 rgb(227, 227, 227));
-border-left-color: qlineargradient(spread:pad, x1:0, y1:0.5, x2:1, y2:0.5, stop:0 rgb(227, 227, 227), stop:1 rgb(217, 217, 217));
-border-bottom-color: qlineargradient(spread:pad, x1:0.5, y1:1, x2:0.5, y2:0, stop:0 rgb(215, 215, 215), stop:1 rgb(222, 222, 222));
-border-width: 1px;
-border-radius: 5px;
-color: rgb(0,0,0);
-padding: 2px;
-background-color: rgb(255,255,255);
-}
-QPushButton:hover{
-border-style: solid;
-border-color: #B9256F;
-border-width: 1px;
-border-radius: 5px;
-color: rgb(0,0,0);
-padding: 2px;
-background-color: rgb(255,255,255);
-}
-QPushButton:pressed{
-border-style: solid;
-border-top-color: qlineargradient(spread:pad, x1:0.5, y1:1, x2:0.5, y2:0, stop:0 rgb(215, 215, 215), stop:1 rgb(222, 222, 222));
-border-right-color: qlineargradient(spread:pad, x1:0, y1:0.5, x2:1, y2:0.5, stop:0 rgb(217, 217, 217), stop:1 rgb(227, 227, 227));
-border-left-color: qlineargradient(spread:pad, x1:0, y1:0.5, x2:1, y2:0.5, stop:0 rgb(227, 227, 227), stop:1 rgb(217, 217, 217));
-border-bottom-color: qlineargradient(spread:pad, x1:0.5, y1:1, x2:0.5, y2:0, stop:0 rgb(215, 215, 215), stop:1 rgb(222, 222, 222));
-border-width: 1px;
-border-radius: 5px;
-color: rgb(0,0,0);
-padding: 2px;
-background-color: rgb(142,142,142);
-}
-QPushButton:disabled{
-border-style: solid;
-border-top-color: qlineargradient(spread:pad, x1:0.5, y1:1, x2:0.5, y2:0, stop:0 rgb(215, 215, 215), stop:1 rgb(222, 222, 222));
-border-right-color: qlineargradient(spread:pad, x1:0, y1:0.5, x2:1, y2:0.5, stop:0 rgb(217, 217, 217), stop:1 rgb(227, 227, 227));
-border-left-color: qlineargradient(spread:pad, x1:0, y1:0.5, x2:1, y2:0.5, stop:0 rgb(227, 227, 227), stop:1 rgb(217, 217, 217));
-border-bottom-color: qlineargradient(spread:pad, x1:0.5, y1:1, x2:0.5, y2:0, stop:0 rgb(215, 215, 215), stop:1 rgb(222, 222, 222));
-border-width: 1px;
-border-radius: 5px;
-color: #bbb;
-padding: 2px;
-background-color: #ddd;
-}
-
-
-QProgressBar {
-text-align: center;
-color: rgb(240, 240, 240);
-border-width: 1px; 
-border-radius: 10px;
-border-color: rgb(230, 230, 230);
-border-style: solid;
-background-color:rgb(207,207,207);
-}
-
-QProgressBar:chunk {
-background-color:#9B1F6F;
-border-radius: 10px;
-}</string>
+   <string notr="true"/>
   </property>
   <widget class="QWidget" name="centralwidget">
    <layout class="QGridLayout" name="gridLayout">
@@ -337,8 +265,16 @@ border-radius: 10px;
     </property>
     <addaction name="actionOptions"/>
    </widget>
+   <widget class="QMenu" name="menuview">
+    <property name="title">
+     <string>View</string>
+    </property>
+    <addaction name="actionRadiometric_parameters"/>
+    <addaction name="actionEdge_Mix"/>
+   </widget>
    <addaction name="menuFile"/>
    <addaction name="menuSettings"/>
+   <addaction name="menuview"/>
    <addaction name="menuAbout"/>
   </widget>
   <widget class="QStatusBar" name="statusbar"/>
@@ -561,13 +497,6 @@ border-radius: 10px;
       </widget>
      </item>
      <item>
-      <widget class="QLabel" name="label_11">
-       <property name="text">
-        <string>Palette:</string>
-       </property>
-      </widget>
-     </item>
-     <item>
       <widget class="QComboBox" name="comboBox">
        <property name="enabled">
         <bool>false</bool>
@@ -764,60 +693,6 @@ border-radius: 10px;
       </layout>
      </item>
      <item>
-      <spacer name="verticalSpacer_4">
-       <property name="orientation">
-        <enum>Qt::Vertical</enum>
-       </property>
-       <property name="sizeHint" stdset="0">
-        <size>
-         <width>20</width>
-         <height>40</height>
-        </size>
-       </property>
-      </spacer>
-     </item>
-     <item>
-      <widget class="QLabel" name="label_6">
-       <property name="text">
-        <string>Highlight edges:</string>
-       </property>
-      </widget>
-     </item>
-     <item>
-      <widget class="QPushButton" name="pushButton_match">
-       <property name="enabled">
-        <bool>false</bool>
-       </property>
-       <property name="text">
-        <string>Align RGB/IR</string>
-       </property>
-      </widget>
-     </item>
-     <item>
-      <layout class="QHBoxLayout" name="horizontalLayout_10">
-       <item>
-        <widget class="QCheckBox" name="checkBox_edges">
-         <property name="enabled">
-          <bool>false</bool>
-         </property>
-         <property name="text">
-          <string>Add edges from RGB</string>
-         </property>
-        </widget>
-       </item>
-       <item>
-        <widget class="QPushButton" name="pushButton_edge_options">
-         <property name="enabled">
-          <bool>false</bool>
-         </property>
-         <property name="text">
-          <string>Options</string>
-         </property>
-        </widget>
-       </item>
-      </layout>
-     </item>
-     <item>
       <spacer name="verticalSpacer_2">
        <property name="orientation">
         <enum>Qt::Vertical</enum>
@@ -853,6 +728,9 @@ border-radius: 10px;
     <layout class="QVBoxLayout" name="verticalLayout">
      <item>
       <widget class="QPushButton" name="pushButton_meas_color">
+       <property name="enabled">
+        <bool>true</bool>
+       </property>
        <property name="text">
         <string>Change color for all measurements</string>
        </property>
@@ -860,6 +738,9 @@ border-radius: 10px;
      </item>
      <item>
       <widget class="QPushButton" name="pushButton_delete_area">
+       <property name="enabled">
+        <bool>false</bool>
+       </property>
        <property name="text">
         <string>Delete all area measurements</string>
        </property>
@@ -867,6 +748,9 @@ border-radius: 10px;
      </item>
      <item>
       <widget class="QPushButton" name="pushButton_delete_points">
+       <property name="enabled">
+        <bool>false</bool>
+       </property>
        <property name="text">
         <string>Delete all spot measurements</string>
        </property>
@@ -874,6 +758,9 @@ border-radius: 10px;
      </item>
      <item>
       <widget class="QPushButton" name="pushButton_delete_lines">
+       <property name="enabled">
+        <bool>false</bool>
+       </property>
        <property name="text">
         <string>Delete all line measurements</string>
        </property>
@@ -897,6 +784,9 @@ border-radius: 10px;
      </item>
      <item>
       <widget class="QPushButton" name="pushButton_heatflow">
+       <property name="enabled">
+        <bool>false</bool>
+       </property>
        <property name="text">
         <string>Visualize heat flow</string>
        </property>
@@ -921,9 +811,9 @@ border-radius: 10px;
     </layout>
    </widget>
   </widget>
-  <widget class="QDockWidget" name="dockWidget_4">
+  <widget class="QDockWidget" name="dockWidget_radio">
    <property name="features">
-    <set>QDockWidget::DockWidgetFloatable|QDockWidget::DockWidgetMovable</set>
+    <set>QDockWidget::DockWidgetClosable|QDockWidget::DockWidgetMovable</set>
    </property>
    <property name="windowTitle">
     <string>Radiometric parameters</string>
@@ -936,7 +826,7 @@ border-radius: 10px;
      <item>
       <widget class="QCheckBox" name="checkBox_keep_radiometric">
        <property name="text">
-        <string>keep radiometric parameters when switching images</string>
+        <string>Keep radiometric parameters when switching images</string>
        </property>
        <property name="checked">
         <bool>false</bool>
@@ -1071,6 +961,78 @@ border-radius: 10px;
      </item>
      <item>
       <spacer name="verticalSpacer_3">
+       <property name="orientation">
+        <enum>Qt::Vertical</enum>
+       </property>
+       <property name="sizeHint" stdset="0">
+        <size>
+         <width>20</width>
+         <height>40</height>
+        </size>
+       </property>
+      </spacer>
+     </item>
+    </layout>
+   </widget>
+  </widget>
+  <widget class="QDockWidget" name="dockWidget_edge">
+   <property name="features">
+    <set>QDockWidget::DockWidgetClosable|QDockWidget::DockWidgetMovable</set>
+   </property>
+   <property name="windowTitle">
+    <string>Edge mix</string>
+   </property>
+   <attribute name="dockWidgetArea">
+    <number>1</number>
+   </attribute>
+   <widget class="QWidget" name="dockWidgetContents_5">
+    <layout class="QVBoxLayout" name="verticalLayout_13">
+     <item>
+      <layout class="QHBoxLayout" name="horizontalLayout_10">
+       <item>
+        <widget class="QCheckBox" name="checkBox_edges">
+         <property name="enabled">
+          <bool>false</bool>
+         </property>
+         <property name="text">
+          <string>Add edges from RGB</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="pushButton_edge_options">
+         <property name="enabled">
+          <bool>false</bool>
+         </property>
+         <property name="text">
+          <string>Advanced  options</string>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </item>
+     <item>
+      <widget class="QLabel" name="label_6">
+       <property name="text">
+        <string>Predefined styles:</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QComboBox" name="comboBox_edge_predef"/>
+     </item>
+     <item>
+      <widget class="QPushButton" name="pushButton_match">
+       <property name="enabled">
+        <bool>false</bool>
+       </property>
+       <property name="text">
+        <string>Align RGB/IR</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <spacer name="verticalSpacer_4">
        <property name="orientation">
         <enum>Qt::Vertical</enum>
        </property>
@@ -1269,6 +1231,16 @@ border-radius: 10px;
   <action name="actionExport_Pic_in_pic">
    <property name="text">
     <string>Batch Export Pic-in-pic</string>
+   </property>
+  </action>
+  <action name="actionRadiometric_parameters">
+   <property name="text">
+    <string>Radiometric parameters</string>
+   </property>
+  </action>
+  <action name="actionEdge_Mix">
+   <property name="text">
+    <string>Edge Mix</string>
    </property>
   </action>
  </widget>

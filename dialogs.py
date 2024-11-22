@@ -409,6 +409,8 @@ class ImageFusionDialog(QtWidgets.QDialog):
         uifile = os.path.join(basepath, 'ui/%s.ui' % basename)
         loadUi(uifile, self)
 
+        self.setWindowTitle("Create a custom overlay")
+
         self.ir_path = ir_img_path
         self.img_object = img_object
         self.colormap_name = img_object.colormap
@@ -431,7 +433,9 @@ class ImageFusionDialog(QtWidgets.QDialog):
 
         # range slider for shown data
         self.range_slider_shown = wid.QRangeSlider()
-        self.range_slider_shown.handleSize = 10
+        self.range_slider_shown.handleWidth = 15
+        self.range_slider_shown.handleHeight = 20
+        self.range_slider_shown.trackHeight = 20
         self.range_slider_shown.back_color = QColor(220, 220, 220)
         self.range_slider_shown.setLowerValue(min_shown_temp_scaled)
         self.range_slider_shown.setUpperValue(max_shown_temp_scaled)
@@ -444,6 +448,7 @@ class ImageFusionDialog(QtWidgets.QDialog):
         self.range_slider_map.setUpperValue(max_shown_temp_scaled)
         self.range_slider_map.setMinimum(min_temp_scaled)
         self.range_slider_map.setMaximum(max_temp_scaled)
+        self.range_slider_map.setFixedHeight(50)
 
         self.range_slider_shown.lowerValueChanged.connect(self.updateIRImage)
         self.range_slider_shown.upperValueChanged.connect(self.updateIRImage)
@@ -476,8 +481,8 @@ class ImageFusionDialog(QtWidgets.QDialog):
         self.scene.addItem(self.thermalImageItem)
 
         # Fusion Mode ComboBox
-        modes = ['Screen',
-                 'SourceOver',
+        modes = ['SourceOver',
+                 'Screen',
                  'Multiply',
                  'Overlay',
                  'Darken',

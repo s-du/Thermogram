@@ -1,44 +1,64 @@
-# imports
-
-from PyQt6.QtGui import *  # modified from PySide6.QtGui to PyQt6.QtGui
-from PyQt6.QtWidgets import *  # modified from PySide6.QtWidgets to PyQt6.QtWidgets
-from PyQt6.QtCore import *  # modified from PySide6.QtCore to PyQt6.QtCore
-from PyQt6 import uic
-
-import os
-import json
-
-# custom libraries
-import widgets as wid
-import resources as res
-import dialogs as dia
-from tools import thermal_tools as tt
-from tools import thermal_3d as t3d
-import copy
-
 """
-Any remarks, questions: sdu@bbri.be
+Thermogram - Thermal Image Processing Application
+
+A comprehensive application for processing and analyzing thermal images captured by DJI drones.
+Provides tools for visualization, measurement, and analysis of thermal data.
+
+Author: sdu@bbri.be
+
 TODO:
 - Allow to import only thermal pictures - OK
 - Implement 'context' dialog --> Drone info + location
 - Allow the user to define a custom folder
 - Implement save/load project folder
+
 """
 
+# Qt imports
+from PyQt6.QtGui import *  # modified from PySide6.QtGui to PyQt6.QtGui
+from PyQt6.QtWidgets import *  # modified from PySide6.QtWidgets to PyQt6.QtWidgets
+from PyQt6.QtCore import *  # modified from PySide6.QtCore to PyQt6.QtCore
+from PyQt6 import uic
+
+# Standard library imports
+import os
+import json
+import copy
+from pathlib import Path
+
+# Custom libraries
+import widgets as wid
+import resources as res
+import dialogs as dia
+from tools import thermal_tools as tt
+from tools import thermal_3d as t3d
+from utils.config import config, thermal_config
+from utils.logger import info, error, debug, warning
+from utils.exceptions import ThermogramError, FileOperationError
+
 # PARAMETERS
-APP_FOLDER = 'ThermogramApp_'
-ORIGIN_THERMAL_IMAGES_NAME = 'Original Thermal Images'
-RGB_ORIGINAL_NAME = 'Original RGB Images'
-RGB_CROPPED_NAME = 'Cropped RGB Images'
-ORIGIN_TH_FOLDER = 'img_th_original'
-RGB_CROPPED_FOLDER = 'img_rgb'
-PROC_TH_FOLDER = 'img_th_processed'
+# Application constants
+APP_VERSION = config.APP_VERSION
+APP_FOLDER = config.APP_FOLDER
 
-RECT_MEAS_NAME = 'Rectangle measurements'
-POINT_MEAS_NAME = 'Spot measurements'
-LINE_MEAS_NAME = 'Line measurements'
+# Names
+ORIGIN_THERMAL_IMAGES_NAME = config.ORIGIN_THERMAL_IMAGES_NAME
+RGB_ORIGINAL_NAME = config.RGB_ORIGINAL_NAME
+RGB_CROPPED_NAME = config.RGB_CROPPED_NAME
+ORIGIN_TH_FOLDER = config.ORIGIN_TH_FOLDER
+RGB_CROPPED_FOLDER = config.RGB_CROPPED_FOLDER
+PROC_TH_FOLDER = config.PROC_TH_FOLDER
 
-VIEWS = ['th. undistorted', 'RGB crop']
+RECT_MEAS_NAME = config.RECT_MEAS_NAME
+POINT_MEAS_NAME = config.POINT_MEAS_NAME
+LINE_MEAS_NAME = config.LINE_MEAS_NAME
+
+EDGE_COLOR = 'white'
+EDGE_BLUR_SIZE = 3
+EDGE_METHOD = 0
+EDGE_OPACITY = 0.7
+
+VIEWS = config.VIEWS
 
 
 def get_next_available_folder(base_folder, app_folder_base_name=APP_FOLDER):
@@ -56,228 +76,351 @@ def get_next_available_folder(base_folder, app_folder_base_name=APP_FOLDER):
         # Increment the folder number and try again
         folder_number += 1
 
-# USEFUL CLASSES
+
+# CLASSES
 class SplashScreen(QSplashScreen):
-    def __init__(self):
-        super().__init__(QPixmap(res.find('img/splash.png')))
+    """A splash screen displayed during application startup.
+
+    Displays a splash image while the main application is loading.
+    """
+
+    def __init__(self) -> None:
+        """Initialize the splash screen with the application splash image."""
+        try:
+            splash_path = res.find('img/splash.png')
+            if not os.path.exists(splash_path):
+                error("Splash image not found")
+                raise FileOperationError(f"Splash image not found at: {splash_path}")
+
+            super().__init__(QPixmap(splash_path))
+            debug("Splash screen initialized successfully")
+        except Exception as e:
+            error(f"Failed to initialize splash screen: {str(e)}")
+            raise ThermogramError("Could not create splash screen") from e
+
 
 class DroneIrWindow(QMainWindow):
-    """
-    Main Window class for Thermogram
+    """Main application window for the Thermogram application.
+
+    Handles the primary user interface and functionality for thermal image processing,
+    including image loading, visualization, measurements, and analysis tools.
+
+    Attributes:
+        ...
     """
 
     def __init__(self, parent=None):
-        """
-        Function to initialize the class
-        :param parent:
+        """Initialize the main window and set up the user interface.
+
+        Args:
+            parent: Optional parent widget
+
+        Raises:
+            ThermogramError: If initialization fails
+            FileOperationError: If required UI files are not found
         """
         super(DroneIrWindow, self).__init__(parent)
 
-        # load the ui
-        basepath = os.path.dirname(__file__)
-        basename = 'main_window'
-        uifile = os.path.join(basepath, 'ui/%s.ui' % basename)
-        print(uifile)
-        uic.loadUi(uifile, self)
+        # Load the UI file
+        ui_file = Path(config.UI_DIR) / 'main_window.ui'
+        if not ui_file.exists():
+            error(f"UI file not found: {ui_file}")
+            raise FileOperationError(f"UI file not found: {ui_file}")
 
-        # initialize status
+        info(f"Loading UI file: {ui_file}")
+        uic.loadUi(str(ui_file), self)
+
+
+        # Initialize status
         self.update_progress(nb=100, text="Status: Choose image folder")
 
-        # threadin
+        # Set up thread pool for background tasks
         self.__pool = QThreadPool()
         self.__pool.setMaxThreadCount(3)
+        debug(f"Thread pool initialized with {self.__pool.maxThreadCount()} threads")
 
+        # Initialize core components
         self.initialize_variables()
         self.initialize_tree_view()
 
-        # edge options
+        # Edge detection settings
         self.edges = False
-        self.edge_color = 'white'
+        self.edge_color = EDGE_COLOR
         self.edge_blur = False
         self.edge_bil = True
-        self.edge_blur_size = 3
-        self.edge_method = 0
-        self.edge_opacity = 0.7
+        self.edge_blur_size = EDGE_BLUR_SIZE
+        self.edge_method = EDGE_METHOD
+        self.edge_opacity = EDGE_OPACITY
 
-        # combo boxes content
-        self._out_of_lim = tt.OUT_LIM
-        self._out_of_matp = tt.OUT_LIM_MATPLOT
-        self._img_post = tt.POST_PROCESS
-        self._colormap_names = tt.COLORMAP_NAMES
-        self._colormap_list = tt.COLORMAPS
-        self._view_list = VIEWS
-
-        # add content to comboboxes
-        self.comboBox.addItems(self._colormap_names)
-        self.comboBox.setCurrentIndex(0)
-
-        self.comboBox_colors_low.addItems(self._out_of_lim)
-        self.comboBox_colors_low.setCurrentIndex(0)
-        self.comboBox_colors_high.addItems(self._out_of_lim)
-        self.comboBox_colors_high.setCurrentIndex(0)
-
-        self.comboBox_view.addItems(self._view_list)
-        self.comboBox_post.addItems(self._img_post)
-
-        self.advanced_options = False  # TODO: see if used
+        # Other options
         self.skip_update = False
 
-        # create double slider
-        self.range_slider = wid.QRangeSlider(tt.COLORMAPS[0])
-        self.range_slider.setEnabled(False)
-        self.range_slider.setLowerValue(0)
-        self.range_slider.setUpperValue(20)
-        self.range_slider.setMinimum(0)
-        self.range_slider.setMaximum(20)
+        # Initialize combo box content
+        self._setup_combo_boxes()
 
-        self.slider_sensitive = True
-
-        # add double slider to layout
-        self.horizontalLayout_slider.addWidget(self.range_slider)
-
-        self.range_slider.lowerValueChanged.connect(self.change_line_edits)
-        self.range_slider.upperValueChanged.connect(self.change_line_edits)
-
-        # create validator for qlineedit
-        onlyInt = QIntValidator()
-        onlyInt.setRange(0, 999)
-        self.lineEdit_colors.setValidator(onlyInt)
-        self.n_colors = 256  # default number of colors
-        self.lineEdit_colors.setText(str(256))
-
-        # add actions to action group (mutually exclusive functions)
-        ag = QActionGroup(self)
-        ag.setExclusive(True)
-        ag.addAction(self.actionRectangle_meas)
-        ag.addAction(self.actionHand_selector)
-        ag.addAction(self.actionSpot_meas)
-        ag.addAction(self.actionLine_meas)
-
-        # Add icons to buttons
-        self.add_all_icons()
-
-        # prepare viewer
-        self.viewer = wid.PhotoViewer(self)
-        self.verticalLayout_8.addWidget(self.viewer)
-
-        # add dual viewer
-        self.dual_viewer = wid.DualViewer()
-        self.verticalLayout_10.addWidget(self.dual_viewer)
+        # Set up UI components
+        self._setup_ui_components()
 
         # create connections (signals)
         self.create_connections()
 
+        # Add icons to buttons
+        self.add_all_icons()
+
+    def _setup_combo_boxes(self) -> None:
+        """Initialize and populate combo boxes with their respective items."""
+        try:
+            # Initialize color limit options
+            self._out_of_lim = tt.OUT_LIM
+            self._out_of_matp = tt.OUT_LIM_MATPLOT
+
+            self._img_post = tt.POST_PROCESS
+            self._colormap_list = tt.COLORMAPS
+            self._view_list = VIEWS
+
+            # Add content to comboboxes
+            self.comboBox.clear()
+            self.comboBox.addItems(tt.COLORMAP_NAMES)
+            self.comboBox.setCurrentIndex(0)
+
+            # Set up color limit combo boxes
+            self.comboBox_colors_low.clear()
+            self.comboBox_colors_low.addItems(self._out_of_lim)
+            self.comboBox_colors_low.setCurrentIndex(0)
+            self.comboBox_colors_high.clear()
+            self.comboBox_colors_high.addItems(self._out_of_lim)
+            self.comboBox_colors_high.setCurrentIndex(0)
+
+            self.comboBox_view.addItems(self._view_list)
+            self.comboBox_post.addItems(self._img_post)
+
+            debug("Combo boxes initialized successfully")
+
+        except Exception as e:
+            error(f"Failed to initialize combo boxes: {str(e)}")
+            raise ThermogramError("Failed to initialize combo boxes") from e
+
+    def _setup_ui_components(self) -> None:
+        """Initialize and set up UI components."""
+        try:
+            # Group dock widgets
+            self.tabifyDockWidget(self.dockWidget, self.dockWidget_2)
+            self.dockWidget.raise_()  # Make the first dock widget visible by default
+
+            # Set up range slider
+            self.range_slider = wid.QRangeSlider(tt.COLORMAPS[0])
+            self.range_slider.setEnabled(False)
+            self.range_slider.setLowerValue(0)
+            self.range_slider.setUpperValue(20)
+            self.range_slider.setMinimum(0)
+            self.range_slider.setMaximum(20)
+            self.range_slider.setFixedHeight(45)
+
+            # Add range slider to layout
+            self.horizontalLayout_slider.addWidget(self.range_slider)
+
+            # Sliders options
+            self.slider_sensitive = True
+
+            # Create validator for qlineedit
+            onlyInt = QIntValidator()
+            onlyInt.setRange(0, 999)
+            self.lineEdit_colors.setValidator(onlyInt)
+            self.n_colors = 256  # default number of colors
+            self.lineEdit_colors.setText(str(256))
+
+            # Add actions to action group (mutually exclusive functions)
+            ag = QActionGroup(self)
+            ag.setExclusive(True)
+            ag.addAction(self.actionRectangle_meas)
+            ag.addAction(self.actionHand_selector)
+            ag.addAction(self.actionSpot_meas)
+            ag.addAction(self.actionLine_meas)
+
+            # Set up photo viewers
+            self.viewer = wid.PhotoViewer(self)
+            self.verticalLayout_8.addWidget(self.viewer)
+            self.dual_viewer = wid.DualViewer()
+            self.verticalLayout_10.addWidget(self.dual_viewer)
+
+        except Exception as e:
+            error(f"Failed to initialize UI components: {str(e)}")
+            raise ThermogramError("Failed to initialize UI components") from e
+
     def initialize_variables(self):
-        # set bool variables
-        self.has_rgb = True  # does the dataset have RGB image
-        self.rgb_shown = False
-        self.save_colormap_info = True  # TODO make use of it... if True, the colormap and temperature options will be stored for each picture
+        """Initialize instance variables with default values.
 
-        # set path variables
-        self.custom_images = []
-        self.list_rgb_paths = []
-        self.list_ir_paths = []
-        self.list_z_paths = []
-        self.ir_folder = ''
-        self.rgb_folder = ''
-        self.preview_folder = ''
+        Sets up various flags and variables used throughout the application for
+        tracking state, image properties, and user settings.
+        """
+        try:
+            # Set bool variables
+            self.has_rgb = True  # does the dataset have RGB image
+            self.rgb_shown = False
+            self.save_colormap_info = True  # TODO make use of it... if True, the colormap and temperature options will be stored for each picture
 
-        # set other variables
-        self.colormap = None
-        self.number_custom_pic = 0
+            # Set path variables
+            self.custom_images = []
+            self.list_rgb_paths = []
+            self.list_ir_paths = []
+            self.list_z_paths = []
+            self.ir_folder = ''
+            self.rgb_folder = ''
+            self.preview_folder = ''
 
-        # list thermal images
-        self.ir_imgs = ''
-        self.rgb_imgs = ''
-        self.n_imgs = len(self.ir_imgs)
-        self.nb_sets = 0
+            # Set other variables
+            self.colormap = None
+            self.number_custom_pic = 0
 
-        # list images classes (where to store all measurements and annotations)
-        self.images = []
-        self.work_image = None
+            # Image lists
+            self.ir_imgs = ''
+            self.rgb_imgs = ''
+            self.n_imgs = len(self.ir_imgs)
+            self.nb_sets = 0
 
-        # default thermal options:
-        self.thermal_param = {'emissivity': 0.95, 'distance': 5, 'humidity': 50, 'reflection': 25}
+            # list images classes (where to store all measurements and annotations)
+            self.images = []
+            self.work_image = None
 
-        # image iterator to know which image is active
-        self.active_image = 0
+            # Default thermal options:
+            self.thermal_param = {'emissivity': thermal_config.DEFAULT_EMISSIVITY,
+                                  'distance': thermal_config.DEFAULT_DISTANCE,
+                                  'humidity': thermal_config.DEFAULT_HUMIDITY,
+                                  'reflection': thermal_config.DEFAULT_REFLECTION}
+
+            # Image iterator to know which image is active
+            self.active_image = 0
+
+            debug("Variables initialized successfully")
+
+        except Exception as e:
+            error(f"Failed to initialize variables: {str(e)}")
+            raise ThermogramError(f"Failed to initialize application: {str(e)}") from e
 
     def initialize_tree_view(self):
-        # Create model (for the tree structure)
-        self.model = QStandardItemModel()
-        self.treeView.setModel(self.model)
-        self.treeView.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.treeView.customContextMenuRequested.connect(self.onContextMenu)
+        """Initialize the tree view for displaying image measurements and annotations.
 
-        # add measurement and annotations categories to tree view
-        self.add_item_in_tree(self.model, RECT_MEAS_NAME)
-        self.add_item_in_tree(self.model, POINT_MEAS_NAME)
-        self.add_item_in_tree(self.model, LINE_MEAS_NAME)
-        self.model.setHeaderData(0, Qt.Orientation.Horizontal, 'Added Data')
+        Sets up the tree view model and configures its appearance and behavior.
+        The tree view is used to display hierarchical data about measurements
+        and annotations made on the thermal images.
+        """
+        try:
+            # Create model (for the tree structure)
+            self.model = QStandardItemModel()
+            self.treeView.setModel(self.model)
+            self.treeView.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+            self.treeView.customContextMenuRequested.connect(self.onContextMenu)
+
+            # Add measurement and annotations categories to tree view
+            self.add_item_in_tree(self.model, RECT_MEAS_NAME)
+            self.add_item_in_tree(self.model, POINT_MEAS_NAME)
+            self.add_item_in_tree(self.model, LINE_MEAS_NAME)
+            self.model.setHeaderData(0, Qt.Orientation.Horizontal, 'Added Data')
+        except Exception as e:
+            error(f"Failed to initialize tree view: {str(e)}")
+            raise ThermogramError("Failed to initialize tree view") from e
 
     def create_connections(self):
+        """Create signal-slot connections for UI elements.
+
+        Connects various UI elements (buttons, menus, etc.) to their corresponding
+        handler methods. This sets up the interactive behavior of the application.
         """
-        Link signals to slots
+        try:
+            # IO actions
+            self.actionLoad_folder.triggered.connect(self.load_folder_phase1)
+            self.actionReset_all.triggered.connect(self.full_reset)
+
+            # Processing actions
+            self.actionRectangle_meas.triggered.connect(self.rectangle_meas)
+            self.actionSpot_meas.triggered.connect(self.point_meas)
+            self.actionLine_meas.triggered.connect(self.line_meas)
+            self.action3D_temperature.triggered.connect(self.show_viz_threed)
+            self.actionFind_maxima.triggered.connect(self.find_maxima)
+            self.actionDetect_object.triggered.connect(self.detect_object)
+            self.actionCompose.triggered.connect(self.compose_pic)
+
+            # Export action
+            self.actionSave_Image.triggered.connect(self.save_image)
+            self.actionProcess_all.triggered.connect(self.batch_export)
+            self.actionCreate_anim.triggered.connect(self.export_anim)
+
+            # Other actions
+            self.actionInfo.triggered.connect(self.show_info)
+            self.actionRadiometric_parameters.triggered.connect(self.show_radio_dock)
+            self.actionEdge_Mix.triggered.connect(self.show_edge_dock)
+
+            # Viewers
+            self.viewer.endDrawing_rect_meas.connect(self.add_rect_meas)
+            self.viewer.endDrawing_point_meas.connect(self.add_point_meas)
+            self.viewer.endDrawing_line_meas.connect(self.add_line_meas)
+
+            # PushButtons
+            self.pushButton_left.clicked.connect(lambda: self.update_img_to_preview('minus'))
+            self.pushButton_right.clicked.connect(lambda: self.update_img_to_preview('plus'))
+            self.pushButton_estimate.clicked.connect(self.estimate_temp)
+            self.pushButton_meas_color.clicked.connect(self.change_meas_color)
+            self.pushButton_match.clicked.connect(self.image_matching)
+            self.pushButton_edge_options.clicked.connect(self.edge_options)
+            self.pushButton_delete_points.clicked.connect(lambda: self.remove_annotations('point'))
+            self.pushButton_delete_lines.clicked.connect(lambda: self.remove_annotations('line'))
+            self.pushButton_delete_area.clicked.connect(lambda: self.remove_annotations('area'))
+            self.pushButton_reset_range.clicked.connect(self.reset_temp_range)
+            self.pushButton_heatflow.clicked.connect(self.viz_heatflow)
+
+            # Dropdowns
+            self.comboBox.currentIndexChanged.connect(self.update_img_preview)
+            self.comboBox_colors_low.currentIndexChanged.connect(self.update_img_preview)
+            self.comboBox_colors_high.currentIndexChanged.connect(self.update_img_preview)
+            self.comboBox_post.currentIndexChanged.connect(self.update_img_preview)
+            self.comboBox_img.currentIndexChanged.connect(lambda: self.update_img_to_preview('other'))
+            self.comboBox_view.currentIndexChanged.connect(self.update_img_preview)
+
+            # Line edits
+            self.lineEdit_min_temp.editingFinished.connect(self.change_slider_values)
+            self.lineEdit_max_temp.editingFinished.connect(self.change_slider_values)
+            self.lineEdit_colors.editingFinished.connect(self.update_img_preview)
+            self.lineEdit_emissivity.editingFinished.connect(self.define_options)
+            self.lineEdit_distance.editingFinished.connect(self.define_options)
+            self.lineEdit_refl_temp.editingFinished.connect(self.define_options)
+
+            # Double slider
+            self.range_slider.lowerValueChanged.connect(self.change_line_edits)
+            self.range_slider.upperValueChanged.connect(self.change_line_edits)
+
+            # Checkboxes
+            self.checkBox_legend.stateChanged.connect(self.toggle_legend)
+            self.checkBox_edges.stateChanged.connect(self.activate_edges)
+
+            # tab widget
+            self.tabWidget.currentChanged.connect(self.on_tab_change)
+
+        except Exception as e:
+            error(f"Failed to create UI connections: {str(e)}")
+            raise ThermogramError("Failed to create UI connections") from e
+
+    def show_radio_dock(self):
         """
-        # self.pushButton_addCat.clicked.connect(self.add_cat)
-        self.actionLoad_folder.triggered.connect(self.load_folder_phase1)
-        self.actionRectangle_meas.triggered.connect(self.rectangle_meas)
-        self.actionSpot_meas.triggered.connect(self.point_meas)
-        self.actionLine_meas.triggered.connect(self.line_meas)
-        self.actionReset_all.triggered.connect(self.full_reset)
-        self.actionInfo.triggered.connect(self.show_info)
-        self.actionSave_Image.triggered.connect(self.save_image)
-        self.actionProcess_all.triggered.connect(self.batch_export)
-        self.action3D_temperature.triggered.connect(self.show_viz_threed)
-        self.actionCompose.triggered.connect(self.compose_pic)
-        self.actionCreate_anim.triggered.connect(self.export_anim)
-        self.actionFind_maxima.triggered.connect(self.find_maxima)
-        self.actionConvert_FLIR.triggered.connect(self.convert_flir)
-        self.actionDetect_object.triggered.connect(self.detect_object)
+        Show the radiometric parameters dock widget if it's hidden or closed.
+        """
+        if not self.dockWidget_radio.isVisible():
+            self.dockWidget_radio.show()
 
-        self.viewer.endDrawing_rect_meas.connect(self.add_rect_meas)
-        self.viewer.endDrawing_point_meas.connect(self.add_point_meas)
-        self.viewer.endDrawing_line_meas.connect(self.add_line_meas)
-
-        # PushButtons
-        self.pushButton_left.clicked.connect(lambda: self.update_img_to_preview('minus'))
-        self.pushButton_right.clicked.connect(lambda: self.update_img_to_preview('plus'))
-        self.pushButton_estimate.clicked.connect(self.estimate_temp)
-        # self.pushButton_advanced.clicked.connect(self.define_options)
-        self.pushButton_meas_color.clicked.connect(self.change_meas_color)
-        self.pushButton_match.clicked.connect(self.image_matching)
-        self.pushButton_edge_options.clicked.connect(self.edge_options)
-        self.pushButton_delete_points.clicked.connect(lambda: self.remove_annotations('point'))
-        self.pushButton_delete_lines.clicked.connect(lambda: self.remove_annotations('line'))
-        self.pushButton_delete_area.clicked.connect(lambda: self.remove_annotations('area'))
-        self.pushButton_reset_range.clicked.connect(self.reset_temp_range)
-        self.pushButton_heatflow.clicked.connect(self.viz_heatflow)
-
-        # Dropdowns
-        self.comboBox.currentIndexChanged.connect(self.update_img_preview)
-        self.comboBox_colors_low.currentIndexChanged.connect(self.update_img_preview)
-        self.comboBox_colors_high.currentIndexChanged.connect(self.update_img_preview)
-        self.comboBox_post.currentIndexChanged.connect(self.update_img_preview)
-        self.comboBox_img.currentIndexChanged.connect(lambda: self.update_img_to_preview('other'))
-        self.comboBox_view.currentIndexChanged.connect(self.update_img_preview)
-
-        # Line edits
-        self.lineEdit_min_temp.editingFinished.connect(self.change_slider_values)
-        self.lineEdit_max_temp.editingFinished.connect(self.change_slider_values)
-        self.lineEdit_colors.editingFinished.connect(self.update_img_preview)
-
-        self.lineEdit_emissivity.editingFinished.connect(self.define_options)
-        self.lineEdit_distance.editingFinished.connect(self.define_options)
-        self.lineEdit_refl_temp.editingFinished.connect(self.define_options)
-
-        # Checkboxes
-        self.checkBox_legend.stateChanged.connect(self.toggle_legend)
-        self.checkBox_edges.stateChanged.connect(self.activate_edges)
-
-        # tab widget
-        self.tabWidget.currentChanged.connect(self.on_tab_change)
+    def show_edge_dock(self):
+        """
+        Show the edge mix dock widget if it's hidden or closed.
+        """
+        if not self.dockWidget_edge.isVisible():
+            self.dockWidget_edge.show()
 
     def on_tab_change(self, index):
+        """Handle tab widget changes.
+
+        Enables or disables certain UI elements based on the selected tab.
+
+        Args:
+            index: Index of the newly selected tab
+        """
         if index == 1:
             self.actionRectangle_meas.setDisabled(True)
             self.actionSpot_meas.setDisabled(True)
@@ -288,118 +431,197 @@ class DroneIrWindow(QMainWindow):
             self.actionLine_meas.setDisabled(False)
 
     def reset_temp_range(self):
-        self.work_image.update_data(copy.deepcopy(self.work_image.thermal_param))
-        self.tmin, self.tmax,self.tmin_shown, self.tmax_shown = self.work_image.get_temp_data()
-        # fill values lineedits
-        self.lineEdit_min_temp.setText(str(round(self.tmin_shown, 2)))
-        self.lineEdit_max_temp.setText(str(round(self.tmax_shown, 2)))
-        self.range_slider.setLowerValue(self.tmin_shown * 100)
-        self.range_slider.setUpperValue(self.tmax_shown * 100)
-        self.range_slider.setMinimum(int(self.tmin * 100))
-        self.range_slider.setMaximum(int(self.tmax * 100))
+        """Reset the temperature range to the full range of the current image.
+
+        Updates the temperature range slider and display to show the full
+        temperature range of the current thermal image. This resets any user-defined
+        temperature range limits.
+        """
+        try:
+            self.work_image.update_data(copy.deepcopy(self.work_image.thermal_param))
+            self.tmin, self.tmax, self.tmin_shown, self.tmax_shown = self.work_image.get_temp_data()
+            # Fill values lineedits
+            self.lineEdit_min_temp.setText(str(round(self.tmin_shown, 2)))
+            self.lineEdit_max_temp.setText(str(round(self.tmax_shown, 2)))
+            self.range_slider.setLowerValue(self.tmin_shown * 100)
+            self.range_slider.setUpperValue(self.tmax_shown * 100)
+            self.range_slider.setMinimum(int(self.tmin * 100))
+            self.range_slider.setMaximum(int(self.tmax * 100))
+
+            debug(f"Temperature range reset to {self.tmin_shown:.1f} - {self.tmax_shown:.1f}")
+
+        except Exception as e:
+            error(f"Failed to reset temperature range: {str(e)}")
+            raise ThermogramError("Failed to reset temperature range") from e
 
     def change_slider_values(self):
-        self.slider_sensitive = False  # to avoid chain reaction
+        """Update temperature range based on slider values.
 
+        Updates the temperature range display and image visualization based on
+        the current values of the LineEdits. Includes validation to ensure
+        values stay within valid bounds.
+        """
+        # Temporarily disable slider sensitivity to avoid feedback loops
         try:
+            # Temporarily disable slider sensitivity to avoid feedback loops
+            self.slider_sensitive = False
+
+            # Get current temperature values from Linedits
             tmin = float(self.lineEdit_min_temp.text())
             tmax = float(self.lineEdit_max_temp.text())
 
-            if tmax > tmin:
-                if tmin < self.work_image.tmin:  # the encoded value is lower than the minimal value on the image
+            # Check boundaries validity
+            if tmax <= tmin:
+                QMessageBox.warning(self, "Warning",
+                                    "Oops! A least one of the temperatures is not valid.  Try again...")
+
+                self.lineEdit_min_temp.setText(str(round(self.work_image.tmin_shown, 2)))
+                self.lineEdit_max_temp.setText(str(round(self.work_image.tmax_shown, 2)))
+                return
+
+            # Validate against image temperature bounds
+            if self.work_image:
+                # Clamp minimum temperature
+                if tmin < self.work_image.tmin:
                     tmin = self.work_image.tmin
                     self.work_image.tmin_shown = tmin
-                    self.lineEdit_min_temp.setText(str(round(self.work_image.tmin_shown, 2)))
-                else:
-                    self.work_image.tmin_shown = tmin
+                    debug(f"Clamped minimum temperature to {tmin}")
 
+                # Clamp maximum temperature
                 if tmax > self.work_image.tmax:
                     tmax = self.work_image.tmax
                     self.work_image.tmax_shown = tmax
-                    self.lineEdit_max_temp.setText(str(round(self.work_image.tmax_shown, 2)))
-                else:
-                    self.work_image.tmax_shown = tmax
-            else:
-                raise ValueError
+                    debug(f"Clamped maximum temperature to {tmax}")
 
-        except ValueError:
-            QMessageBox.warning(self, "Warning",
-                                "Oops! A least one of the temperatures is not valid.  Try again...")
+                # Update display
+                self.work_image.tmin_shown = tmin
+                self.work_image.tmax_shown = tmax
 
+                # Update UI
+                self.lineEdit_min_temp.setText(f"{tmin:.1f}")
+                self.lineEdit_max_temp.setText(f"{tmax:.1f}")
+
+                # Refresh image with new temperature range
+                self.update_img_preview()
+
+            # Adapt sliders
+            self.range_slider.setLowerValue(tmin * 100)
+            self.range_slider.setUpperValue(tmax * 100)
+            debug(f"Temperature range updated: {tmin:.1f} - {tmax:.1f}")
+
+        except Exception as e:
+            error(f"Error updating temperature range: {str(e)}")
+            raise ThermogramError("Failed to update temperature range") from e
             self.lineEdit_min_temp.setText(str(round(self.work_image.tmin_shown, 2)))
             self.lineEdit_max_temp.setText(str(round(self.work_image.tmax_shown, 2)))
+        finally:
+            # Re-enable slider sensitivity
+            self.slider_sensitive = True
 
-        self.range_slider.setLowerValue(tmin * 100)
-        self.range_slider.setUpperValue(tmax * 100)
+    def change_line_edits(self, value):
+        if self.slider_sensitive:
+            tmin = self.range_slider.lowerValue() / 100.0  # Adjust if you used scaling
+            tmax = self.range_slider.upperValue() / 100.0
 
-        self.update_img_preview()
-        self.slider_sensitive = True
+            self.lineEdit_min_temp.setText(str(round(tmin, 2)))
+            self.lineEdit_max_temp.setText(str(round(tmax, 2)))
+
+            self.update_img_preview()
 
     def update_img_list(self):
+        """Update the list of images and initialize image processing classes.
+
+        Updates the internal list of thermal and RGB images, and initializes
+        the necessary image processing classes for each image pair. This method
+        is called after loading a new folder of images.
+
+        Raises:
+            ThermogramError: If there's an error updating the image list
+            FileOperationError: If required image files are not found
         """
-        Save information about the number of images and add processed images classes
-        """
-        self.ir_folder = self.original_th_img_folder
-        if self.has_rgb:
-            self.rgb_folder = self.rgb_crop_img_folder
-            rgb_imgs = os.listdir(self.rgb_folder)
-            self.rgb_imgs = sorted(rgb_imgs)
-
-
-        # list thermal images
-        ir_imgs = os.listdir(self.ir_folder)
-        self.ir_imgs = sorted(ir_imgs)
-        self.n_imgs = len(self.ir_imgs)
-
-        if self.n_imgs > 1:
-            self.pushButton_right.setEnabled(True)
-
-        # update progress
-        self.update_progress(nb=5, text='Creating image objects....')
-
-        # add classes
-        for i, im in enumerate(self.ir_imgs):
-            if self.n_imgs == 1:
-                progress = 100  # or any other value that makes sense in your context
-            else:
-                progress = 5 + (95 * i) / (self.n_imgs - 1)
-            self.update_progress(nb=progress, text=f'Creating image object {i}/{self.n_imgs}')
-
+        try:
+            self.ir_folder = self.original_th_img_folder
             if self.has_rgb:
-                print('Has rgb!')
-                image = tt.ProcessedIm(os.path.join(self.ir_folder, im),
-                                       os.path.join(self.rgb_folder, self.rgb_imgs[i]),
-                                       self.list_rgb_paths[i], self.ir_undistorder, self.drone_model)
-            else:
-                image = tt.ProcessedIm(os.path.join(self.ir_folder, im), '', '', self.ir_undistorder, self.drone_model)
-            self.images.append(image)
+                self.rgb_folder = self.rgb_crop_img_folder
+                rgb_imgs = os.listdir(self.rgb_folder)
+                self.rgb_imgs = sorted(rgb_imgs)
 
-        self.active_image = 0
-        self.work_image = self.images[self.active_image]
+            # list thermal images
+            ir_imgs = os.listdir(self.ir_folder)
+            self.ir_imgs = sorted(ir_imgs)
+            self.n_imgs = len(self.ir_imgs)
 
-        # create temporary folder
-        self.preview_folder = os.path.join(self.ir_folder, 'preview')
-        if not os.path.exists(self.preview_folder):
-            os.mkdir(self.preview_folder)
+            if self.n_imgs > 1:
+                self.pushButton_right.setEnabled(True)
 
-        # quickly compute temperature delta on first image
-        self.tmin = copy.deepcopy(self.work_image.tmin)
-        self.tmax = copy.deepcopy(self.work_image.tmax)
+            # update progress
+            self.update_progress(nb=5, text='Creating image objects....')
 
-        self.lineEdit_min_temp.setText(str(round(self.tmin, 2)))
-        self.lineEdit_max_temp.setText(str(round(self.tmax, 2)))
+            # Create an image object for each picture
+            for i, im in enumerate(self.ir_imgs):
+                if self.n_imgs == 1:
+                    progress = 100  # or any other value that makes sense in your context
+                else:
+                    progress = 5 + (95 * i) / (self.n_imgs - 1)
+                self.update_progress(nb=progress, text=f'Creating image object {i}/{self.n_imgs}')
 
-        self.update_img_preview()
-        self.comboBox_img.clear()
-        self.comboBox_img.addItems(self.ir_imgs)
+                if self.has_rgb:
+                    print('Has rgb!')
+                    image = tt.ProcessedIm(os.path.join(self.ir_folder, im),
+                                           os.path.join(self.rgb_folder, self.rgb_imgs[i]),
+                                           self.list_rgb_paths[i], self.ir_undistorder, self.drone_model)
+                else:
+                    image = tt.ProcessedIm(os.path.join(self.ir_folder, im), '', '', self.ir_undistorder,
+                                           self.drone_model)
+                self.images.append(image)
 
-        # final progress
-        self.update_progress(nb=100, text="Status: You can now process thermal images!")
+            # Define active image
+            self.active_image = 0
+            self.work_image = self.images[self.active_image]
+
+            # Create temporary folder
+            self.preview_folder = os.path.join(self.ir_folder, 'preview')
+            if not os.path.exists(self.preview_folder):
+                os.mkdir(self.preview_folder)
+
+            # Quickly compute temperature delta on first image
+            self.tmin = copy.deepcopy(self.work_image.tmin)
+            self.tmax = copy.deepcopy(self.work_image.tmax)
+
+            self.lineEdit_min_temp.setText(str(round(self.tmin, 2)))
+            self.lineEdit_max_temp.setText(str(round(self.tmax, 2)))
+
+            self.update_img_preview()
+            self.comboBox_img.clear()
+            self.comboBox_img.addItems(self.ir_imgs)
+
+            # Final progress
+            self.update_progress(nb=100, text="Status: You can now process thermal images!")
+
+        except Exception as e:
+            error(f"Failed to update image list: {str(e)}")
+            raise ThermogramError(f"Failed to update image list: {str(e)}") from e
 
     def show_info(self):
-        dialog = dia.AboutDialog()
-        if dialog.exec():
-            pass
+        """Show application information dialog."""
+        try:
+            info_text = f"""
+            Thermogram v{config.APP_VERSION}
+            
+            A comprehensive thermal image processing application
+            for DJI drone thermal imagery.
+            
+            Features:
+            - Thermal image visualization
+            - Temperature analysis
+            - Measurement tools
+            - Batch processing
+            """
+
+            QMessageBox.information(self, "About Thermogram", info_text)
+
+        except Exception as e:
+            error(f"Failed to show info dialog: {str(e)}")
 
     def image_matching(self):
         temp_folder = os.path.join(self.app_folder, 'temp')
@@ -466,6 +688,7 @@ class DroneIrWindow(QMainWindow):
     # ANNOTATIONS _________________________________________________________________
     def viz_heatflow(self):
         tt.create_vector_plot(self.work_image)
+
     def add_rect_meas(self, rect_item):
         """
         Add a region of interest coming from the rectangle tool
@@ -521,7 +744,8 @@ class DroneIrWindow(QMainWindow):
         else:
             dialog = dia.Meas3dDialog_simple(new_rect_annot)
 
-        dialog.surface_from_image_matplot(self.work_image.colormap, self.work_image.n_colors, self.work_image.user_lim_col_low,
+        dialog.surface_from_image_matplot(self.work_image.colormap, self.work_image.n_colors,
+                                          self.work_image.user_lim_col_low,
                                           self.work_image.user_lim_col_high)
         if dialog.exec():
             pass
@@ -574,22 +798,34 @@ class DroneIrWindow(QMainWindow):
 
     # measurements methods
     def rectangle_meas(self):
-        if self.actionRectangle_meas.isChecked():
-            # activate drawing tool
-            self.viewer.rect_meas = True
-            self.viewer.toggleDragMode()
+        """Activate rectangle measurement mode."""
+        try:
+            if self.actionRectangle_meas.isChecked():
+                # Activate drawing tool
+                self.viewer.rect_meas = True
+                self.viewer.toggleDragMode()
+        except Exception as e:
+            error(f"Failed to activate rectangle measurement: {str(e)}")
 
     def point_meas(self):
-        if self.actionSpot_meas.isChecked():
-            # activate drawing tool
-            self.viewer.point_meas = True
-            self.viewer.toggleDragMode()
+        """Activate point measurement mode."""
+        try:
+            if self.actionSpot_meas.isChecked():
+                # Activate drawing tool
+                self.viewer.point_meas = True
+                self.viewer.toggleDragMode()
+        except Exception as e:
+            error(f"Failed to activate point measurement: {str(e)}")
 
     def line_meas(self):
-        if self.actionLine_meas.isChecked():
-            # activate drawing tool
-            self.viewer.line_meas = True
-            self.viewer.toggleDragMode()
+        """Activate line measurement mode."""
+        try:
+            if self.actionLine_meas.isChecked():
+                # Activate drawing tool
+                self.viewer.line_meas = True
+                self.viewer.toggleDragMode()
+        except Exception as e:
+            error(f"Failed to activate line measurement: {str(e)}")
 
     def remove_annotations(self, type):
         if type == 'point':
@@ -604,7 +840,6 @@ class DroneIrWindow(QMainWindow):
     # THERMAL-RELATED FUNCTIONS __________________________________________________________________________
     def define_options(self):
         try:
-            self.advanced_options = True
             em = float(self.lineEdit_emissivity.text())
             if em < 0.1 or em > 1:
                 self.lineEdit_emissivity.setText(str(round(self.thermal_param['emissivity'], 2)))
@@ -647,16 +882,6 @@ class DroneIrWindow(QMainWindow):
 
         self.update_img_preview()
 
-    def change_line_edits(self, value):
-        if self.slider_sensitive:
-            tmin = self.range_slider.lowerValue() / 100.0  # Adjust if you used scaling
-            tmax = self.range_slider.upperValue() / 100.0
-
-            self.lineEdit_min_temp.setText(str(round(tmin, 2)))
-            self.lineEdit_max_temp.setText(str(round(tmax, 2)))
-
-            self.update_img_preview()
-
     # LOAD AND SAVE ACTIONS ______________________________________________________________________________
     def export_anim(self):
         # select folder
@@ -690,10 +915,19 @@ class DroneIrWindow(QMainWindow):
             msg_box.exec()
 
     def load_folder_phase1(self):
-        # warning message (new project)
+        """Open a folder dialog and initiate the folder loading process.
+
+        This is phase 1 of the folder loading process, which handles:
+        1. Opening a folder selection dialog
+        2. Validating the selected folder
+        3. Setting up project directories
+        4. Initiating phase 2 of the loading process
+        """
+        # Warning message (new project)
         if self.list_rgb_paths != []:
             qm = QMessageBox
-            reply = qm.question(self, '', "Are you sure ? It will create a new project", qm.StandardButton.Yes | qm.StandardButton.No)
+            reply = qm.question(self, '', "Are you sure ? It will create a new project",
+                                qm.StandardButton.Yes | qm.StandardButton.No)
 
             if reply == qm.StandardButton.Yes:
                 # reset all data
@@ -702,42 +936,42 @@ class DroneIrWindow(QMainWindow):
             else:
                 return
 
+        # Get the image folder from the user
         folder = str(QFileDialog.getExistingDirectory(self, "Select Directory"))
 
-        # sort images
+        # Detect and organize images
         if not folder == '':  # if user cancel selection, stop function
-
             self.main_folder = folder
             self.app_folder = get_next_available_folder(self.main_folder)
 
-            # update json path
+            # Update json path
             self.json_file = os.path.join(self.app_folder, 'data.json')
 
-            # update status
+            # Update status
             text_status = 'loading images...'
             self.update_progress(nb=0, text=text_status)
 
             # Identify content of the folder
-            self.list_rgb_paths, self.list_ir_paths, self.list_z_paths = tt.list_th_rgb_images_from_res(self.main_folder)
+            self.list_rgb_paths, self.list_ir_paths, self.list_z_paths = tt.list_th_rgb_images_from_res(
+                self.main_folder)
 
-            # create some sub folders for storing images
+            # Create some sub folders for storing images
             self.original_th_img_folder = os.path.join(self.app_folder, ORIGIN_TH_FOLDER)
 
-            # if the sub folders do not exist, create them
+            # If the sub folders do not exist, create them
             if not os.path.exists(self.app_folder):
                 os.mkdir(self.app_folder)
             if not os.path.exists(self.original_th_img_folder):
                 os.mkdir(self.original_th_img_folder)
 
-            # get drone model
+            # Get drone model
             drone_name = tt.get_drone_model(self.list_ir_paths[0])
             self.drone_model = tt.DroneModel(drone_name)
 
-            # create undistorder based on drone model
+            # Create 'undistorder' based on drone model
             self.ir_undistorder = tt.CameraUndistorter(self.drone_model.ir_xml_path)
 
-            print(f'Drone model : {drone_name}')
-
+            # Create dictionary with main information
             dictionary = {
                 "Drone model": drone_name,
                 "Number of image pairs": str(len(self.list_ir_paths)),
@@ -777,9 +1011,15 @@ class DroneIrWindow(QMainWindow):
                     worker_1.signals.finished.connect(self.load_folder_phase2)
 
     def load_folder_phase2(self):
-        # get list to main window
+        """Execute phase 2 of folder loading process for thermal images.
+
+        Handles the second phase of loading a new folder of thermal images,
+        including image list updates, UI initialization, and enabling relevant
+        controls.
+        """
+        # Get list to main window
         self.update_img_list()
-        # activate buttons and options
+        # Activate buttons and options
 
         #   dock widgets
         self.lineEdit_max_temp.setEnabled(True)
@@ -803,7 +1043,13 @@ class DroneIrWindow(QMainWindow):
         self.comboBox_view.setEnabled(True)
         self.comboBox_img.setEnabled(True)
 
-        # enable action
+        #   other buttons
+        self.pushButton_heatflow.setEnabled(True)
+        self.pushButton_delete_area.setEnabled(True)
+        self.pushButton_delete_points.setEnabled(True)
+        self.pushButton_delete_lines.setEnabled(True)
+
+        # Enable action
         self.actionHand_selector.setEnabled(True)
         self.actionHand_selector.setChecked(True)
 
@@ -827,138 +1073,102 @@ class DroneIrWindow(QMainWindow):
         print('all action enabled!')
 
     def save_image(self):
-        # Create a QImage with the size of the viewport
-        image = QImage(self.viewer.viewport().size(), QImage.Format.Format_ARGB32_Premultiplied)
-        image.fill(Qt.GlobalColor.transparent)
+        """Save the current thermal image with measurements."""
+        try:
+            # Create a QImage with the size of the viewport
+            image = QImage(self.viewer.viewport().size(), QImage.Format.Format_ARGB32_Premultiplied)
+            image.fill(Qt.GlobalColor.transparent)
 
-        # Paint the QGraphicsView's viewport onto the QImage
-        painter = QPainter(image)
-        self.viewer.render(painter)
-        painter.end()
+            # Paint the QGraphicsView's viewport onto the QImage
+            painter = QPainter(image)
+            self.viewer.render(painter)
+            painter.end()
 
-        # Open 'Save As' dialog
-        file_path, _ = QFileDialog.getSaveFileName(
-            None, "Save Image", "", "PNG Image (*.png);;JPEG Image (*.jpg *.jpeg *.JPEG)"
-        )
+            # Open 'Save As' dialog
+            file_path, _ = QFileDialog.getSaveFileName(
+                None, "Save Image", "", "PNG Image (*.png);;JPEG Image (*.jpg *.jpeg *.JPEG)"
+            )
 
-        # Save the image if a file path was provided, using high-quality settings for JPEG
-        if file_path:
-            if file_path.lower().endswith('.jpg') or file_path.lower().endswith('.jpeg'):
-                image.save(file_path, 'JPEG', 100)
-            else:
-                image.save(file_path)  # PNG is lossless by default
+            # Save the image if a file path was provided, using high-quality settings for JPEG
+            if file_path:
+                if file_path.lower().endswith('.jpg') or file_path.lower().endswith('.jpeg'):
+                    image.save(file_path, 'JPEG', 100)
+                else:
+                    image.save(file_path)  # PNG is lossless by default
 
-    def convert_flir(self):
-        tt.convert_dji_to_flir_format(self.work_image.raw_data_undis, 'test.tiff')
+        except Exception as e:
+            error(f"Failed to save image: {str(e)}")
+            raise ThermogramError(f"Failed to save image: {str(e)}") from e
 
     def batch_export(self):
-        # get all processing parameters from current image
-        self.colormap, self.n_colors, self.user_lim_col_high, self.user_lim_col_low, self.post_process = self.work_image.get_colormap_data()
-        self.tmin, self.tmax, self.tmin_shown, self.tmax_shown = self.work_image.get_temp_data()
-        parameters_style = [self.colormap, self.n_colors, self.user_lim_col_high, self.user_lim_col_low, self.post_process]
-        parameters_temp = [self.tmin, self.tmax, self.tmin_shown, self.tmax_shown]
-        parameters_radio = self.work_image.thermal_param
+        """Batch export all thermal images with current settings."""
+        try:
+            # Get all processing parameters from current image
+            self.colormap, self.n_colors, self.user_lim_col_high, self.user_lim_col_low, self.post_process = self.work_image.get_colormap_data()
+            self.tmin, self.tmax, self.tmin_shown, self.tmax_shown = self.work_image.get_temp_data()
+            parameters_style = [self.colormap, self.n_colors, self.user_lim_col_high, self.user_lim_col_low,
+                                self.post_process]
+            parameters_temp = [self.tmin, self.tmax, self.tmin_shown, self.tmax_shown]
+            parameters_radio = self.work_image.thermal_param
 
-        # launch dialog
-        desc = f'{PROC_TH_FOLDER}_{self.colormap}_{str(round(self.tmin_shown, 0))}_{str(round(self.tmax_shown, 0))}_{self.post_process}_image-set_{self.nb_sets}'
-
-        # create output folder
-        self.last_out_folder = os.path.join(self.app_folder, desc)
-        if not os.path.exists(self.last_out_folder):
-            os.mkdir(self.last_out_folder)
-
-        dialog = dia.DialogBatchExport(self.last_out_folder, parameters_style, parameters_temp, parameters_radio)
-
-        if dialog.exec():
-            # get user options
-            list_ir_export = []
-            list_rgb_export = []
-            undis = dialog.checkBox_undis.isChecked()
-            zoom = dialog.spinBox.value()
-            if dialog.checkBox_exp_ir.isChecked():
-                list_ir_export.append('IR')
-            if dialog.checkBox_exp_tif.isChecked():
-                list_ir_export.append('IR_TIF')
-            if dialog.checkBox_exp_picpic.isChecked():
-                list_ir_export.append('PICPIC')
-            if dialog.checkBox_exp_rgb.isChecked():
-                list_rgb_export.append('RGB')
-            if dialog.checkBox_exp_crop.isChecked():
-                list_rgb_export.append('RGB_CROP')
-
-
-            # Determining file format
-            format_idx = dialog.comboBox_img_format.currentIndex()
-            if format_idx == 0:
-                format = 'PNG'
-            elif format_idx == 1:
-                format = 'JPG'
-
-
-            # Determine naming_type based on the selected option
-            selected_option = dialog.comboBox_naming.currentIndex()
-            if selected_option == 0:
-                naming_type = 'rename'
-            elif selected_option == 1:
-                naming_type = 'keep_ir'
-            elif selected_option == 2:
-                naming_type = 'match_rgb'
-
-            out_folder = dialog.lineEdit.text()
-
-            worker_1 = tt.RunnerDJI(5, 100, out_folder, self.images, self.work_image, self.edges,
-                                    self.edge_params, undis=undis, zoom=zoom, naming_type=naming_type, file_format=format,
-                                    list_of_ir_export=list_ir_export, list_of_rgb_export=list_rgb_export)
-            worker_1.signals.progressed.connect(lambda value: self.update_progress(value))
-            worker_1.signals.messaged.connect(lambda string: self.update_progress(text=string))
-
-            self.__pool.start(worker_1)
-            worker_1.signals.finished.connect(self.process_all_phase2)
-
-
-    def process_all_images(self):
-        qm = QMessageBox
-        reply = qm.question(self, '', "Are you sure to process all pictures with the current parameters?",
-                            qm.StandardButton.Yes | qm.StandardButton.No)
-
-        # get parameters
-        self.colormap, self.n_colors, self.user_lim_col_high, self.user_lim_col_low, self.post_process = self.work_image.get_colormap_data()
-        self.tmin, self.tmax, self.tmin_shown, self.tmax_shown = self.work_image.get_temp_data()
-
-        print(self.tmin, self.tmax, self.tmin_shown, self.tmax_shown)
-
-        self.nb_sets += 1
-
-        if reply == qm.StandardButton.Yes:
+            # Launch dialog
             desc = f'{PROC_TH_FOLDER}_{self.colormap}_{str(round(self.tmin_shown, 0))}_{str(round(self.tmax_shown, 0))}_{self.post_process}_image-set_{self.nb_sets}'
 
-            # create output folder
+            # Create output folder
             self.last_out_folder = os.path.join(self.app_folder, desc)
             if not os.path.exists(self.last_out_folder):
                 os.mkdir(self.last_out_folder)
 
-            reply = qm.question(self, '', "Do you want to correct deformation?",
-                                qm.StandardButton.Yes | qm.StandardButton.No)
-            if reply == qm.StandardButton.Yes:
-                undis = True
-            else:
-                undis = False
+            dialog = dia.DialogBatchExport(self.last_out_folder, parameters_style, parameters_temp, parameters_radio)
 
-            reply = qm.question(self, '', "Do you want to upscale images (3x)?",
-                                qm.StandardButton.Yes | qm.StandardButton.No)
+            if dialog.exec():
+                # Get user options
+                list_ir_export = []
+                list_rgb_export = []
+                undis = dialog.checkBox_undis.isChecked()
+                zoom = dialog.spinBox.value()
+                if dialog.checkBox_exp_ir.isChecked():
+                    list_ir_export.append('IR')
+                if dialog.checkBox_exp_tif.isChecked():
+                    list_ir_export.append('IR_TIF')
+                if dialog.checkBox_exp_picpic.isChecked():
+                    list_ir_export.append('PICPIC')
+                if dialog.checkBox_exp_rgb.isChecked():
+                    list_rgb_export.append('RGB')
+                if dialog.checkBox_exp_crop.isChecked():
+                    list_rgb_export.append('RGB_CROP')
 
-            if reply == qm.StandardButton.Yes:
-                zoom = 3
-            else:
-                zoom = 1
+                # Determining file format
+                format_idx = dialog.comboBox_img_format.currentIndex()
+                if format_idx == 0:
+                    format = 'PNG'
+                elif format_idx == 1:
+                    format = 'JPG'
 
-            worker_1 = tt.RunnerDJI(5, 100, self.last_out_folder, self.images, self.work_image, self.edges,
-                                    self.edge_params, undis=undis, zoom=zoom)
-            worker_1.signals.progressed.connect(lambda value: self.update_progress(value))
-            worker_1.signals.messaged.connect(lambda string: self.update_progress(text=string))
+                # Determine naming_type based on the selected option
+                selected_option = dialog.comboBox_naming.currentIndex()
+                if selected_option == 0:
+                    naming_type = 'rename'
+                elif selected_option == 1:
+                    naming_type = 'keep_ir'
+                elif selected_option == 2:
+                    naming_type = 'match_rgb'
 
-            self.__pool.start(worker_1)
-            worker_1.signals.finished.connect(self.process_all_phase2)
+                out_folder = dialog.lineEdit.text()
+
+                worker_1 = tt.RunnerDJI(5, 100, out_folder, self.images, self.work_image, self.edges,
+                                        self.edge_params, undis=undis, zoom=zoom, naming_type=naming_type,
+                                        file_format=format,
+                                        list_of_ir_export=list_ir_export, list_of_rgb_export=list_rgb_export)
+                worker_1.signals.progressed.connect(lambda value: self.update_progress(value))
+                worker_1.signals.messaged.connect(lambda string: self.update_progress(text=string))
+
+                self.__pool.start(worker_1)
+                worker_1.signals.finished.connect(self.process_all_phase2)
+
+        except Exception as e:
+            error(f"Batch export failed: {str(e)}")
+            raise ThermogramError(f"Batch export failed: {str(e)}") from e
 
     def process_all_phase2(self):
         self.update_progress(nb=100, text="Status: Continue analyses!")
@@ -1193,7 +1403,6 @@ class DroneIrWindow(QMainWindow):
             # assign a **copy** of the current radiometric parameters to the image
             self.work_image.update_data(copy.deepcopy(self.thermal_param))
 
-
         # clean measurements and annotations
         self.retrace_items()
 
@@ -1249,7 +1458,7 @@ class DroneIrWindow(QMainWindow):
                 self.viewer.toggleLegendVisibility()
 
         elif v > 1:  # picture-in-picture (or custom)
-            self.viewer.setPhoto(QPixmap(self.custom_images[v-2]))
+            self.viewer.setPhoto(QPixmap(self.custom_images[v - 2]))
             # scale view
             self.viewer.fitInView()
 
@@ -1406,7 +1615,6 @@ class DroneIrWindow(QMainWindow):
             dialog = dia.DetectionDialog(self.work_image.rgb_path, self)
             dialog.exec()
 
-
     # GENERAL GUI METHODS __________________________________________________________________________
     def hand_pan(self):
         # switch back to hand tool
@@ -1462,7 +1670,6 @@ class DroneIrWindow(QMainWindow):
         self.add_icon(res.find('img/robot.png'), self.actionDetect_object)
         self.add_icon(res.find('img/layers.png'), self.actionProcess_all)
 
-
     def full_reset(self):
         """
         Reset all model parameters (image and categories)
@@ -1484,9 +1691,98 @@ def main(argv=None):
     app = QApplication(argv)
     app.setStyle('Fusion')
 
+    app.setStyleSheet("""
+                QDockWidget {
+                    border: 1px solid #cccccc;
+                    background-color: #ffffff;
+                }
+                QDockWidget::title {
+                    background: #e0e0e0;
+                    padding: 6px;
+                }
+                QToolBar {
+                    border: none;
+                    spacing: 3px;
+                    padding: 3px;
+                }
+                QToolButton {
+                    padding: 5px;
+                }
+                QToolButton:hover {
+                    background-color: #e6e6e6;
+                }
+                QPushButton {
+                    background-color: #828282;
+                    color: white;
+                    border: none;
+                    border-radius: 3px;
+                    padding: 6px;
+                }
+                QPushButton:hover {
+                    background-color: #9B1F6F;
+                }
+                QPushButton:disabled {
+                    background-color: #cccccc;
+                }
+                QComboBox {
+                    border: 1px solid #cccccc;
+                    border-radius: 3px;
+                    padding: 5px;
+                    min-width: 6em;
+                }
+                QComboBox:hover {
+                    border-color: #0078d4;
+                }
+                QSpinBox, QDoubleSpinBox {
+                    border: 1px solid #cccccc;
+                    border-radius: 3px;
+                    padding: 5px;
+                }
+                QLabel {
+                    color: #333333;
+                }
+                QMenuBar {
+                    background-color: #f8f8f8;
+                    border-bottom: 1px solid #dddddd;
+                }
+                QMenuBar::item:selected {
+                    background-color: #e0e0e0;
+                }
+
+                QCheckBox {
+                    spacing: 8px;
+                }
+                QCheckBox::indicator {
+                    width: 18px;
+                    height: 18px;
+                }
+                QLineEdit {
+                    border: 1px solid #cccccc;
+                    border-radius: 3px;
+                    padding: 5px;
+                }
+                QLineEdit:focus {
+                    border-color: #0078d4;
+                }
+                
+                QProgressBar {
+                    text-align: center;
+                    color: rgb(240, 240, 240);
+                    border-width: 1px; 
+                    border-radius: 10px;
+                    border-color: rgb(230, 230, 230);
+                    border-style: solid;
+                    background-color:rgb(207,207,207);
+                }
+                    
+                QProgressBar:chunk {
+                    background-color:#9B1F6F;
+                    border-radius: 10px;
+                }
+            """)
+
     # Show the splash screen
-    splash_pixmap = QPixmap(res.find('img/splash.png'))  # Provide path to splash image
-    splash = QSplashScreen(splash_pixmap)
+    splash = SplashScreen()
     splash.show()
     app.processEvents()  # Ensure the splash screen is shown immediately
 

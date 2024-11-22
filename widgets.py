@@ -28,7 +28,9 @@ class QRangeSlider(QSlider):
 
         self._lowerPressed = False
         self._upperPressed = False
-        self.handleSize = 15
+        self.handleWidth = 20
+        self.handleHeight = 30
+        self.trackHeight = 30
         self.back_color = QColor(200, 200, 200)
 
         # Initialize handle colors
@@ -38,9 +40,55 @@ class QRangeSlider(QSlider):
         if colormap_name:
             self.setHandleColorsFromColormap(colormap_name)
 
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        # Draw the slider track
+        track_y = (self.height() - self.trackHeight) // 2  # Center the track vertically
+        track_rect = QRect(0, track_y, self.width(), self.trackHeight)
+        painter.setBrush(QBrush(self.back_color))
+        painter.drawRect(track_rect)
+
+        # Draw the lower handle
+        lower_handle_rect = self.handleRect(self._lowerValue)
+        painter.setBrush(QBrush(self.lowerHandleColor))
+        painter.drawRect(lower_handle_rect)
+
+        # Draw the upper handle
+        upper_handle_rect = self.handleRect(self._upperValue)
+        painter.setBrush(QBrush(self.upperHandleColor))
+        painter.drawRect(upper_handle_rect)
+
+    def handleRect(self, value):
+        """Calculate handle position using separate width and height."""
+        xPos = self.scalePosition(value)
+        yPos = (self.height() - self.handleHeight) // 2  # Center handle vertically
+        return QRect(
+            int(xPos - self.handleWidth // 2),  # Horizontal center
+            yPos,                               # Vertical center
+            int(self.handleWidth),              # Handle width
+            int(self.handleHeight)              # Handle height
+        )
+
+    def scalePosition(self, value):
+        return ((value - self.minimum()) / (self.maximum() - self.minimum())) * self.width()
+
+    def setHandleDimensions(self, width, height):
+        """Allow external control over handle size."""
+        self.handleWidth = width
+        self.handleHeight = height
+        self.update()  # Refresh the widget
+
+    # Example: Set handle colors
     def setHandleColors(self, lowerColor, upperColor):
         self.lowerHandleColor = QColor(lowerColor)
         self.upperHandleColor = QColor(upperColor)
+        self.update()  # Refresh the widget
+
+    # Example: Set track height
+    def setTrackHeight(self, height):
+        self.trackHeight = height
         self.update()  # Refresh the widget
 
     def setHandleColorsFromColormap(self, colormap_name):
@@ -71,32 +119,6 @@ class QRangeSlider(QSlider):
         self._upperValue = value
         self.upperValueChanged.emit(value)
         self.update()
-
-    def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-
-        # Draw the slider track
-        rect = QRect(0, (self.height() - self.handleSize) // 2, self.width(), self.handleSize)
-        painter.setBrush(QBrush(self.back_color))
-        painter.drawRect(rect)
-
-        # Draw the lower handle with the specified color
-        lower_handle_rect = self.handleRect(self._lowerValue)
-        painter.setBrush(QBrush(self.lowerHandleColor))
-        painter.drawRect(lower_handle_rect)
-
-        # Draw the upper handle with the specified color
-        upper_handle_rect = self.handleRect(self._upperValue)
-        painter.setBrush(QBrush(self.upperHandleColor))
-        painter.drawRect(upper_handle_rect)
-
-    def handleRect(self, value):
-        xPos = self.scalePosition(value)
-        return QRect(int(xPos - self.handleSize // 2), int((self.height() - self.handleSize) // 2), int(self.handleSize), int(self.handleSize))
-
-    def scalePosition(self, value):
-        return ((value - self.minimum()) / (self.maximum() - self.minimum())) * self.width()
 
     def mousePressEvent(self, event):
         if self.handleRect(self._lowerValue).contains(event.pos()):

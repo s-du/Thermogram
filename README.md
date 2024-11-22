@@ -8,7 +8,7 @@ Thermogram is an intuitive software designed for processing infrared (IR) images
 
 **The project is still in pre-release, so do not hesitate to send your recommendations or the bugs you encountered!**
 
-![](anim_thermogram1.gif) 
+![](docs/anims/anim_thermogram1.gif) 
     <i>GUI for thermal image processing</i>
 
 ## Features
