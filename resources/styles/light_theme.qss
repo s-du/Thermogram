@@ -1,0 +1,91 @@
+QDockWidget {
+	border: 1px solid #cccccc;
+	background-color: #ffffff;
+}
+QDockWidget::title {
+	background: #e0e0e0;
+	padding: 6px;
+}
+QToolBar {
+	border: none;
+	spacing: 3px;
+	padding: 3px;
+}
+QToolButton {
+	padding: 5px;
+}
+QToolButton:hover {
+	background-color: #e6e6e6;
+}
+QPushButton {
+	background-color: #828282;
+	color: white;
+	border: none;
+	border-radius: 3px;
+	padding: 6px;
+}
+QPushButton:hover {
+	background-color: #9B1F6F;
+}
+QPushButton:disabled {
+	background-color: #cccccc;
+}
+QComboBox {
+	border: 1px solid #cccccc;
+	border-radius: 3px;
+	padding: 5px;
+	min-width: 6em;
+}
+QComboBox:hover {
+	border-color: #0078d4;
+}
+QSpinBox, QDoubleSpinBox {
+	border: 1px solid #cccccc;
+	border-radius: 3px;
+	padding: 5px;
+}
+QLabel {
+	color: #333333;
+}
+QMenuBar {
+	background-color: #f8f8f8;
+	border-bottom: 1px solid #dddddd;
+}
+QMenuBar::item:selected {
+	background-color: #e0e0e0;
+}
+
+QCheckBox {
+	spacing: 8px;
+}
+QCheckBox::indicator {
+	width: 18px;
+	height: 18px;
+}
+QLineEdit {
+	border: 1px solid #cccccc;
+	border-radius: 3px;
+	padding: 5px;
+}
+QLineEdit:focus {
+	border-color: #0078d4;
+}
+
+QProgressBar {
+	text-align: center;
+	color: rgb(240, 240, 240);
+	border-width: 1px; 
+	border-radius: 10px;
+	border-color: rgb(230, 230, 230);
+	border-style: solid;
+	background-color:rgb(207,207,207);
+}
+
+QProgressBar:chunk {
+	background-color:#9B1F6F;
+	border-radius: 10px;
+}
+
+QTabWidget {
+	background-color: #cccccc;  /* Background color of the entire QTabWidget */
+}

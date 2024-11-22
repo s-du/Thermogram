@@ -264,6 +264,7 @@
      <string>Settings</string>
     </property>
     <addaction name="actionOptions"/>
+    <addaction name="actionToggle_stylesheet"/>
    </widget>
    <widget class="QMenu" name="menuview">
     <property name="title">
@@ -1241,6 +1242,11 @@
   <action name="actionEdge_Mix">
    <property name="text">
     <string>Edge Mix</string>
+   </property>
+  </action>
+  <action name="actionToggle_stylesheet">
+   <property name="text">
+    <string>Change App Style</string>
    </property>
   </action>
  </widget>

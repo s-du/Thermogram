@@ -1,0 +1,103 @@
+QDockWidget {
+	border: 1px solid #444444;
+	background-color: #333333;
+}
+QDockWidget::title {
+	background: #111111;
+	padding: 6px;
+	color: #ffffff; /* Title text color */
+}
+QToolBar {
+	border: none;
+	spacing: 3px;
+	padding: 3px;
+	background-color: #333333;  /* Toolbar background for dark theme */
+}
+QToolButton {
+	padding: 5px;
+	color: #ffffff;  /* Tool button text/icon color */
+}
+QToolButton:hover {
+	background-color: #555555;  /* Dark hover color */
+}
+QPushButton {
+	background-color: #9B1F6F;
+	color: #ffffff;  /* Button text color */
+	border: none;
+	border-radius: 3px;
+	padding: 6px;
+}
+QPushButton:hover {
+	background-color: #b23385;  /* Lighter shade for hover state */
+}
+QPushButton:disabled {
+	background-color: #666666;
+	color: #aaaaaa;  /* Disabled text color */
+}
+QComboBox {
+	border: 1px solid #555555;
+	border-radius: 3px;
+	padding: 5px;
+	min-width: 6em;
+	background-color: #333333;  /* ComboBox background */
+	color: #ffffff;  /* ComboBox text color */
+}
+QComboBox:hover {
+	border-color: #9B1F6F;  /* Accent color for hover */
+}
+QSpinBox, QDoubleSpinBox {
+	border: 1px solid #555555;
+	border-radius: 3px;
+	padding: 5px;
+	background-color: #333333;
+	color: #ffffff;  /* Text color */
+}
+QLabel {
+	color: #f0f0f0;  /* Light color for label text */
+}
+QMenuBar {
+	background-color: #333333;
+	border-bottom: 1px solid #555555;
+}
+QMenuBar::item:selected {
+	background-color: #444444;
+	color: #ffffff;  /* Selected item text color */
+}
+QCheckBox {
+	spacing: 8px;
+	color: #ffffff;  /* Text color for checkbox */
+}
+QCheckBox::indicator {
+	width: 18px;
+	height: 18px;
+}
+QLineEdit {
+	border: 1px solid #555555;
+	border-radius: 3px;
+	padding: 5px;
+	background-color: #333333;
+	color: #ffffff;  /* Text color */
+}
+QLineEdit:focus {
+	border-color: #9B1F6F;  /* Focus color */
+}
+
+QProgressBar {
+	text-align: center;
+	color: rgb(240, 240, 240);  /* Progress text color */
+	border-width: 1px; 
+	border-radius: 10px;
+	border-color: rgb(80, 80, 80);  /* Border color for contrast */
+	border-style: solid;
+	background-color:rgb(70, 70, 70);  /* Background for the unfilled part */
+}
+
+QProgressBar:chunk {
+	background-color:#b23385;  /* Progress chunk color */
+	border-radius: 10px;
+}
+
+QTabWidget {
+	background-color: #333333;  /* Background color of the entire QTabWidget */
+	color: #ffffff;  /* Text color for tabs */
+}

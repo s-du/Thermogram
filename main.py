@@ -22,6 +22,7 @@ from PyQt6 import uic
 
 # Standard library imports
 import os
+import platform
 import json
 import copy
 from pathlib import Path
@@ -130,6 +131,8 @@ class DroneIrWindow(QMainWindow):
         info(f"Loading UI file: {ui_file}")
         uic.loadUi(str(ui_file), self)
 
+        # Boolean flag to track the stylesheet state
+        self.style_active = True
 
         # Initialize status
         self.update_progress(nb=100, text="Status: Choose image folder")
@@ -330,6 +333,7 @@ class DroneIrWindow(QMainWindow):
             # IO actions
             self.actionLoad_folder.triggered.connect(self.load_folder_phase1)
             self.actionReset_all.triggered.connect(self.full_reset)
+            self.actionToggle_stylesheet.triggered.connect(self.toggle_stylesheet)
 
             # Processing actions
             self.actionRectangle_meas.triggered.connect(self.rectangle_meas)
@@ -1680,6 +1684,30 @@ class DroneIrWindow(QMainWindow):
         # clean graphicscene
         self.viewer.clean_complete()
 
+    def toggle_stylesheet(self):
+        # Toggle the application stylesheet on and off
+        if self.style_active:
+            # Deactivate stylesheet
+            QApplication.instance().setStyleSheet("")
+            QApplication.instance().setStyle('Fusion')
+            self.style_active = False
+        else:
+            # Test if dark theme is used
+            palette = QApplication.instance().palette()
+            bg_color = palette.color(QPalette.ColorRole.Window)
+
+            is_dark_theme = bg_color.lightness() < 128
+            print(f'Windows dark theme: {is_dark_theme}')
+            stylesheet_file = "dark_theme.qss" if is_dark_theme else "light_theme.qss"
+            QApplication.instance().setStyleSheet(load_stylesheet(stylesheet_file))
+            self.style_active = True
+
+
+def load_stylesheet(filename):
+    """Load QSS stylesheet from a file."""
+    file_path = res.find(f'styles/{filename}')
+    with open(file_path, "r") as file:
+        return file.read()
 
 def main(argv=None):
     """
@@ -1691,95 +1719,16 @@ def main(argv=None):
     app = QApplication(argv)
     app.setStyle('Fusion')
 
-    app.setStyleSheet("""
-                QDockWidget {
-                    border: 1px solid #cccccc;
-                    background-color: #ffffff;
-                }
-                QDockWidget::title {
-                    background: #e0e0e0;
-                    padding: 6px;
-                }
-                QToolBar {
-                    border: none;
-                    spacing: 3px;
-                    padding: 3px;
-                }
-                QToolButton {
-                    padding: 5px;
-                }
-                QToolButton:hover {
-                    background-color: #e6e6e6;
-                }
-                QPushButton {
-                    background-color: #828282;
-                    color: white;
-                    border: none;
-                    border-radius: 3px;
-                    padding: 6px;
-                }
-                QPushButton:hover {
-                    background-color: #9B1F6F;
-                }
-                QPushButton:disabled {
-                    background-color: #cccccc;
-                }
-                QComboBox {
-                    border: 1px solid #cccccc;
-                    border-radius: 3px;
-                    padding: 5px;
-                    min-width: 6em;
-                }
-                QComboBox:hover {
-                    border-color: #0078d4;
-                }
-                QSpinBox, QDoubleSpinBox {
-                    border: 1px solid #cccccc;
-                    border-radius: 3px;
-                    padding: 5px;
-                }
-                QLabel {
-                    color: #333333;
-                }
-                QMenuBar {
-                    background-color: #f8f8f8;
-                    border-bottom: 1px solid #dddddd;
-                }
-                QMenuBar::item:selected {
-                    background-color: #e0e0e0;
-                }
+    # Test if dark theme is used
+    palette = app.palette()
+    bg_color = palette.color(QPalette.ColorRole.Window)
 
-                QCheckBox {
-                    spacing: 8px;
-                }
-                QCheckBox::indicator {
-                    width: 18px;
-                    height: 18px;
-                }
-                QLineEdit {
-                    border: 1px solid #cccccc;
-                    border-radius: 3px;
-                    padding: 5px;
-                }
-                QLineEdit:focus {
-                    border-color: #0078d4;
-                }
-                
-                QProgressBar {
-                    text-align: center;
-                    color: rgb(240, 240, 240);
-                    border-width: 1px; 
-                    border-radius: 10px;
-                    border-color: rgb(230, 230, 230);
-                    border-style: solid;
-                    background-color:rgb(207,207,207);
-                }
-                    
-                QProgressBar:chunk {
-                    background-color:#9B1F6F;
-                    border-radius: 10px;
-                }
-            """)
+    is_dark_theme = bg_color.lightness() < 128
+    print(f'Windows dark theme: {is_dark_theme}')
+
+    # Set the stylesheet depending on the theme
+    stylesheet_file = "dark_theme.qss" if is_dark_theme else "light_theme.qss"
+    app.setStyleSheet(load_stylesheet(stylesheet_file))
 
     # Show the splash screen
     splash = SplashScreen()

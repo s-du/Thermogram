@@ -229,6 +229,16 @@ class DualViewer(QWidget):
         # Create the QGraphicsView widgets
         self.view1 = QGraphicsView()
         self.view2 = QGraphicsView()
+        self.view1.setBackgroundBrush(QBrush(Qt.GlobalColor.transparent))
+        self.view1.setFrameShape(QFrame.Shape.NoFrame)
+        self.view2.setBackgroundBrush(QBrush(Qt.GlobalColor.transparent))
+        self.view2.setFrameShape(QFrame.Shape.NoFrame)
+        # Set widget attributes for transparency
+        self.view1.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.view1.setStyleSheet("background: transparent")
+        self.view2.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.view2.setStyleSheet("background: transparent")
+
         self.view1.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.view1.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.view2.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -428,13 +438,16 @@ class PhotoViewer(QGraphicsView):
         self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
-        self.setBackgroundBrush(QBrush(QColor(255, 255, 255)))
+        self.setBackgroundBrush(QBrush(Qt.GlobalColor.transparent))
         self.setFrameShape(QFrame.Shape.NoFrame)
         self.setRenderHints(QPainter.RenderHint.Antialiasing | QPainter.RenderHint.SmoothPixmapTransform)
 
-
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
+        # Set widget attributes for transparency
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setStyleSheet("background: transparent")
 
         self.rect_meas = False
         self.point_meas = False
