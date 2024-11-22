@@ -9,7 +9,7 @@ Author: sdu@bbri.be
 TODO:
 - Allow to import only thermal pictures - OK
 - Implement 'context' dialog --> Drone info + location
-- Allow the user to define a custom folder
+- Allow the user to define a custom folder - OK
 - Implement save/load project folder
 
 """
