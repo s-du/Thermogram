@@ -6,3 +6,6 @@ Pillow~=10.0.0
 scipy~=1.12.0
 PySide6~=6.5.1.1
 qimage2ndarray~=1.10.0
+PyQt6~=6.7.1
+pydantic~=2.9.2
+loguru~=0.7.2
