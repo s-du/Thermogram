@@ -1,7 +1,11 @@
 from pathlib import Path
 from pydantic import BaseModel
 from typing import List, Dict, Optional
+import os
 
+# Get a writable directory
+log_dir = os.path.join(os.getenv("LOCALAPPDATA", os.path.expanduser("~")), "Thermogram")
+os.makedirs(log_dir, exist_ok=True)  # Ensure the directory exists
 
 class ThermalConfig(BaseModel):
     """Thermal processing configuration settings"""
@@ -58,7 +62,7 @@ class AppConfig(BaseModel):
 
     # Logging configuration
     LOG_LEVEL: str = 'INFO'
-    LOG_FILE: Path = BASE_DIR / 'thermogram.log'
+    LOG_FILE: Path = os.path.join(log_dir, "thermogram.log")
 
 
 # Create global config instances

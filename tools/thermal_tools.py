@@ -2,7 +2,6 @@
 # Imports
 # Standard library imports
 import copy
-import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from PIL import Image, ImageOps, ImageFilter

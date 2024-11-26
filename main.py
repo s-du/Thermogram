@@ -22,17 +22,17 @@ from PyQt6 import uic
 
 # Standard library imports
 import os
-import platform
 import json
 import copy
 from pathlib import Path
+from multiprocessing import freeze_support
 
 # Custom libraries
 import widgets as wid
 import resources as res
 import dialogs as dia
+
 from tools import thermal_tools as tt
-from tools import thermal_3d as t3d
 from utils.config import config, thermal_config
 from utils.logger import info, error, debug, warning
 from utils.exceptions import ThermogramError, FileOperationError
@@ -1269,6 +1269,7 @@ class DroneIrWindow(QMainWindow):
             self.viewer.add_item_from_annot(line.main_item)
 
     def show_viz_threed(self):
+        from tools import thermal_3d as t3d
         t3d.run_viz_app(self.work_image.raw_data_undis, self.work_image.colormap,
                         self.work_image.user_lim_col_high, self.work_image.user_lim_col_low, self.work_image.n_colors,
                         self.work_image.tmin_shown, self.work_image.tmax_shown)
@@ -1751,6 +1752,7 @@ def main(argv=None):
 
 
 if __name__ == '__main__':
+    freeze_support()
     import sys
 
     sys.exit(main(sys.argv))
