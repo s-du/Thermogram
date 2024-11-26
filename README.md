@@ -8,6 +8,8 @@ Thermogram is an intuitive software designed for processing infrared (IR) images
 
 **The project is still in pre-release, so do not hesitate to send your recommendations or the bugs you encountered!**
 
+**FIRST INSTALLER AVAILABLE HERE**: https://github.com/s-du/Thermogram/releases/tag/v0.1.0
+
 ![](docs/anims/anim_thermogram1.gif) 
     <i>GUI for thermal image processing</i>
 
@@ -62,6 +64,11 @@ The app offers the following key features:
 - Building pathologies
 
 ## Installation
+
+**FIRST INSTALLER AVAILABLE HERE**: https://github.com/s-du/Thermogram/releases/tag/v0.1.0
+
+OR 
+
 1. Clone the repository:
 ```
 git clone https://github.com/s-du/Thermogram
