@@ -54,7 +54,7 @@ def list_th_rgb_images_from_res(img_folder):
             if w == 640 or w == 1280:
                 list_ir_paths.append(path)
             else:
-                if '_W' in file:
+                if '_W' or '_V' in file:
                     list_rgb_paths.append(path)
                 elif '_Z' in file:
                     list_z_paths.append(path)
@@ -254,9 +254,9 @@ class DroneModel:
             self.K_ir = cv_file.getNode("Camera_Matrix").mat()
             self.d_ir = cv_file.getNode("Distortion_Coefficients").mat()
             self.extend = 0.3504
-            self.x_offset = 49
-            self.y_offset = 53
-            self.zoom = 1.4269
+            self.x_offset = -19
+            self.y_offset = 23
+            self.zoom = 1.516
 
         elif name == 'M30T':
             self.ir_xml_path = m30t_ir_xml_path

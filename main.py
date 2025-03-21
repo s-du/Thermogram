@@ -570,7 +570,7 @@ class DroneIrWindow(QMainWindow):
                 self.update_progress(nb=progress, text=f'Creating image object {i}/{self.n_imgs}')
 
                 if self.has_rgb:
-                    print('Has rgb!')
+                    print(f'image {i}: Has rgb!')
                     image = tt.ProcessedIm(os.path.join(self.ir_folder, im),
                                            os.path.join(self.rgb_folder, self.rgb_imgs[i]),
                                            self.list_rgb_paths[i], self.ir_undistorder, self.drone_model)
@@ -579,6 +579,7 @@ class DroneIrWindow(QMainWindow):
                                            self.drone_model)
                 self.images.append(image)
 
+            self.update_progress(nb=100, text=f'finalizing')
             # Define active image
             self.active_image = 0
             self.work_image = self.images[self.active_image]
@@ -1123,9 +1124,13 @@ class DroneIrWindow(QMainWindow):
             if not os.path.exists(self.last_out_folder):
                 os.mkdir(self.last_out_folder)
 
-            dialog = dia.DialogBatchExport(self.last_out_folder, parameters_style, parameters_temp, parameters_radio)
+            dialog = dia.DialogBatchExport(self.ir_imgs, self.last_out_folder, parameters_style, parameters_temp, parameters_radio)
 
             if dialog.exec():
+                # Get selected images indices
+                selected_indices = dialog.get_selected_indices()
+                selected_images = [self.images[i] for i in selected_indices]  # Retrieve selected images
+
                 # Get user options
                 list_ir_export = []
                 list_rgb_export = []
@@ -1160,7 +1165,7 @@ class DroneIrWindow(QMainWindow):
 
                 out_folder = dialog.lineEdit.text()
 
-                worker_1 = tt.RunnerDJI(5, 100, out_folder, self.images, self.work_image, self.edges,
+                worker_1 = tt.RunnerDJI(5, 100, out_folder, selected_images, self.work_image, self.edges,
                                         self.edge_params, undis=undis, zoom=zoom, naming_type=naming_type,
                                         file_format=format,
                                         list_of_ir_export=list_ir_export, list_of_rgb_export=list_rgb_export)
@@ -1315,6 +1320,14 @@ class DroneIrWindow(QMainWindow):
         self.comboBox_view.clear()
         self.comboBox_view.addItems(self._view_list)
 
+    def compile_user_temps_values(self):
+        tmin = float(self.lineEdit_min_temp.text())
+        tmax = float(self.lineEdit_max_temp.text())
+
+        self.work_image.tmin_shown = tmin
+        self.work_image.tmax_shown = tmax
+
+
     def compile_user_values(self):
         # colormap
         i = self.comboBox.currentIndex()
@@ -1392,8 +1405,11 @@ class DroneIrWindow(QMainWindow):
         else:
             # get min max temp
             self.tmin, self.tmax, _, _ = self.work_image.get_temp_data()
+            # set tmin and tmax shown on pictures:
+            self.compile_user_temps_values()
+
             if self.tmax_shown < self.tmax:
-                self.range_slider.setMaximum(int(self.tmax * 100))
+                self.range_slider.setMaximum(int(self.tmax * 100)) # TODO Check here if 'set value' is necessary
             if self.tmin_shown > self.tmin:
                 self.range_slider.setMinimum(int(self.tmin * 100))
 

@@ -673,18 +673,21 @@ def process_raw_data(img_object, dest_path, edges=False, edge_params=[], radio_p
         img_thermal_tiff.save(dest_path_tif)
 
     elif post_process == 'none':
-        img_thermal.save(dest_path, exif=exif)
+        if dest_path.endswith('JPG'):
+            img_thermal.save(dest_path, exif=exif, quality=99)
+        elif dest_path.endswith('PNG'):
+            img_thermal.save(dest_path, exif=exif, compression_level=0)
     elif post_process == 'sharpen':
         img_th_sharpened = img_thermal.filter(ImageFilter.SHARPEN)
         if dest_path.endswith('JPG'):
-            img_th_sharpened.save(dest_path, exif=exif, quality=0.99)
+            img_th_sharpened.save(dest_path, exif=exif, quality=99)
         elif dest_path.endswith('PNG'):
             img_th_sharpened.save(dest_path, exif=exif, compression_level=0)
     elif post_process == 'sharpen strong':
         img_th_sharpened = img_thermal.filter(ImageFilter.SHARPEN)
         img_th_sharpened2 = img_th_sharpened.filter(ImageFilter.SHARPEN)
         if dest_path.endswith('JPG'):
-            img_th_sharpened2.save(dest_path, exif=exif, quality=0.99)
+            img_th_sharpened2.save(dest_path, exif=exif, quality=99)
         elif dest_path.endswith('PNG'):
             img_th_sharpened2.save(dest_path, exif=exif, compression_level=0)
     elif post_process == 'edge (simple)':
@@ -704,13 +707,13 @@ def process_raw_data(img_object, dest_path, edges=False, edge_params=[], radio_p
         blended_img_raw = Image.fromarray(blended_img)
         blended_img_raw = blended_img_raw.convert('RGB')
         if dest_path.endswith('JPG'):
-            blended_img_raw.save(dest_path, exif=exif, quality=0.99)
+            blended_img_raw.save(dest_path, exif=exif, quality=99)
         elif dest_path.endswith('PNG'):
             blended_img_raw.save(dest_path, exif=exif, compression_level=0)
     elif post_process == 'smooth':
         img_th_smooth = img_thermal.filter(ImageFilter.SMOOTH)
         if dest_path.endswith('JPG'):
-            img_th_smooth.save(dest_path, exif=exif, quality=0.99)
+            img_th_smooth.save(dest_path, exif=exif, quality=99)
         elif dest_path.endswith('PNG'):
             img_th_smooth.save(dest_path, exif=exif, compression_level=0)
     elif post_process == 'contours':
@@ -746,7 +749,7 @@ def process_raw_data(img_object, dest_path, edges=False, edge_params=[], radio_p
         # Save the blended image
         img_with_contours = Image.fromarray(contour_canvas)
         if dest_path.endswith('JPG'):
-            img_with_contours.save(dest_path, exif=exif, quality=0.99)
+            img_with_contours.save(dest_path, exif=exif, quality=99)
         elif dest_path.endswith('PNG'):
             img_with_contours.save(dest_path, exif=exif, compression_level=0)
 
@@ -763,12 +766,12 @@ def process_raw_data(img_object, dest_path, edges=False, edge_params=[], radio_p
 
         if exif is None:
             if dest_path.endswith('JPG'):
-                edged_image.save(dest_path, exif=exif, quality=0.99)
+                edged_image.save(dest_path, exif=exif, quality=99)
             elif dest_path.endswith('PNG'):
                 edged_image.save(dest_path, exif=exif, compression_level=0)
         else:
             if dest_path.endswith('JPG'):
-                edged_image.save(dest_path, exif=exif, quality=0.99)
+                edged_image.save(dest_path, exif=exif, quality=99)
             elif dest_path.endswith('PNG'):
                 edged_image.save(dest_path, exif=exif, compression_level=0)
 
@@ -933,6 +936,8 @@ def insert_th_in_rgb(img_obj, ir_path, dest_path, drone_model, extension):
     y1 = int(h_rgb / 2 + y_offset) - ret_y
     y2 = int(h_rgb / 2 + y_offset) + ret_y
 
+    mask = np.zeros((h_rgb, w_rgb), dtype=np.uint8)
+
     # Check if crop bounds go beyond the image dimensions
     pad_top = max(0, -y1)
     pad_bottom = max(0, y2 - h_rgb)
@@ -946,6 +951,12 @@ def insert_th_in_rgb(img_obj, ir_path, dest_path, drone_model, extension):
             pad_top, pad_bottom, pad_left, pad_right,
             cv2.BORDER_CONSTANT,
             value=[0, 0, 0]  # Black padding
+        )
+        mask = cv2.copyMakeBorder(
+            mask,
+            pad_top, pad_bottom, pad_left, pad_right,
+            cv2.BORDER_CONSTANT,
+            value=0  # Black padding
         )
 
     # Update bounds after padding
@@ -965,8 +976,15 @@ def insert_th_in_rgb(img_obj, ir_path, dest_path, drone_model, extension):
     # Replace the RGB crop with the resized infrared image
     cv_rgb[y1:y2, x1:x2] = cv_ir_resized
 
+    # Update the mask: Set the inserted region to white (255)
+    mask[y1:y2, x1:x2] = 255
+
     # Save resized or padded image
     cv_write_all_path(cv_rgb, dest_path, extension=extension)
+
+    # Save the mask with a `_mask` suffix
+    mask_path = os.path.splitext(dest_path)[0] + "_mask." + extension
+    cv_write_all_path(mask, mask_path)
 
 
 def generate_legend(legend_dest_path, custom_params):

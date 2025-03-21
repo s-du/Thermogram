@@ -731,9 +731,9 @@ class AlignmentDialog(QDialog):
                 slider.setMaximum(int(param_range[1] * 10))
                 slider.setValue(int(self.theta[i] * 10))
             else:
-                slider.setMinimum(int(param_range[0] * 100))
-                slider.setMaximum(int(param_range[1] * 100))
-                slider.setValue(int(self.theta[i] * 100))
+                slider.setMinimum(int(param_range[0] * 500))
+                slider.setMaximum(int(param_range[1] * 500))
+                slider.setValue(int(self.theta[i] * 500))
             slider.valueChanged.connect(lambda value, x=i: self.update_parameter(x, value))
             self.sliders.append(slider)
             layout.addWidget(slider)
@@ -763,8 +763,8 @@ class AlignmentDialog(QDialog):
             self.theta[index] = value / 10
             self.labels[index].setText(f"{self.labels[index].text().split(':')[0]}: {value / 10}")
         else:
-            self.theta[index] = value / 100
-            self.labels[index].setText(f"{self.labels[index].text().split(':')[0]}: {value / 100}")
+            self.theta[index] = value / 500
+            self.labels[index].setText(f"{self.labels[index].text().split(':')[0]}: {value / 500}")
         self.process_images()
 
     def optimize(self):
@@ -816,39 +816,65 @@ class AlignmentDialog(QDialog):
 
 class DialogBatchExport(QtWidgets.QDialog):
     """
-    Dialog that allows the user to choose batch export options
+    Dialog that allows the user to choose batch export options.
     """
 
-    def __init__(self, default_folder, parameters_style, parameters_temp, parameters_radiometric, parent=None):
-        QtWidgets.QDialog.__init__(self)
+    def __init__(self, img_list, default_folder, parameters_style, parameters_temp, parameters_radiometric, parent=None):
+        super().__init__(parent)
         basepath = os.path.dirname(__file__)
         basename = 'export_dialog'
         uifile = os.path.join(basepath, 'ui/%s.ui' % basename)
         loadUi(uifile, self)
+
         self.comboBox_naming.addItems(['Rename files', 'Keep IR names', 'Match IR with RGB names'])
         self.comboBox_img_format.addItems(['PNG', 'JPG'])
 
-        # button actions
+        # ListView Setup
+        self.img_list = img_list
+        self.list_model = QtGui.QStandardItemModel()
+        self.listView.setModel(self.list_model)
+
+        # Enable multi-selection mode (Shift+Click, Ctrl+Click supported)
+        self.listView.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.ExtendedSelection)
+
+        self.populate_list_view()
+
+        # Button actions
         self.buttonBox.accepted.connect(self.accept)
         self.buttonBox.rejected.connect(self.reject)
 
-        # change enabled options
-
-        # set initial parameters
+        # Set initial parameters
         desc = (f'Palette parameters: \n'
                 f'- palette: {parameters_style[0]}')
         self.label_current_settings.setText(desc)
-
         self.lineEdit.setText(default_folder)
 
-        # browse folder
+        # Browse folder button
         self.pushButton.clicked.connect(self.browse_folder)
 
-    def browse_folder(self):
-        # Open a QFileDialog to select a folder
-        folder_path = QFileDialog.getExistingDirectory(self, "Select Folder")
+    def populate_list_view(self):
+        """
+        Populate the ListView with the image list and pre-select all items.
+        """
+        for img_name in self.img_list:
+            item = QtGui.QStandardItem(img_name)
+            self.list_model.appendRow(item)
 
-        # If a folder is selected, set the folder path in the line edit
+        # Pre-select all items by default
+        self.listView.selectAll()
+
+    def get_selected_indices(self):
+        """
+        Get indices of selected images.
+        """
+        selected_indexes = self.listView.selectedIndexes()
+        return [index.row() for index in selected_indexes]
+
+    def browse_folder(self):
+        """
+        Open a QFileDialog to select a folder.
+        """
+        folder_path = QtWidgets.QFileDialog.getExistingDirectory(self, "Select Folder")
         if folder_path:
             self.lineEdit.setText(folder_path)
 
