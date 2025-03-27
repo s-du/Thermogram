@@ -88,7 +88,7 @@ class SplashScreen(QSplashScreen):
     def __init__(self) -> None:
         """Initialize the splash screen with the application splash image."""
         try:
-            splash_path = res.find('img/splash.png')
+            splash_path = res.find('img/splash2.png')
             if not os.path.exists(splash_path):
                 error("Splash image not found")
                 raise FileOperationError(f"Splash image not found at: {splash_path}")
@@ -1742,10 +1742,6 @@ def main(argv=None):
 
     is_dark_theme = bg_color.lightness() < 128
     print(f'Windows dark theme: {is_dark_theme}')
-
-    # Set the stylesheet depending on the theme
-    stylesheet_file = "dark_theme.qss" if is_dark_theme else "light_theme.qss"
-    app.setStyleSheet(load_stylesheet(stylesheet_file))
 
     # Show the splash screen
     splash = SplashScreen()
