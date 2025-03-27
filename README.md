@@ -1,5 +1,5 @@
 <p align="center">
-    <a href=""><img src="thermogram_banner.png" alt="Thermogram" border="0" style="width: 100%;"></a>
+    <a href=""><img src="resources/img/thermogram_banner5.png" alt="Thermogram" border="0" style="width: 100%;"></a>
 </p>
 
 
