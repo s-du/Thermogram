@@ -1753,7 +1753,7 @@ def main(argv=None):
 
     # Create and show the main window
     window = DroneIrWindow()
-    window.setWindowIcon(QIcon(res.find('img/icone.png')))
+    window.setWindowIcon(QIcon(res.find('img/ico_512.png')))
     window.showMaximized()
 
     # Close the splash screen once the main window is ready
