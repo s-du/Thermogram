@@ -121,3 +121,8 @@ Contributions to the Thermogram App are welcome! If you find any bugs, have sugg
 3. Make the necessary changes and commit them.
 4. Push your changes to your fork.
 5. Submit a pull request describing your changes.
+
+
+<p align="center">
+    <a href=""><img src="resources/img/splash2.png" alt="Thermogram" border="0" style="width: 100%;"></a>
+</p>
