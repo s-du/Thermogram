@@ -671,6 +671,8 @@ def process_raw_data(img_object, dest_path, edges=False, edge_params=[], radio_p
         dest_path_tif = dest_path[:-4] + '.tiff'
         img_thermal_tiff = Image.fromarray(im)  # export as 32bit array (floating point)
         img_thermal_tiff.save(dest_path_tif)
+        subprocess.run(["resources/exiftool/exiftool.exe", "-overwrite_original", "-TagsFromFile", img_object.rgb_path_original, dest_path_tif])
+
 
     elif post_process == 'none':
         if dest_path.endswith('JPG'):
