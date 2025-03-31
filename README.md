@@ -43,6 +43,18 @@ The app offers the following key features:
 </p>
 
 <p align="center">
+    <a href=""><img src="docs/anims/anim_dual.gif" alt="Thermogram" border="0" style="width: 100%;"></a>
+    
+    Dual viewer (easy inspection)
+</p>
+
+<p align="center">
+    <a href=""><img src="docs/screens/capture7.png" alt="Thermogram" border="0" style="width: 80%;"></a>
+    
+    Standard measurements
+</p>
+
+<p align="center">
     <a href=""><img src="docs/anims/anim_overlay.gif" alt="Thermogram" border="0" style="width: 100%;"></a>
     
     Thermal image overlay
