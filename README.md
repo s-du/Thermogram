@@ -33,6 +33,7 @@ The app offers the following key features:
     - Segment Anything (SAM) for object segmentation
 - Exporting
     - Batch export functionality, including the ability to export raw data as TIFF files
+    - 'Picture-in-Picture' export format
     - Upscaling for thermal images
 - ...
 
