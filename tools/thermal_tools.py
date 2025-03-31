@@ -18,7 +18,7 @@ from tools.core import *
 # LISTS __________________________________________________
 OUT_LIM = ['continuous', 'black', 'white', 'red']
 OUT_LIM_MATPLOT = ['c', 'k', 'w', 'r']
-POST_PROCESS = ['none', 'denoise', 'smooth', 'sharpen', 'sharpen strong', 'edge (simple)', 'contours']
+POST_PROCESS = ['none', 'denoise - light', 'denoise - medium', 'denoise - strong', 'smooth', 'sharpen', 'sharpen strong', 'edge (simple)', 'contours']
 
 LIST_CUSTOM_CMAPS = ['Arctic',
                      'Iron',
@@ -679,12 +679,18 @@ def process_raw_data(img_object, dest_path, edges=False, edge_params=[], radio_p
             img_thermal.save(dest_path, exif=exif, quality=99)
         elif dest_path.endswith('PNG'):
             img_thermal.save(dest_path, exif=exif, compression_level=0)
-    elif post_process == 'denoise':
+    elif post_process in ['denoise - light', 'denoise - medium', 'denoise - strong']:
+        if post_process == 'denoise - light':
+            denoise_factor = 3
+        elif post_process == 'denoise - medium':
+            denoise_factor = 5
+        else:
+            denoise_factor = 10
         # Convert PIL image to OpenCV format (NumPy array, BGR)
         img_cv = np.array(img_thermal)[:, :, ::-1]  # RGB to BGR
 
         # Apply OpenCV's fast non-local means denoising
-        denoised = cv2.fastNlMeansDenoisingColored(img_cv, None, h=5, hColor=5, templateWindowSize=7,
+        denoised = cv2.fastNlMeansDenoisingColored(img_cv, None, h=denoise_factor, hColor=denoise_factor, templateWindowSize=7,
                                                    searchWindowSize=21)
 
         # Convert back to PIL (RGB)
