@@ -10,7 +10,7 @@ Thermogram is an intuitive software designed for processing infrared (IR) images
 
 **FIRST INSTALLER AVAILABLE HERE**: https://github.com/s-du/Thermogram/releases/tag/v0.1.0
 
-![](docs/anims/anim_thermogram1.gif) 
+![](docs/anims/anim_fade.gif) 
     <i>GUI for thermal image processing</i>
 
 ## Features
@@ -22,6 +22,7 @@ The app offers the following key features:
 - Palette and temperature control
     - Includes all DJI palettes plus some custom ones
     - Advanced temperature adjustment controls
+    - Advanced thermal image denoising options
 - Compositing
     - Sophisticated edge overlay capabilities
     - Create customized composite images with infrared and color information superimposed
@@ -36,13 +37,37 @@ The app offers the following key features:
 - ...
 
 <p align="center">
-    <a href=""><img src="docs/anims/anim_thermogram2.gif" alt="Thermogram" border="0" style="width: 100%;"></a>
+    <a href=""><img src="docs/screens/capture3.png" alt="Thermogram" border="0" style="width: 100%;"></a>
+    
+    GUI Overview
+</p>
+
+<p align="center">
+    <a href=""><img src="docs/anims/anim_overlay.gif" alt="Thermogram" border="0" style="width: 100%;"></a>
+    
+    Thermal image overlay
+</p>
+
+<p align="center">
+    <a href=""><img src="docs/screens/capture4.png" alt="Thermogram" border="0" style="width: 80%;"></a>
+    
+    Find maxima
+</p>
+
+<p align="center">
+    <a href=""><img src="docs/screens/capture5.png" alt="Thermogram" border="0" style="width: 100%;"></a>
     
     Edge overlay
 </p>
 
 <p align="center">
-    <a href=""><img src="docs/anims/anim_thermogram3.gif" alt="Thermogram" border="0" style="width: 100%;"></a>
+    <a href=""><img src="docs/screens/capture6.png" alt="Thermogram" border="0" style="width: 100%;"></a>
+    
+    Denoising
+</p>
+
+<p align="center">
+    <a href=""><img src="docs/anims/anim_3d.gif" alt="Thermogram" border="0" style="width: 100%;"></a>
     
     3D visualization
 </p>
