@@ -291,6 +291,10 @@ class DroneIrWindow(QMainWindow):
                                   'humidity': thermal_config.DEFAULT_HUMIDITY,
                                   'reflection': thermal_config.DEFAULT_REFLECTION}
 
+            self.lineEdit_emissivity.setText(str(round(self.thermal_param['emissivity'], 2)))
+            self.lineEdit_distance.setText(str(round(self.thermal_param['distance'], 2)))
+            self.lineEdit_refl_temp.setText(str(round(self.thermal_param['reflection'], 2)))
+
             # Image iterator to know which image is active
             self.active_image = 0
 
@@ -381,8 +385,8 @@ class DroneIrWindow(QMainWindow):
             self.comboBox_view.currentIndexChanged.connect(self.update_img_preview)
 
             # Line edits
-            self.lineEdit_min_temp.editingFinished.connect(self.change_slider_values)
-            self.lineEdit_max_temp.editingFinished.connect(self.change_slider_values)
+            self.lineEdit_min_temp.editingFinished.connect(self.adapt_slider_values)
+            self.lineEdit_max_temp.editingFinished.connect(self.adapt_slider_values)
             self.lineEdit_colors.editingFinished.connect(self.update_img_preview)
             self.lineEdit_emissivity.editingFinished.connect(self.define_options)
             self.lineEdit_distance.editingFinished.connect(self.define_options)
@@ -442,23 +446,23 @@ class DroneIrWindow(QMainWindow):
         temperature range limits.
         """
         try:
-            self.work_image.update_data(copy.deepcopy(self.work_image.thermal_param))
-            self.tmin, self.tmax, self.tmin_shown, self.tmax_shown = self.work_image.get_temp_data()
+            self.work_image.update_data_from_param(copy.deepcopy(self.work_image.thermal_param))
+            tmin, tmax, _, _ = self.work_image.get_temp_data()
             # Fill values lineedits
-            self.lineEdit_min_temp.setText(str(round(self.tmin_shown, 2)))
-            self.lineEdit_max_temp.setText(str(round(self.tmax_shown, 2)))
-            self.range_slider.setLowerValue(self.tmin_shown * 100)
-            self.range_slider.setUpperValue(self.tmax_shown * 100)
-            self.range_slider.setMinimum(int(self.tmin * 100))
-            self.range_slider.setMaximum(int(self.tmax * 100))
+            self.lineEdit_min_temp.setText(str(round(tmin, 2)))
+            self.lineEdit_max_temp.setText(str(round(tmax, 2)))
+            self.range_slider.setLowerValue(tmin * 100)
+            self.range_slider.setUpperValue(tmax * 100)
+            self.range_slider.setMinimum(int(tmin * 100))
+            self.range_slider.setMaximum(int(tmax * 100))
 
-            debug(f"Temperature range reset to {self.tmin_shown:.1f} - {self.tmax_shown:.1f}")
+            debug(f"Temperature range reset to {tmin:.1f} - {tmax:.1f}")
 
         except Exception as e:
             error(f"Failed to reset temperature range: {str(e)}")
             raise ThermogramError("Failed to reset temperature range") from e
 
-    def change_slider_values(self):
+    def adapt_slider_values(self):
         """Update temperature range based on slider values.
 
         Updates the temperature range display and image visualization based on
@@ -467,7 +471,7 @@ class DroneIrWindow(QMainWindow):
         """
         # Temporarily disable slider sensitivity to avoid feedback loops
         try:
-            # Temporarily disable slider sensitivity to avoid feedback loops
+            # Temporarily disable slider sensitivity to avoid loops
             self.slider_sensitive = False
 
             # Get current temperature values from Linedits
@@ -475,38 +479,14 @@ class DroneIrWindow(QMainWindow):
             tmax = float(self.lineEdit_max_temp.text())
 
             # Check boundaries validity
-            if tmax <= tmin:
-                QMessageBox.warning(self, "Warning",
-                                    "Oops! A least one of the temperatures is not valid.  Try again...")
+            if not self.skip_update:
+                if tmax <= tmin:
+                    QMessageBox.warning(self, "Warning",
+                                        "Oops! A least one of the temperatures is not valid.  Try again...")
 
-                self.lineEdit_min_temp.setText(str(round(self.work_image.tmin_shown, 2)))
-                self.lineEdit_max_temp.setText(str(round(self.work_image.tmax_shown, 2)))
-                return
-
-            # Validate against image temperature bounds
-            if self.work_image:
-                # Clamp minimum temperature
-                if tmin < self.work_image.tmin:
-                    tmin = self.work_image.tmin
-                    self.work_image.tmin_shown = tmin
-                    debug(f"Clamped minimum temperature to {tmin}")
-
-                # Clamp maximum temperature
-                if tmax > self.work_image.tmax:
-                    tmax = self.work_image.tmax
-                    self.work_image.tmax_shown = tmax
-                    debug(f"Clamped maximum temperature to {tmax}")
-
-                # Update display
-                self.work_image.tmin_shown = tmin
-                self.work_image.tmax_shown = tmax
-
-                # Update UI
-                self.lineEdit_min_temp.setText(f"{tmin:.1f}")
-                self.lineEdit_max_temp.setText(f"{tmax:.1f}")
-
-                # Refresh image with new temperature range
-                self.update_img_preview()
+                    self.lineEdit_min_temp.setText(str(round(self.work_image.tmin_shown, 2)))
+                    self.lineEdit_max_temp.setText(str(round(self.work_image.tmax_shown, 2)))
+                    return
 
             # Adapt sliders
             self.range_slider.setLowerValue(tmin * 100)
@@ -590,11 +570,11 @@ class DroneIrWindow(QMainWindow):
                 os.mkdir(self.preview_folder)
 
             # Quickly compute temperature delta on first image
-            self.tmin = copy.deepcopy(self.work_image.tmin)
-            self.tmax = copy.deepcopy(self.work_image.tmax)
+            tmin = copy.deepcopy(self.work_image.tmin)
+            tmax = copy.deepcopy(self.work_image.tmax)
 
-            self.lineEdit_min_temp.setText(str(round(self.tmin, 2)))
-            self.lineEdit_max_temp.setText(str(round(self.tmax, 2)))
+            self.lineEdit_min_temp.setText(str(round(tmin, 2)))
+            self.lineEdit_max_temp.setText(str(round(tmax, 2)))
 
             self.update_img_preview()
             self.comboBox_img.clear()
@@ -845,7 +825,11 @@ class DroneIrWindow(QMainWindow):
     # THERMAL-RELATED FUNCTIONS __________________________________________________________________________
     def define_options(self):
         try:
+            # Store original values to restore if validation fails
+            original_thermal_param = copy.deepcopy(self.thermal_param)
+            
             em = float(self.lineEdit_emissivity.text())
+            # check if value is acceptable
             if em < 0.1 or em > 1:
                 self.lineEdit_emissivity.setText(str(round(self.thermal_param['emissivity'], 2)))
                 raise ValueError
@@ -866,15 +850,14 @@ class DroneIrWindow(QMainWindow):
             else:
                 self.thermal_param['reflection'] = refl_temp
 
-            # update image data
-            self.work_image.update_data(copy.deepcopy(self.thermal_param))
+            # Now we can safely switch image data and update preview
             self.switch_image_data()
             self.update_img_preview()
-
 
         except ValueError:
             QMessageBox.warning(self, "Warning",
                                 "Oops! Some of the values are not valid!")
+            self.thermal_param = original_thermal_param
 
     def estimate_temp(self):
         ref_pic_name = QFileDialog.getOpenFileName(self, 'Open file',
@@ -1110,14 +1093,14 @@ class DroneIrWindow(QMainWindow):
         try:
             # Get all processing parameters from current image
             self.colormap, self.n_colors, self.user_lim_col_high, self.user_lim_col_low, self.post_process = self.work_image.get_colormap_data()
-            self.tmin, self.tmax, self.tmin_shown, self.tmax_shown = self.work_image.get_temp_data()
+            tmin, tmax, tmin_shown, tmax_shown = self.work_image.get_temp_data()
             parameters_style = [self.colormap, self.n_colors, self.user_lim_col_high, self.user_lim_col_low,
                                 self.post_process]
-            parameters_temp = [self.tmin, self.tmax, self.tmin_shown, self.tmax_shown]
+            parameters_temp = [tmin, tmax, tmin_shown, tmax_shown]
             parameters_radio = self.work_image.thermal_param
 
             # Launch dialog
-            desc = f'{PROC_TH_FOLDER}_{self.colormap}_{str(round(self.tmin_shown, 0))}_{str(round(self.tmax_shown, 0))}_{self.post_process}_image-set_{self.nb_sets}'
+            desc = f'{PROC_TH_FOLDER}_{self.colormap}_{str(round(tmin_shown, 0))}_{str(round(tmax_shown, 0))}_{self.post_process}_image-set_{self.nb_sets}'
 
             # Create output folder
             self.last_out_folder = os.path.join(self.app_folder, desc)
@@ -1327,7 +1310,6 @@ class DroneIrWindow(QMainWindow):
         self.work_image.tmin_shown = tmin
         self.work_image.tmax_shown = tmax
 
-
     def compile_user_values(self):
         # colormap
         i = self.comboBox.currentIndex()
@@ -1343,17 +1325,16 @@ class DroneIrWindow(QMainWindow):
             tmin = float(self.lineEdit_min_temp.text())
             tmax = float(self.lineEdit_max_temp.text())
 
-            if tmax > tmin:
-                self.work_image.tmin_shown = tmin
-                self.work_image.tmax_shown = tmax
-            else:
-                raise ValueError
+            # Update the image with validated temperature range
+            self.work_image.tmin_shown = tmin
+            self.work_image.tmax_shown = tmax
 
-        except ValueError:
-            QMessageBox.warning(self, "Warning",
-                                "Oops! A least one of the temperatures is not valid.  Try again...")
-            self.lineEdit_min_temp.setText(str(round(self.work_image.tmin_shown, 2)))
-            self.lineEdit_max_temp.setText(str(round(self.work_image.tmax_shown, 2)))
+        except ValueError as e:
+            if not self.skip_update:  # Only show warning if not in the middle of an update
+                QMessageBox.warning(self, "Warning",
+                                    "Oops! A least one of the temperatures is not valid. Try again...")
+                self.lineEdit_min_temp.setText(str(round(self.work_image.tmin_shown, 2)))
+                self.lineEdit_max_temp.setText(str(round(self.work_image.tmax_shown, 2)))
 
         #   out of limits color
         i = self.comboBox_colors_low.currentIndex()
@@ -1369,9 +1350,47 @@ class DroneIrWindow(QMainWindow):
     def switch_image_data(self):
         """
         When the shown picture is changed (adapt measurements and user colormap for this picture)
+        order:
+        - Parameters
+        - Temp
+        - Palette
         """
+        self.skip_update = True
         # load stored data
         self.work_image = self.images[self.active_image]
+
+        if not self.checkBox_keep_radiometric.isChecked():
+            # load radiometric parameters from image and set the lineedit texts
+            self.thermal_param = copy.deepcopy(self.work_image.get_thermal_param())
+
+            self.lineEdit_emissivity.setText(str(round(self.thermal_param['emissivity'], 2)))
+            self.lineEdit_distance.setText(str(round(self.thermal_param['distance'], 2)))
+            self.lineEdit_refl_temp.setText(str(round(self.thermal_param['reflection'], 2)))
+        else:
+            # compare new to old param
+            old_param = copy.deepcopy(self.work_image.get_thermal_param())
+            print(f'checking if new thermal parameters {self.thermal_param} = {old_param}')
+            for key in old_param:
+                if old_param[key] != self.thermal_param.get(key):
+                    # assign a **copy** of the current radiometric parameters to the image
+                    self.work_image.update_data_from_param(copy.deepcopy(self.thermal_param))
+                else:
+                    print('identical')
+
+        if not self.checkBox_keep_temp.isChecked():
+            tmin, tmax, tmin_shown, tmax_shown = self.work_image.get_temp_data()
+
+            # fill values lineedits
+            self.lineEdit_min_temp.setText(str(round(tmin_shown, 2)))
+            self.lineEdit_max_temp.setText(str(round(tmax_shown, 2)))
+            self.range_slider.setLowerValue(tmin_shown * 100)
+            self.range_slider.setUpperValue(tmax_shown * 100)
+            self.range_slider.setMinimum(int(tmin * 100))
+            self.range_slider.setMaximum(int(tmax * 100))
+
+        else:
+            # set tmin and tmax shown on pictures:
+            self.compile_user_temps_values()
 
         # if 'keep parameters' is not checked, change all parameters according to stored data
         if not self.checkBox_keep_palette.isChecked():
@@ -1391,41 +1410,9 @@ class DroneIrWindow(QMainWindow):
             self.lineEdit_colors.setText(str(self.n_colors))
             self.range_slider.setHandleColorsFromColormap(self.colormap)
 
-        if not self.checkBox_keep_temp.isChecked():
-            self.tmin, self.tmax, self.tmin_shown, self.tmax_shown = self.work_image.get_temp_data()
-
-            # fill values lineedits
-            self.lineEdit_min_temp.setText(str(round(self.tmin_shown, 2)))
-            self.lineEdit_max_temp.setText(str(round(self.tmax_shown, 2)))
-            self.range_slider.setLowerValue(self.tmin_shown * 100)
-            self.range_slider.setUpperValue(self.tmax_shown * 100)
-            self.range_slider.setMinimum(int(self.tmin * 100))
-            self.range_slider.setMaximum(int(self.tmax * 100))
-
-        else:
-            # get min max temp
-            self.tmin, self.tmax, _, _ = self.work_image.get_temp_data()
-            # set tmin and tmax shown on pictures:
-            self.compile_user_temps_values()
-
-            if self.tmax_shown < self.tmax:
-                self.range_slider.setMaximum(int(self.tmax * 100)) # TODO Check here if 'set value' is necessary
-            if self.tmin_shown > self.tmin:
-                self.range_slider.setMinimum(int(self.tmin * 100))
-
-        if not self.checkBox_keep_radiometric.isChecked():
-            # load radiometric parameters
-            self.thermal_param = copy.deepcopy(self.work_image.get_thermal_param())
-
-            self.lineEdit_emissivity.setText(str(round(self.thermal_param['emissivity'], 2)))
-            self.lineEdit_distance.setText(str(round(self.thermal_param['distance'], 2)))
-            self.lineEdit_refl_temp.setText(str(round(self.thermal_param['reflection'], 2)))
-        else:
-            # assign a **copy** of the current radiometric parameters to the image
-            self.work_image.update_data(copy.deepcopy(self.thermal_param))
-
         # clean measurements and annotations
         self.retrace_items()
+        self.skip_update = False
 
     def update_img_to_preview(self, direction):
         """
@@ -1442,10 +1429,8 @@ class DroneIrWindow(QMainWindow):
             self.active_image = self.comboBox_img.currentIndex()
 
         # remove all measurements and annotations and get new data
-        self.skip_update = True
         self.switch_image_data()
 
-        self.skip_update = False
         self.update_img_preview()
 
         # change buttons

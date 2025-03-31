@@ -326,13 +326,13 @@ class ProcessedIm:
             self._exif = extract_exif(self.path)
         return self._exif
 
-    def update_data(self, new_params, change_shown=True):
+    def update_data_from_param(self, new_params, reset_shown_values=True):
         # print(new_params)
         self.thermal_param = new_params
         self.raw_data, self.raw_data_undis = extract_raw_data(self.thermal_param, self.path, self.undistorder_ir)
         self.tmin = np.amin(self.raw_data)
         self.tmax = np.amax(self.raw_data)
-        if change_shown:
+        if reset_shown_values:
             self.tmin_shown = self.tmin
             self.tmax_shown = self.tmax
 

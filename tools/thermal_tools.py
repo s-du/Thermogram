@@ -18,7 +18,7 @@ from tools.core import *
 # LISTS __________________________________________________
 OUT_LIM = ['continuous', 'black', 'white', 'red']
 OUT_LIM_MATPLOT = ['c', 'k', 'w', 'r']
-POST_PROCESS = ['none', 'smooth', 'sharpen', 'sharpen strong', 'edge (simple)', 'contours']
+POST_PROCESS = ['none', 'denoise', 'smooth', 'sharpen', 'sharpen strong', 'edge (simple)', 'contours']
 
 LIST_CUSTOM_CMAPS = ['Arctic',
                      'Iron',
@@ -611,13 +611,13 @@ def process_raw_data(img_object, dest_path, edges=False, edge_params=[], radio_p
         custom_params = {}
 
     if radio_param:
-        img_object.update_data(radio_param, change_shown=change_shown)
+        img_object.update_data_from_param(radio_param, reset_shown_values=change_shown)
 
     if not img_object.has_data:
         if radio_param:
-            img_object.update_data(radio_param, change_shown=change_shown)
+            img_object.update_data_from_param(radio_param, reset_shown_values=change_shown)
         else:
-            img_object.update_data(img_object.thermal_param, change_shown=change_shown)
+            img_object.update_data_from_param(img_object.thermal_param, reset_shown_values=change_shown)
     # data
     if undis:
         im = img_object.raw_data_undis
@@ -674,12 +674,27 @@ def process_raw_data(img_object, dest_path, edges=False, edge_params=[], radio_p
         # adding exif
         subprocess.run(["resources/exiftool/exiftool.exe", "-overwrite_original", "-TagsFromFile", img_object.rgb_path_original, dest_path_tif])
 
-
     elif post_process == 'none':
         if dest_path.endswith('JPG'):
             img_thermal.save(dest_path, exif=exif, quality=99)
         elif dest_path.endswith('PNG'):
             img_thermal.save(dest_path, exif=exif, compression_level=0)
+    elif post_process == 'denoise':
+        # Convert PIL image to OpenCV format (NumPy array, BGR)
+        img_cv = np.array(img_thermal)[:, :, ::-1]  # RGB to BGR
+
+        # Apply OpenCV's fast non-local means denoising
+        denoised = cv2.fastNlMeansDenoisingColored(img_cv, None, h=5, hColor=5, templateWindowSize=7,
+                                                   searchWindowSize=21)
+
+        # Convert back to PIL (RGB)
+        denoised_rgb = denoised[:, :, ::-1]  # BGR to RGB
+        img_denoised = Image.fromarray(denoised_rgb)
+
+        if dest_path.endswith('JPG'):
+            img_denoised.save(dest_path, exif=exif, quality=99)
+        elif dest_path.endswith('PNG'):
+            img_denoised.save(dest_path, exif=exif, compression_level=0)
     elif post_process == 'sharpen':
         img_th_sharpened = img_thermal.filter(ImageFilter.SHARPEN)
         if dest_path.endswith('JPG'):
