@@ -13,7 +13,7 @@ from PIL import Image
 from PyQt6.QtCore import QPointF, QRectF
 from PyQt6.QtWidgets import QGraphicsEllipseItem, QGraphicsTextItem
 import subprocess
-
+from tools import thermal_tools as tt
 # Paths
 sdk_tool_path = Path(res.find('dji/dji_irp.exe'))
 m2t_ir_xml_path = res.find('other/cam_calib_m2t_opencv.xml')
@@ -362,6 +362,58 @@ class ProcessedIm:
 
     def get_thermal_param(self):
         return self.thermal_param
+
+    def compute_optimal_temp_range(self, lower_percentile=2.5, upper_percentile=97.5):
+        temp_flat = self.raw_data.flatten()
+        tmin_opt = np.percentile(temp_flat, lower_percentile)
+        tmax_opt = np.percentile(temp_flat, upper_percentile)
+        return tmin_opt, tmax_opt
+
+    def generate_temperature_histogram(self, bins=256):
+        from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
+        import matplotlib.pyplot as plt
+        from matplotlib import cm
+        import io
+        """
+        Returns a PNG byte stream of the histogram (for use in QLabel via QPixmap).
+        """
+        # Step 1: Get flattened, clipped data
+        temp_clipped = np.clip(self.raw_data, self.tmin_shown, self.tmax_shown).flatten()
+
+        # Step 2: Get colormap
+        if self.colormap in tt.LIST_CUSTOM_CMAPS:
+            cmap = tt.get_custom_cmaps(self.colormap, self.n_colors)
+        else:
+            cmap = cm.get_cmap(self.colormap, self.n_colors)
+
+        # Step 3: Create histogram
+        fig, ax = plt.subplots(figsize=(3, 2), dpi=100)
+        counts, bin_edges, patches = ax.hist(temp_clipped, bins=bins, edgecolor='none')
+
+        # Step 4: Color bars according to bin center value
+        bin_centers = 0.5 * (bin_edges[:-1] + bin_edges[1:])
+        normed = (bin_centers - self.tmin_shown) / (self.tmax_shown - self.tmin_shown)
+        normed = np.clip(normed, 0, 1)
+
+        for patch, color_value in zip(patches, normed):
+            patch.set_facecolor(cmap(color_value))
+
+        # Step 5: Beautify
+        ax.set_xlabel("Temperature (°C)", fontsize=9)
+        ax.set_ylabel("Pixel Count", fontsize=9)
+        ax.set_facecolor('#F7F7F7')
+        fig.patch.set_facecolor('#F7F7F7')
+        ax.grid(True, linestyle='--', linewidth=0.3, alpha=0.5)
+        ax.tick_params(axis='both', labelsize=8)
+        plt.tight_layout()
+
+        # Step 6: Export as PNG buffer
+        buf = io.BytesIO()
+        canvas = FigureCanvas(fig)
+        canvas.print_png(buf)
+        plt.close(fig)
+
+        return buf.getvalue()
 
 
 # MEASUREMENTS CLASSES _____________________________________

@@ -375,6 +375,7 @@ class DroneIrWindow(QMainWindow):
             self.pushButton_delete_area.clicked.connect(lambda: self.remove_annotations('area'))
             self.pushButton_reset_range.clicked.connect(self.reset_temp_range)
             self.pushButton_heatflow.clicked.connect(self.viz_heatflow)
+            self.pushButton_optimhisto.clicked.connect(self.optimal_range)
 
             # Dropdowns
             self.comboBox.currentIndexChanged.connect(self.update_img_preview)
@@ -437,6 +438,13 @@ class DroneIrWindow(QMainWindow):
             self.actionRectangle_meas.setDisabled(False)
             self.actionSpot_meas.setDisabled(False)
             self.actionLine_meas.setDisabled(False)
+
+    def optimal_range(self):
+        tmin_shown, tmax_shown = self.work_image.compute_optimal_temp_range()
+        self.lineEdit_min_temp.setText(str(round(tmin_shown, 2)))
+        self.lineEdit_max_temp.setText(str(round(tmax_shown, 2)))
+        self.range_slider.setLowerValue(tmin_shown * 100)
+        self.range_slider.setUpperValue(tmax_shown * 100)
 
     def reset_temp_range(self):
         """Reset the temperature range to the full range of the current image.
@@ -1017,6 +1025,7 @@ class DroneIrWindow(QMainWindow):
         self.lineEdit_refl_temp.setEnabled(True)
         self.pushButton_estimate.setEnabled(True)
         self.pushButton_reset_range.setEnabled(True)
+        self.pushButton_optimhisto.setEnabled(True)
 
         self.comboBox.setEnabled(True)
         self.lineEdit_colors.setEnabled(True)
@@ -1500,6 +1509,16 @@ class DroneIrWindow(QMainWindow):
             # check if legend is needed
             if not self.checkBox_legend.isChecked():
                 self.viewer.toggleLegendVisibility()
+
+            # add histogram in label_summary
+            # Generate histogram as image bytes
+            hist_bytes = self.work_image.generate_temperature_histogram()
+
+            # Convert bytes to QPixmap and set it in the QLabel
+            image = QImage.fromData(hist_bytes)
+            pixmap = QPixmap.fromImage(image)
+            self.label_summary.setPixmap(pixmap)
+
 
     # CONTEXT MENU IN TREEVIEW _________________________________________________
     def onContextMenu(self, point):
