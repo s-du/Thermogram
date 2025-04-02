@@ -48,6 +48,7 @@ PREDEFINED_EDGE_STYLES = {
     "Highlight Red": {"method": 3, "color": "red", "bil": False, "blur": False, "blur_size": 3, "opacity": 0.7},
     "Highlight Magenta": {"method": 3, "color": "magenta", "bil": False, "blur": False, "blur_size": 3, "opacity": 0.7},
 }
+
 EDGE_STYLE_NAMES = ["Custom"] + list(PREDEFINED_EDGE_STYLES.keys())
 
 LIST_CUSTOM_CMAPS = ['Arctic',
