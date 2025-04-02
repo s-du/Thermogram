@@ -381,8 +381,9 @@ class ProcessedIm:
         temp_clipped = np.clip(self.raw_data, self.tmin_shown, self.tmax_shown).flatten()
 
         # Step 2: Get colormap
-        if self.colormap in tt.LIST_CUSTOM_CMAPS:
-            cmap = tt.get_custom_cmaps(self.colormap, self.n_colors)
+        if self.colormap in tt.LIST_CUSTOM_NAMES:
+            all_cmaps = tt.get_all_custom_cmaps(self.n_colors)
+            cmap = all_cmaps[self.colormap]
         else:
             cmap = cm.get_cmap(self.colormap, self.n_colors)
 

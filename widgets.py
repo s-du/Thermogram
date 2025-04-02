@@ -92,8 +92,9 @@ class QRangeSlider(QSlider):
         self.update()  # Refresh the widget
 
     def setHandleColorsFromColormap(self, colormap_name):
-        if colormap_name in tt.LIST_CUSTOM_CMAPS:
-            custom_cmap = tt.get_custom_cmaps(colormap_name, 256)
+        if colormap_name in tt.LIST_CUSTOM_NAMES:
+            all_cmaps = tt.get_all_custom_cmaps(256)
+            custom_cmap = all_cmaps[colormap_name]
         else:
             custom_cmap = cm.get_cmap(colormap_name, 256)
         lower_color = to_hex(custom_cmap(0.0))  # Color at the start of the colormap
@@ -371,54 +372,6 @@ class LegendContainer(QGraphicsRectItem):
         painter.drawRoundedRect(self.rect(), self.radius, self.radius)
 
 
-class ColorMapLegendItem(QGraphicsPixmapItem):
-    def __init__(self, colormap_name, n_colors, min_temp, max_temp, parent=None):
-        super().__init__(parent)
-
-        if colormap_name in tt.LIST_CUSTOM_CMAPS:
-            custom_cmap = tt.get_custom_cmaps(colormap_name, n_colors)
-        else:
-            custom_cmap = cm.get_cmap(colormap_name, n_colors)
-        self.colormap = custom_cmap
-        self.min_temp = min_temp
-        self.max_temp = max_temp
-        self.createLegendPixmap()
-
-    def addLabels(self, scene, num_ticks=5):
-        label_height = self.boundingRect().height()
-        temp_range = self.max_temp - self.min_temp
-
-        for i in range(num_ticks):
-            temp_fraction = i / (num_ticks - 1)
-            temp = self.min_temp + temp_fraction * temp_range
-            y_pos = self.y() + label_height - (temp_fraction * label_height)
-
-            label = QGraphicsTextItem()
-            label.setHtml(f"<div style='background-color:rgba(255, 255, 255, 0.3);'><b>{temp:.2f}</b></div>")
-            label.setPos(self.x() + 40, y_pos - label.boundingRect().height() / 2)
-            scene.addItem(label)
-
-    def createLegendPixmap(self):
-        height = 200
-        width = 20
-        pixmap = QPixmap(width, height)
-        pixmap.fill(Qt.GlobalColor.transparent)
-        painter = QPainter(pixmap)
-        num_colors = 256
-
-        for i in range(num_colors):
-            temp_fraction = i / (num_colors - 1)
-            rgba = self.colormap(temp_fraction)
-            color = QColor.fromRgbF(*rgba)
-            painter.setPen(color)
-            painter.setBrush(color)
-            y = height - (i * (height / num_colors)) - (height / num_colors)
-            painter.drawRect(0, y, width, height / num_colors)
-
-        painter.end()
-        self.setPixmap(pixmap)
-
-
 class PhotoViewer(QGraphicsView):
     photoClicked = pyqtSignal(QPoint)
     endDrawing_brush_meas = pyqtSignal(int)
@@ -492,8 +445,9 @@ class PhotoViewer(QGraphicsView):
         self.clearLegend()
 
         # Setup for new legend
-        if img_object.colormap in tt.LIST_CUSTOM_CMAPS:
-            custom_cmap = tt.get_custom_cmaps(img_object.colormap, 256)
+        if img_object.colormap in tt.LIST_CUSTOM_NAMES:
+            all_cmaps = tt.get_all_custom_cmaps(256)
+            custom_cmap = all_cmaps[img_object.colormap]
         else:
             custom_cmap = cm.get_cmap(img_object.colormap, 256)
 

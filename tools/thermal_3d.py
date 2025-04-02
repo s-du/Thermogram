@@ -462,8 +462,9 @@ def filter_point_cloud_by_intensity(point_cloud, lower_threshold, upper_threshol
 
 
 def colorize_pc_height(pc, colormap, col_high, col_low, n_colors):
-    if colormap in tt.LIST_CUSTOM_CMAPS:
-        custom_cmap = tt.get_custom_cmaps(colormap, n_colors)
+    if colormap in tt.LIST_CUSTOM_NAMES:
+        all_cmaps = tt.get_all_custom_cmaps(n_colors)
+        custom_cmap = all_cmaps[colormap]
     else:
         custom_cmap = cm.get_cmap(colormap, n_colors)
 
@@ -502,8 +503,9 @@ def colorize_pc_height(pc, colormap, col_high, col_low, n_colors):
 
 
 def surface_from_image(data, colormap, n_colors, col_low, col_high, tmin_shown, tmax_shown):
-    if colormap in tt.LIST_CUSTOM_CMAPS:
-        custom_cmap = tt.get_custom_cmaps(colormap, n_colors)
+    if colormap in tt.LIST_CUSTOM_NAMES:
+        all_cmaps = tt.get_all_custom_cmaps(n_colors)
+        custom_cmap = all_cmaps[colormap]
     else:
         custom_cmap = cm.get_cmap(colormap, n_colors)
 

@@ -194,9 +194,9 @@ class DroneIrWindow(QMainWindow):
             self._view_list = VIEWS
 
             # Set up colormap combobox
-            self.comboBox.clear()
-            self.comboBox.addItems(tt.COLORMAP_NAMES)
-            self.comboBox.setCurrentIndex(0)
+            self.comboBox_palette.clear()
+            self.comboBox_palette.addItems(tt.COLORMAP_NAMES)
+            self.comboBox_palette.setCurrentIndex(0)
 
             # Set up edge style combobox
             self.comboBox_edge_overlay_selection.clear()
@@ -394,9 +394,10 @@ class DroneIrWindow(QMainWindow):
             self.pushButton_reset_range.clicked.connect(self.reset_temp_range)
             self.pushButton_heatflow.clicked.connect(self.viz_heatflow)
             self.pushButton_optimhisto.clicked.connect(self.optimal_range)
+            self.pushButton_add_custom_palette.clicked.connect(self.add_palette)
 
             # Dropdowns Comboboxes
-            self.comboBox.currentIndexChanged.connect(self.update_img_preview)
+            self.comboBox_palette.currentIndexChanged.connect(self.update_img_preview)
             self.comboBox_colors_low.currentIndexChanged.connect(self.update_img_preview)
             self.comboBox_colors_high.currentIndexChanged.connect(self.update_img_preview)
             self.comboBox_post.currentIndexChanged.connect(self.update_img_preview)
@@ -556,6 +557,60 @@ class DroneIrWindow(QMainWindow):
             self.lineEdit_max_temp.setText(str(round(tmax, 2)))
 
         self.update_img_preview()
+
+    # PALETTE _________________________________________________________________
+    def add_palette(self):
+        """
+        Opens a dialog to create a custom color palette and adds it to the available palettes.
+        The user can define color steps and preview the palette before saving it.
+        """
+        from dialogs import CustomPaletteDialog
+        import matplotlib.colors as mcol
+        import numpy as np
+        
+        # Create and show the custom palette dialog
+        dialog = CustomPaletteDialog(self)
+        if dialog.exec():
+            # Get the palette data from the dialog
+            palette_data = dialog.get_palette_data()
+            if not palette_data:
+                self.statusbar.showMessage("Invalid palette data", 3000)
+                return
+                
+            palette_name = palette_data['name']
+            colors = palette_data['colors']
+            
+            # Check if the name already exists
+            if palette_name in tt.LIST_CUSTOM_NAMES or palette_name in tt.COLORMAP_NAMES:
+                # Add a suffix to make it unique
+                i = 1
+                original_name = palette_name
+                while palette_name in tt.LIST_CUSTOM_NAMES or palette_name in tt.COLORMAP_NAMES:
+                    palette_name = f"{original_name}_{i}"
+                    i += 1
+                    
+                info(f"Renamed palette to '{palette_name}' to avoid name collision")
+            
+            # Add the new palette to the global lists
+            tt.LIST_CUSTOM_NAMES.append(palette_name)
+            tt.COLORMAP_NAMES.append(palette_name)
+            tt.COLORMAPS.append(palette_name)
+            
+            # Create and register the new colormap
+            tt.register_custom_cmap(palette_name, colors)
+
+            # Update the combobox with the new palette
+            current_index = self.comboBox_palette.currentIndex()
+            self.comboBox_palette.clear()
+            self.comboBox_palette.addItems(tt.COLORMAP_NAMES)
+            
+            # Find the index of the new palette and select it
+            new_index = tt.COLORMAP_NAMES.index(palette_name)
+            self.comboBox_palette.setCurrentIndex(new_index)
+            
+            # Show success message
+            self.statusbar.showMessage(f"Custom palette '{palette_name}' created successfully", 3000)
+            info(f"Created custom palette: {palette_name}")
 
     # ANNOTATIONS _________________________________________________________________
     def viz_heatflow(self):
@@ -1017,7 +1072,7 @@ class DroneIrWindow(QMainWindow):
         self.pushButton_reset_range.setEnabled(True)
         self.pushButton_optimhisto.setEnabled(True)
 
-        self.comboBox.setEnabled(True)
+        self.comboBox_palette.setEnabled(True)
         self.lineEdit_colors.setEnabled(True)
         self.comboBox_colors_low.setEnabled(True)
         self.comboBox_colors_high.setEnabled(True)
@@ -1444,7 +1499,7 @@ class DroneIrWindow(QMainWindow):
 
     def compile_user_values(self):
         # colormap
-        i = self.comboBox.currentIndex()
+        i = self.comboBox_palette.currentIndex()
         self.work_image.colormap = self._colormap_list[i]
 
         try:
@@ -1535,7 +1590,7 @@ class DroneIrWindow(QMainWindow):
             d = self._img_post.index(self.post_process)
 
             # adapt combos
-            self.comboBox.setCurrentIndex(a)
+            self.comboBox_palette.setCurrentIndex(a)
             self.comboBox_colors_high.setCurrentIndex(b)
             self.comboBox_colors_low.setCurrentIndex(c)
             self.comboBox_post.setCurrentIndex(d)

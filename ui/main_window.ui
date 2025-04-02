@@ -508,7 +508,14 @@
       </widget>
      </item>
      <item>
-      <widget class="QComboBox" name="comboBox">
+      <widget class="QPushButton" name="pushButton_add_custom_palette">
+       <property name="text">
+        <string>Add custom palette</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QComboBox" name="comboBox_palette">
        <property name="enabled">
         <bool>false</bool>
        </property>

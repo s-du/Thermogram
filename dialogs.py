@@ -575,8 +575,9 @@ class ImageFusionDialog(QtWidgets.QDialog):
         thermal_normalized = (self.temperatures - min_temp) / (max_temp - min_temp)
 
         # get colormap
-        if self.colormap_name in tt.LIST_CUSTOM_CMAPS:
-            custom_cmap = tt.get_custom_cmaps(self.colormap_name, self.n_colors)
+        if self.colormap_name in tt.LIST_CUSTOM_NAMES:
+            all_cmaps = tt.get_all_custom_cmaps(self.n_colors)
+            custom_cmap = all_cmaps[self.colormap_name]
         else:
             custom_cmap = cm.get_cmap(self.colormap_name, self.n_colors)
 
@@ -1076,8 +1077,9 @@ class Meas3dDialog_simple(QtWidgets.QDialog):
             self.data = zoom(self.data, (resize_factor, resize_factor), order=1)
 
         # Step 2: Colormap operation
-        if colormap in tt.LIST_CUSTOM_CMAPS:
-            custom_cmap = tt.get_custom_cmaps(colormap, n_colors)
+        if colormap in tt.LIST_CUSTOM_NAMES:
+            all_cmaps = tt.get_all_custom_cmaps(n_colors)
+            custom_cmap = all_cmaps[colormap]
         else:
             custom_cmap = cm.get_cmap(colormap, n_colors)
 
@@ -1169,8 +1171,9 @@ class Meas3dDialog(QtWidgets.QDialog):
             self.data = zoom(self.data, (resize_factor, resize_factor), order=1)
 
         # Step 2: Colormap operation
-        if colormap in tt.LIST_CUSTOM_CMAPS:
-            custom_cmap = tt.get_custom_cmaps(colormap, n_colors)
+        if colormap in tt.LIST_CUSTOM_NAMES:
+            all_cmaps = tt.get_all_custom_cmaps(n_colors)
+            custom_cmap = all_cmaps[colormap]
         else:
             custom_cmap = cm.get_cmap(colormap, n_colors)
 
@@ -1482,3 +1485,200 @@ class DetectionDialog(QDialog):
                     pen = QPen(rect_item.pen().color())
                     pen.setWidth(20)  # Make the rectangle outline bold
                     rect_item.setPen(pen)
+
+class CustomPaletteDialog(QDialog):
+    """Dialog that allows the user to design a custom color palette for thermal image rendering."""
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Create Custom Color Palette")
+        self.setMinimumSize(600, 500)
+        
+        # Store color steps
+        self.color_steps = []
+        
+        # Main layout
+        layout = QVBoxLayout(self)
+        
+        # Palette name
+        name_layout = QHBoxLayout()
+        name_label = QLabel("Palette Name:")
+        self.name_edit = QLineEdit()
+        self.name_edit.setPlaceholderText("Enter a unique name for your palette")
+        name_layout.addWidget(name_label)
+        name_layout.addWidget(self.name_edit)
+        layout.addLayout(name_layout)
+        
+        # Color steps list
+        layout.addWidget(QLabel("Color Steps:"))
+        
+        # Table for color steps
+        self.table = QTableWidget()
+        self.table.setColumnCount(3)
+        self.table.setHorizontalHeaderLabels(["Position (%)", "Color", ""])
+        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
+        self.table.setColumnWidth(2, 100)
+        layout.addWidget(self.table)
+        
+        # Add/Remove buttons
+        btn_layout = QHBoxLayout()
+        self.add_btn = QPushButton("Add Color Step")
+        self.add_btn.clicked.connect(self.add_color_step)
+        self.remove_btn = QPushButton("Remove Selected")
+        self.remove_btn.clicked.connect(self.remove_color_step)
+        btn_layout.addWidget(self.add_btn)
+        btn_layout.addWidget(self.remove_btn)
+        layout.addLayout(btn_layout)
+        
+        # Preview section
+        preview_layout = QVBoxLayout()
+        preview_layout.addWidget(QLabel("Preview:"))
+        self.preview_label = QLabel()
+        self.preview_label.setMinimumHeight(50)
+        self.preview_label.setStyleSheet("border: 1px solid #cccccc;")
+        preview_layout.addWidget(self.preview_label)
+        layout.addLayout(preview_layout)
+        
+        # Button box
+        self.button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        self.button_box.accepted.connect(self.accept)
+        self.button_box.rejected.connect(self.reject)
+        layout.addWidget(self.button_box)
+        
+        # Add default color steps (black to white gradient)
+        self.add_default_color_steps()
+        
+    def add_default_color_steps(self):
+        """Add default color steps (black to white gradient)"""
+        self.add_color_step_at(0, QColor(0, 0, 0))      # Black at 0%
+        self.add_color_step_at(50, QColor(255, 0, 0))   # Red at 50%
+        self.add_color_step_at(100, QColor(255, 255, 0)) # Yellow at 100%
+        self.update_preview()
+        
+    def add_color_step(self):
+        """Add a new color step with color picker"""
+        # Default to 50% if no steps exist, otherwise add in the middle of the range
+        if self.table.rowCount() == 0:
+            position = 50
+        else:
+            position = 50  # Default middle position
+            
+        color = QColorDialog.getColor(QColor(255, 255, 255), self, "Select Color")
+        if color.isValid():
+            self.add_color_step_at(position, color)
+            self.update_preview()
+            
+    def add_color_step_at(self, position, color):
+        """Add a color step at the specified position with the given color"""
+        row = self.table.rowCount()
+        self.table.insertRow(row)
+        
+        # Position spinner (0-100%)
+        position_spinner = QSpinBox()
+        position_spinner.setRange(0, 100)
+        position_spinner.setValue(position)
+        position_spinner.setSuffix("%")
+        position_spinner.valueChanged.connect(self.update_preview)
+        self.table.setCellWidget(row, 0, position_spinner)
+        
+        # Color button
+        color_btn = QPushButton()
+        color_btn.setStyleSheet(f"background-color: {color.name()}; min-height: 25px;")
+        color_btn.clicked.connect(lambda: self.choose_color(row))
+        self.table.setCellWidget(row, 1, color_btn)
+        
+        # Remove button
+        remove_btn = QPushButton("Remove")
+        remove_btn.clicked.connect(lambda: self.remove_row(row))
+        self.table.setCellWidget(row, 2, remove_btn)
+        
+        # Store the color
+        color_btn.color = color
+        
+    def choose_color(self, row):
+        """Open color picker for a specific row"""
+        color_btn = self.table.cellWidget(row, 1)
+        current_color = color_btn.color
+        
+        color = QColorDialog.getColor(current_color, self, "Select Color")
+        if color.isValid():
+            color_btn.setStyleSheet(f"background-color: {color.name()}; min-height: 25px;")
+            color_btn.color = color
+            self.update_preview()
+            
+    def remove_row(self, row):
+        """Remove a specific row"""
+        self.table.removeRow(row)
+        self.update_preview()
+        
+    def remove_color_step(self):
+        """Remove the selected color step"""
+        selected_rows = self.table.selectionModel().selectedRows()
+        if selected_rows:
+            for row in sorted([index.row() for index in selected_rows], reverse=True):
+                self.table.removeRow(row)
+            self.update_preview()
+            
+    def update_preview(self):
+        """Update the preview gradient based on current color steps"""
+        if self.table.rowCount() < 2:
+            return
+            
+        # Get all positions and colors
+        steps = []
+        for row in range(self.table.rowCount()):
+            position = self.table.cellWidget(row, 0).value() / 100.0  # Convert to 0-1 range
+            color = self.table.cellWidget(row, 1).color
+            steps.append((position, color))
+            
+        # Sort by position
+        steps.sort(key=lambda x: x[0])
+        
+        # Create gradient
+        gradient = QLinearGradient(0, 0, self.preview_label.width(), 0)
+        for pos, color in steps:
+            gradient.setColorAt(pos, color)
+            
+        # Create pixmap with gradient
+        pixmap = QPixmap(self.preview_label.width(), self.preview_label.height())
+        painter = QPainter(pixmap)
+        painter.fillRect(0, 0, pixmap.width(), pixmap.height(), gradient)
+        painter.end()
+        
+        self.preview_label.setPixmap(pixmap)
+        
+    def resizeEvent(self, event):
+        """Handle resize event to update preview"""
+        super().resizeEvent(event)
+        self.update_preview()
+        
+    def get_palette_data(self):
+        """Get the palette data in the format needed for thermal_tools"""
+        if self.table.rowCount() < 2:
+            return None
+            
+        name = self.name_edit.text().strip()
+        if not name:
+            name = "Custom_Palette"
+            
+        # Get all positions and colors
+        steps = []
+        for row in range(self.table.rowCount()):
+            position = self.table.cellWidget(row, 0).value() / 100.0  # Convert to 0-1 range
+            color = self.table.cellWidget(row, 1).color
+            # Convert to RGB tuple format (0-255)
+            rgb = (color.red(), color.green(), color.blue())
+            steps.append((position, rgb))
+            
+        # Sort by position
+        steps.sort(key=lambda x: x[0])
+        
+        # Extract just the RGB values in order
+        colors = [rgb for _, rgb in steps]
+        
+        return {
+            'name': name,
+            'colors': colors
+        }
