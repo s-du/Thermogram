@@ -33,6 +33,7 @@ The app offers the following key features:
     - Segment Anything (SAM) for object segmentation
 - Exporting
     - Batch export functionality, including the ability to export raw data as TIFF files
+    - 'Picture-in-Picture' export format
     - Upscaling for thermal images
 - ...
 
@@ -40,6 +41,18 @@ The app offers the following key features:
     <a href=""><img src="docs/screens/capture3.png" alt="Thermogram" border="0" style="width: 100%;"></a>
     
     GUI Overview
+</p>
+
+<p align="center">
+    <a href=""><img src="docs/anims/anim_dual.gif" alt="Thermogram" border="0" style="width: 100%;"></a>
+    
+    Dual viewer (easy inspection)
+</p>
+
+<p align="center">
+    <a href=""><img src="docs/screens/capture7.png" alt="Thermogram" border="0" style="width: 80%;"></a>
+    
+    Standard measurements
 </p>
 
 <p align="center">
