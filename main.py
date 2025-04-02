@@ -100,6 +100,18 @@ class SplashScreen(QSplashScreen):
             raise ThermogramError("Could not create splash screen") from e
 
 
+def add_item_in_tree(parent, line):
+    item = QStandardItem(line)
+    parent.appendRow(item)
+
+
+def add_icon(img_source, pushButton_object):
+    """
+    Function to add an icon to a pushButton
+    """
+    pushButton_object.setIcon(QIcon(img_source))
+
+
 class DroneIrWindow(QMainWindow):
     """Main application window for the Thermogram application.
 
@@ -170,6 +182,7 @@ class DroneIrWindow(QMainWindow):
         # Add icons to buttons
         self.add_all_icons()
 
+    # BASIC SETUP _________________________________________________________________
     def _setup_combo_boxes(self) -> None:
         """Initialize and populate combo boxes with their respective items."""
         try:
@@ -319,9 +332,9 @@ class DroneIrWindow(QMainWindow):
             self.treeView.customContextMenuRequested.connect(self.onContextMenu)
 
             # Add measurement and annotations categories to tree view
-            self.add_item_in_tree(self.model, RECT_MEAS_NAME)
-            self.add_item_in_tree(self.model, POINT_MEAS_NAME)
-            self.add_item_in_tree(self.model, LINE_MEAS_NAME)
+            add_item_in_tree(self.model, RECT_MEAS_NAME)
+            add_item_in_tree(self.model, POINT_MEAS_NAME)
+            add_item_in_tree(self.model, LINE_MEAS_NAME)
             self.model.setHeaderData(0, Qt.Orientation.Horizontal, 'Added Data')
         except Exception as e:
             error(f"Failed to initialize tree view: {str(e)}")
@@ -408,37 +421,7 @@ class DroneIrWindow(QMainWindow):
             error(f"Failed to create UI connections: {str(e)}")
             raise ThermogramError("Failed to create UI connections") from e
 
-    def show_radio_dock(self):
-        """
-        Show the radiometric parameters dock widget if it's hidden or closed.
-        """
-        if not self.dockWidget_radio.isVisible():
-            self.dockWidget_radio.show()
-
-    def show_edge_dock(self):
-        """
-        Show the edge mix dock widget if it's hidden or closed.
-        """
-        if not self.dockWidget_edge.isVisible():
-            self.dockWidget_edge.show()
-
-    def on_tab_change(self, index):
-        """Handle tab widget changes.
-
-        Enables or disables certain UI elements based on the selected tab.
-
-        Args:
-            index: Index of the newly selected tab
-        """
-        if index == 1:
-            self.actionRectangle_meas.setDisabled(True)
-            self.actionSpot_meas.setDisabled(True)
-            self.actionLine_meas.setDisabled(True)
-        else:
-            self.actionRectangle_meas.setDisabled(False)
-            self.actionSpot_meas.setDisabled(False)
-            self.actionLine_meas.setDisabled(False)
-
+    # TEMPERATURE RANGE _________________________________________________________________
     def optimal_range(self):
         tmin_shown, tmax_shown = self.work_image.compute_optimal_temp_range()
         self.lineEdit_min_temp.setText(str(round(tmin_shown, 2)))
@@ -520,80 +503,16 @@ class DroneIrWindow(QMainWindow):
 
             self.update_img_preview()
 
-    def update_img_list(self):
-        """Update the list of images and initialize image processing classes.
-
-        Updates the internal list of thermal and RGB images, and initializes
-        the necessary image processing classes for each image pair. This method
-        is called after loading a new folder of images.
-
-        Raises:
-            ThermogramError: If there's an error updating the image list
-            FileOperationError: If required image files are not found
-        """
-        try:
-            self.ir_folder = self.original_th_img_folder
-            if self.has_rgb:
-                self.rgb_folder = self.rgb_crop_img_folder
-                rgb_imgs = os.listdir(self.rgb_folder)
-                self.rgb_imgs = sorted(rgb_imgs)
-
-            # list thermal images
-            ir_imgs = os.listdir(self.ir_folder)
-            self.ir_imgs = sorted(ir_imgs)
-            self.n_imgs = len(self.ir_imgs)
-
-            if self.n_imgs > 1:
-                self.pushButton_right.setEnabled(True)
-
-            # update progress
-            self.update_progress(nb=5, text='Creating image objects....')
-
-            # Create an image object for each picture
-            for i, im in enumerate(self.ir_imgs):
-                if self.n_imgs == 1:
-                    progress = 100  # or any other value that makes sense in your context
-                else:
-                    progress = 5 + (95 * i) / (self.n_imgs - 1)
-                self.update_progress(nb=progress, text=f'Creating image object {i}/{self.n_imgs}')
-
-                if self.has_rgb:
-                    print(f'image {i}: Has rgb!')
-                    image = tt.ProcessedIm(os.path.join(self.ir_folder, im),
-                                           os.path.join(self.rgb_folder, self.rgb_imgs[i]),
-                                           self.list_rgb_paths[i], self.ir_undistorder, self.drone_model)
-                else:
-                    image = tt.ProcessedIm(os.path.join(self.ir_folder, im), '', '', self.ir_undistorder,
-                                           self.drone_model)
-                self.images.append(image)
-
-            self.update_progress(nb=100, text=f'finalizing')
-            # Define active image
-            self.active_image = 0
-            self.work_image = self.images[self.active_image]
-
-            # Create temporary folder
-            self.preview_folder = os.path.join(self.ir_folder, 'preview')
-            if not os.path.exists(self.preview_folder):
-                os.mkdir(self.preview_folder)
-
-            # Quickly compute temperature delta on first image
-            tmin = copy.deepcopy(self.work_image.tmin)
-            tmax = copy.deepcopy(self.work_image.tmax)
-
+    def estimate_temp(self):
+        ref_pic_name = QFileDialog.getOpenFileName(self, 'Open file',
+                                                   self.ir_folder, "Image files (*.jpg *.JPG *.gif)")
+        img_path = ref_pic_name[0]
+        if img_path != '':
+            tmin, tmax = tt.compute_delta(img_path, self.thermal_param)
             self.lineEdit_min_temp.setText(str(round(tmin, 2)))
             self.lineEdit_max_temp.setText(str(round(tmax, 2)))
 
-            self.update_img_preview()
-            self.comboBox_img.clear()
-            self.comboBox_img.addItems(self.ir_imgs)
-
-            # Final progress
-            self.update_progress(nb=100, text="Status: You can now process thermal images!")
-
-        except Exception as e:
-            error(f"Failed to update image list: {str(e)}")
-            raise ThermogramError(f"Failed to update image list: {str(e)}") from e
+        self.update_img_preview()
 
     def show_info(self):
         """Show application information dialog."""
@@ -615,68 +534,6 @@ class DroneIrWindow(QMainWindow):
 
         except Exception as e:
             error(f"Failed to show info dialog: {str(e)}")
-
-    def image_matching(self):
-        temp_folder = os.path.join(self.app_folder, 'temp')
-        if not os.path.exists(temp_folder):
-            os.mkdir(temp_folder)
-
-        # get work images
-        rgb_path = self.work_image.rgb_path_original
-        ir_path = self.work_image.path
-
-        # get initial distortion parameters from the drone model (stored in the image)
-        # [k1, extend, y - offset, x - offset]
-        F = self.drone_model.K_ir[0][0]
-        d_mat = self.drone_model.d_ir
-
-        zoom = self.drone_model.zoom
-        y_off = self.drone_model.y_offset
-        x_off = self.drone_model.x_offset
-
-        print(f'Here are the work values! zoom:{zoom}, y offset:{y_off}, x offset: {x_off}')
-
-        dialog = dia.AlignmentDialog(self.work_image, temp_folder, theta=[zoom, y_off, x_off])
-        if dialog.exec():
-
-            # ask options
-            # Create a QMessageBox
-            qm = QMessageBox
-            reply = qm.question(self, '', "Do you want to process all pictures with those new parameters",
-                                qm.StandardButton.Yes | qm.StandardButton.No)
-
-            if reply == qm.StandardButton.Yes:
-                print('Good choice')
-                # update values
-                zoom, y_off, x_off = dialog.theta
-                self.drone_model.zoom = zoom
-                self.drone_model.y_offset = y_off
-                self.drone_model.x_offset = x_off
-
-                print(f'Re-creating RGB crop with zoom {zoom}')
-
-                # re-run all miniatures
-                text_status = 'creating rgb miniatures...'
-                self.update_progress(nb=20, text=text_status)
-
-                worker_1 = tt.RunnerMiniature(self.list_rgb_paths, self.drone_model, 60,
-                                              self.rgb_crop_img_folder, 20,
-                                              100)
-                worker_1.signals.progressed.connect(lambda value: self.update_progress(value))
-                worker_1.signals.messaged.connect(lambda string: self.update_progress(text=string))
-
-                self.__pool.start(worker_1)
-                worker_1.signals.finished.connect(self.miniat_finish)
-
-            else:
-                pass
-
-                # re-print-image
-                self.update_img_preview(refresh_dual=True)
-
-    def miniat_finish(self):
-        self.update_progress(nb=100, text='Ready...')
-        self.update_img_preview(refresh_dual=True)
 
     # ANNOTATIONS _________________________________________________________________
     def viz_heatflow(self):
@@ -727,7 +584,7 @@ class DroneIrWindow(QMainWindow):
         self.work_image.meas_rect_list.append(new_rect_annot)
 
         rect_cat = self.model.findItems(RECT_MEAS_NAME)
-        self.add_item_in_tree(rect_cat[0], desc)
+        add_item_in_tree(rect_cat[0], desc)
         self.treeView.expandAll()
 
         # bring data 3d figure
@@ -760,7 +617,7 @@ class DroneIrWindow(QMainWindow):
         self.work_image.meas_line_list.append(new_line_annot)
 
         line_cat = self.model.findItems(LINE_MEAS_NAME)
-        self.add_item_in_tree(line_cat[0], desc)
+        add_item_in_tree(line_cat[0], desc)
 
         # bring data 3d figure
         dialog = dia.MeasLineDialog(new_line_annot.data_roi)
@@ -786,7 +643,7 @@ class DroneIrWindow(QMainWindow):
         self.work_image.meas_point_list.append(new_pt_annot)
 
         point_cat = self.model.findItems(POINT_MEAS_NAME)
-        self.add_item_in_tree(point_cat[0], desc)
+        add_item_in_tree(point_cat[0], desc)
         self.hand_pan()
 
     # measurements methods
@@ -830,12 +687,52 @@ class DroneIrWindow(QMainWindow):
 
         self.retrace_items()
 
-    # THERMAL-RELATED FUNCTIONS __________________________________________________________________________
+    def retrace_items(self):
+        self.viewer.clean_scene()
+
+        # Tree operations
+        self.model = QStandardItemModel()
+        self.treeView.setModel(self.model)
+
+        add_item_in_tree(self.model, RECT_MEAS_NAME)
+        add_item_in_tree(self.model, POINT_MEAS_NAME)
+        add_item_in_tree(self.model, LINE_MEAS_NAME)
+
+        self.model.setHeaderData(0, Qt.Orientation.Horizontal, 'Meas. Data')
+
+        point_cat = self.model.findItems(POINT_MEAS_NAME)
+        rect_cat = self.model.findItems(RECT_MEAS_NAME)
+        line_cat = self.model.findItems(LINE_MEAS_NAME)
+
+        for i, point in enumerate(self.work_image.meas_point_list):
+            desc = point.name
+            add_item_in_tree(point_cat[0], desc)
+
+            self.viewer.add_item_from_annot(point.ellipse_item)
+            self.viewer.add_item_from_annot(point.text_item)
+
+        for i, rect in enumerate(self.work_image.meas_rect_list):
+            desc = rect.name
+            add_item_in_tree(rect_cat[0], desc)
+
+            self.viewer.add_item_from_annot(rect.main_item)
+            for item in rect.ellipse_items:
+                self.viewer.add_item_from_annot(item)
+            for item in rect.text_items:
+                self.viewer.add_item_from_annot(item)
+
+        for i, line in enumerate(self.work_image.meas_line_list):
+            desc = line.name
+            add_item_in_tree(line_cat[0], desc)
+
+            self.viewer.add_item_from_annot(line.main_item)
+
+    # THERMAL PARAMETERS FUNCTIONS __________________________________________________________________________
     def define_options(self):
         try:
             # Store original values to restore if validation fails
             original_thermal_param = copy.deepcopy(self.thermal_param)
-            
+
             em = float(self.lineEdit_emissivity.text())
             # check if value is acceptable
             if em < 0.1 or em > 1:
@@ -866,17 +763,6 @@ class DroneIrWindow(QMainWindow):
             QMessageBox.warning(self, "Warning",
                                 "Oops! Some of the values are not valid!")
             self.thermal_param = original_thermal_param
-
-    def estimate_temp(self):
-        ref_pic_name = QFileDialog.getOpenFileName(self, 'Open file',
-                                                   self.ir_folder, "Image files (*.jpg *.JPG *.gif)")
-        img_path = ref_pic_name[0]
-        if img_path != '':
-            tmin, tmax = tt.compute_delta(img_path, self.thermal_param)
-            self.lineEdit_min_temp.setText(str(round(tmin, 2)))
-            self.lineEdit_max_temp.setText(str(round(tmax, 2)))
-
-        self.update_img_preview()
 
     # LOAD AND SAVE ACTIONS ______________________________________________________________________________
     def export_anim(self):
@@ -1069,6 +955,81 @@ class DroneIrWindow(QMainWindow):
 
         print('all action enabled!')
 
+    def update_img_list(self):
+        """Update the list of images and initialize image processing classes.
+
+        Updates the internal list of thermal and RGB images, and initializes
+        the necessary image processing classes for each image pair. This method
+        is called after loading a new folder of images.
+
+        Raises:
+            ThermogramError: If there's an error updating the image list
+            FileOperationError: If required image files are not found
+        """
+        try:
+            self.ir_folder = self.original_th_img_folder
+            if self.has_rgb:
+                self.rgb_folder = self.rgb_crop_img_folder
+                rgb_imgs = os.listdir(self.rgb_folder)
+                self.rgb_imgs = sorted(rgb_imgs)
+
+            # list thermal images
+            ir_imgs = os.listdir(self.ir_folder)
+            self.ir_imgs = sorted(ir_imgs)
+            self.n_imgs = len(self.ir_imgs)
+
+            if self.n_imgs > 1:
+                self.pushButton_right.setEnabled(True)
+
+            # update progress
+            self.update_progress(nb=5, text='Creating image objects....')
+
+            # Create an image object for each picture
+            for i, im in enumerate(self.ir_imgs):
+                if self.n_imgs == 1:
+                    progress = 100  # or any other value that makes sense in your context
+                else:
+                    progress = 5 + (95 * i) / (self.n_imgs - 1)
+                self.update_progress(nb=progress, text=f'Creating image object {i}/{self.n_imgs}')
+
+                if self.has_rgb:
+                    print(f'image {i}: Has rgb!')
+                    image = tt.ProcessedIm(os.path.join(self.ir_folder, im),
+                                           os.path.join(self.rgb_folder, self.rgb_imgs[i]),
+                                           self.list_rgb_paths[i], self.ir_undistorder, self.drone_model)
+                else:
+                    image = tt.ProcessedIm(os.path.join(self.ir_folder, im), '', '', self.ir_undistorder,
+                                           self.drone_model)
+                self.images.append(image)
+
+            self.update_progress(nb=100, text=f'finalizing')
+            # Define active image
+            self.active_image = 0
+            self.work_image = self.images[self.active_image]
+
+            # Create temporary folder
+            self.preview_folder = os.path.join(self.ir_folder, 'preview')
+            if not os.path.exists(self.preview_folder):
+                os.mkdir(self.preview_folder)
+
+            # Quickly compute temperature delta on first image
+            tmin = copy.deepcopy(self.work_image.tmin)
+            tmax = copy.deepcopy(self.work_image.tmax)
+
+            self.lineEdit_min_temp.setText(str(round(tmin, 2)))
+            self.lineEdit_max_temp.setText(str(round(tmax, 2)))
+
+            self.update_img_preview()
+            self.comboBox_img.clear()
+            self.comboBox_img.addItems(self.ir_imgs)
+
+            # Final progress
+            self.update_progress(nb=100, text="Status: You can now process thermal images!")
+
+        except Exception as e:
+            error(f"Failed to update image list: {str(e)}")
+            raise ThermogramError(f"Failed to update image list: {str(e)}") from e
+
     def save_image(self):
         """Save the current thermal image with measurements."""
         try:
@@ -1116,7 +1077,8 @@ class DroneIrWindow(QMainWindow):
             if not os.path.exists(self.last_out_folder):
                 os.mkdir(self.last_out_folder)
 
-            dialog = dia.DialogBatchExport(self.ir_imgs, self.last_out_folder, parameters_style, parameters_temp, parameters_radio)
+            dialog = dia.DialogBatchExport(self.ir_imgs, self.last_out_folder, parameters_style, parameters_temp,
+                                           parameters_radio)
 
             if dialog.exec():
                 # Get selected images indices
@@ -1174,7 +1136,98 @@ class DroneIrWindow(QMainWindow):
     def process_all_phase2(self):
         self.update_progress(nb=100, text="Status: Continue analyses!")
 
-    # VISUALIZE __________________________________________________________________
+    # IMAGE ALIGNMENT __________________________________________________________
+    def image_matching(self):
+        temp_folder = os.path.join(self.app_folder, 'temp')
+        if not os.path.exists(temp_folder):
+            os.mkdir(temp_folder)
+
+        # get work images
+        rgb_path = self.work_image.rgb_path_original
+        ir_path = self.work_image.path
+
+        # get initial distortion parameters from the drone model (stored in the image)
+        # [k1, extend, y - offset, x - offset]
+        F = self.drone_model.K_ir[0][0]
+        d_mat = self.drone_model.d_ir
+
+        zoom = self.drone_model.zoom
+        y_off = self.drone_model.y_offset
+        x_off = self.drone_model.x_offset
+
+        print(f'Here are the work values! zoom:{zoom}, y offset:{y_off}, x offset: {x_off}')
+
+        dialog = dia.AlignmentDialog(self.work_image, temp_folder, theta=[zoom, y_off, x_off])
+        if dialog.exec():
+
+            # ask options
+            # Create a QMessageBox
+            qm = QMessageBox
+            reply = qm.question(self, '', "Do you want to process all pictures with those new parameters",
+                                qm.StandardButton.Yes | qm.StandardButton.No)
+
+            if reply == qm.StandardButton.Yes:
+                print('Good choice')
+                # update values
+                zoom, y_off, x_off = dialog.theta
+                self.drone_model.zoom = zoom
+                self.drone_model.y_offset = y_off
+                self.drone_model.x_offset = x_off
+
+                print(f'Re-creating RGB crop with zoom {zoom}')
+
+                # re-run all miniatures
+                text_status = 'creating rgb miniatures...'
+                self.update_progress(nb=20, text=text_status)
+
+                worker_1 = tt.RunnerMiniature(self.list_rgb_paths, self.drone_model, 60,
+                                              self.rgb_crop_img_folder, 20,
+                                              100)
+                worker_1.signals.progressed.connect(lambda value: self.update_progress(value))
+                worker_1.signals.messaged.connect(lambda string: self.update_progress(text=string))
+
+                self.__pool.start(worker_1)
+                worker_1.signals.finished.connect(self.miniat_finish)
+
+            else:
+                pass
+
+                # re-print-image
+                self.update_img_preview(refresh_dual=True)
+
+    def miniat_finish(self):
+        self.update_progress(nb=100, text='Ready...')
+        self.update_img_preview(refresh_dual=True)
+
+    def compose_pic(self):
+        self.number_custom_pic += 1
+        dest_path_temp = self.dest_path_post[:-4] + f'_custom{self.number_custom_pic}.PNG'
+        print(dest_path_temp)
+        dialog = dia.ImageFusionDialog(self.work_image, self.dest_path_post, dest_path_temp)
+        if dialog.exec():
+            qm = QMessageBox
+            reply = qm.question(self, '', "Do you want to save the picture on the hard drive?",
+                                qm.StandardButton.Yes | qm.StandardButton.No)
+
+            if reply == qm.StandardButton.Yes:
+
+                file_path, _ = QFileDialog.getSaveFileName(
+                    None, "Save Image", "", "PNG Image (*.png);;JPEG Image (*.jpg *.jpeg *.JPEG)"
+                )
+
+                # Save the image if a file path was provided, using high-quality settings for JPEG
+                if file_path:
+                    dialog.exportComposedImage(file_path)
+
+            # add custom image to list
+            dialog.exportComposedImage(dest_path_temp)
+            self.custom_images.append(dest_path_temp)
+            self._view_list.append(f'Custom_img{self.number_custom_pic}')
+            self.update_combo_view()
+        else:
+            self.number_custom_pic -= 1
+
+    # EDGE OVERLAY _______________________________________________________________
     def activate_edges(self):
         if self.checkBox_edges.isChecked():
             self.edges = True
@@ -1222,48 +1275,10 @@ class DroneIrWindow(QMainWindow):
             if self.checkBox_edges.isChecked():
                 self.update_img_preview()
 
+
+    # VISUALIZE __________________________________________________________________
     def toggle_legend(self):
         self.viewer.toggleLegendVisibility()
-
-    def retrace_items(self):
-        self.viewer.clean_scene()
-
-        # Tree operations
-        self.model = QStandardItemModel()
-        self.treeView.setModel(self.model)
-
-        self.add_item_in_tree(self.model, RECT_MEAS_NAME)
-        self.add_item_in_tree(self.model, POINT_MEAS_NAME)
-        self.add_item_in_tree(self.model, LINE_MEAS_NAME)
-
-        self.model.setHeaderData(0, Qt.Orientation.Horizontal, 'Meas. Data')
-
-        point_cat = self.model.findItems(POINT_MEAS_NAME)
-        rect_cat = self.model.findItems(RECT_MEAS_NAME)
-        line_cat = self.model.findItems(LINE_MEAS_NAME)
-
-        for i, point in enumerate(self.work_image.meas_point_list):
-            desc = point.name
-            self.add_item_in_tree(point_cat[0], desc)
-
-            self.viewer.add_item_from_annot(point.ellipse_item)
-            self.viewer.add_item_from_annot(point.text_item)
-
-        for i, rect in enumerate(self.work_image.meas_rect_list):
-            desc = rect.name
-            self.add_item_in_tree(rect_cat[0], desc)
-
-            self.viewer.add_item_from_annot(rect.main_item)
-            for item in rect.ellipse_items:
-                self.viewer.add_item_from_annot(item)
-            for item in rect.text_items:
-                self.viewer.add_item_from_annot(item)
-
-        for i, line in enumerate(self.work_image.meas_line_list):
-            desc = line.name
-            self.add_item_in_tree(line_cat[0], desc)
-
-            self.viewer.add_item_from_annot(line.main_item)
 
     def show_viz_threed(self):
         from tools import thermal_3d as t3d
@@ -1280,38 +1295,12 @@ class DroneIrWindow(QMainWindow):
         if dialog.exec():
             pass
 
-    def compose_pic(self):
-        self.number_custom_pic += 1
-        dest_path_temp = self.dest_path_post[:-4] + f'_custom{self.number_custom_pic}.PNG'
-        print(dest_path_temp)
-        dialog = dia.ImageFusionDialog(self.work_image, self.dest_path_post, dest_path_temp)
-        if dialog.exec():
-            qm = QMessageBox
-            reply = qm.question(self, '', "Do you want to save the picture on the hard drive?",
-                                qm.StandardButton.Yes | qm.StandardButton.No)
-
-            if reply == qm.StandardButton.Yes:
-
-                file_path, _ = QFileDialog.getSaveFileName(
-                    None, "Save Image", "", "PNG Image (*.png);;JPEG Image (*.jpg *.jpeg *.JPEG)"
-                )
-
-                # Save the image if a file path was provided, using high-quality settings for JPEG
-                if file_path:
-                    dialog.exportComposedImage(file_path)
-
-            # add custom image to list
-            dialog.exportComposedImage(dest_path_temp)
-            self.custom_images.append(dest_path_temp)
-            self._view_list.append(f'Custom_img{self.number_custom_pic}')
-            self.update_combo_view()
-        else:
-            self.number_custom_pic -= 1
-
     def update_combo_view(self):
         self.comboBox_view.clear()
         self.comboBox_view.addItems(self._view_list)
 
+
+    # CHANGE AND VIEW IMAGE ___________________________________________________
     def compile_user_temps_values(self):
         tmin = float(self.lineEdit_min_temp.text())
         tmax = float(self.lineEdit_max_temp.text())
@@ -1519,7 +1508,6 @@ class DroneIrWindow(QMainWindow):
             pixmap = QPixmap.fromImage(image)
             self.label_summary.setPixmap(pixmap)
 
-
     # CONTEXT MENU IN TREEVIEW _________________________________________________
     def onContextMenu(self, point):
         print("Context menu requested at:", point)  # Debug print
@@ -1641,13 +1629,40 @@ class DroneIrWindow(QMainWindow):
             dialog.exec()
 
     # GENERAL GUI METHODS __________________________________________________________________________
+    def show_radio_dock(self):
+        """
+        Show the radiometric parameters dock widget if it's hidden or closed.
+        """
+        if not self.dockWidget_radio.isVisible():
+            self.dockWidget_radio.show()
+
+    def show_edge_dock(self):
+        """
+        Show the edge mix dock widget if it's hidden or closed.
+        """
+        if not self.dockWidget_edge.isVisible():
+            self.dockWidget_edge.show()
+
+    def on_tab_change(self, index):
+        """Handle tab widget changes.
+
+        Enables or disables certain UI elements based on the selected tab.
+
+        Args:
+            index: Index of the newly selected tab
+        """
+        if index == 1:
+            self.actionRectangle_meas.setDisabled(True)
+            self.actionSpot_meas.setDisabled(True)
+            self.actionLine_meas.setDisabled(True)
+        else:
+            self.actionRectangle_meas.setDisabled(False)
+            self.actionSpot_meas.setDisabled(False)
+            self.actionLine_meas.setDisabled(False)
+
     def hand_pan(self):
         # switch back to hand tool
         self.actionHand_selector.setChecked(True)
-
-    def add_item_in_tree(self, parent, line):
-        item = QStandardItem(line)
-        parent.appendRow(item)
 
     def write_json(self, dictionary):
         # Serializing json
@@ -1672,28 +1687,22 @@ class DroneIrWindow(QMainWindow):
             elif self.progressBar.isHidden():
                 self.progressBar.setVisible(True)
 
-    def add_icon(self, img_source, pushButton_object):
-        """
-        Function to add an icon to a pushButton
-        """
-        pushButton_object.setIcon(QIcon(img_source))
-
     def add_all_icons(self):
         # self.add_icon(res.find('img/label.png'), self.pushButton_addCat)
-        self.add_icon(res.find('img/folder.png'), self.actionLoad_folder)
-        self.add_icon(res.find('img/rectangle.png'), self.actionRectangle_meas)
-        self.add_icon(res.find('img/hand.png'), self.actionHand_selector)
+        add_icon(res.find('img/folder.png'), self.actionLoad_folder)
+        add_icon(res.find('img/rectangle.png'), self.actionRectangle_meas)
+        add_icon(res.find('img/hand.png'), self.actionHand_selector)
         # self.add_icon(res.find('img/forest.png'), self.actionRun)
-        self.add_icon(res.find('img/reset.png'), self.actionReset_all)
+        add_icon(res.find('img/reset.png'), self.actionReset_all)
         # self.add_icon(res.find('img/settings.png'), self.actionParameters)
-        self.add_icon(res.find('img/info.png'), self.actionInfo)
-        self.add_icon(res.find('img/point.png'), self.actionSpot_meas)
-        self.add_icon(res.find('img/line.png'), self.actionLine_meas)
-        self.add_icon(res.find('img/compare.png'), self.actionCompose)
-        self.add_icon(res.find('img/3d.png'), self.action3D_temperature)
-        self.add_icon(res.find('img/maxima.png'), self.actionFind_maxima)
-        self.add_icon(res.find('img/robot.png'), self.actionDetect_object)
-        self.add_icon(res.find('img/layers.png'), self.actionProcess_all)
+        add_icon(res.find('img/info.png'), self.actionInfo)
+        add_icon(res.find('img/point.png'), self.actionSpot_meas)
+        add_icon(res.find('img/line.png'), self.actionLine_meas)
+        add_icon(res.find('img/compare.png'), self.actionCompose)
+        add_icon(res.find('img/3d.png'), self.action3D_temperature)
+        add_icon(res.find('img/maxima.png'), self.actionFind_maxima)
+        add_icon(res.find('img/robot.png'), self.actionDetect_object)
+        add_icon(res.find('img/layers.png'), self.actionProcess_all)
 
     def full_reset(self):
         """
@@ -1729,6 +1738,7 @@ def load_stylesheet(filename):
     file_path = res.find(f'styles/{filename}')
     with open(file_path, "r") as file:
         return file.read()
+
 
 def main(argv=None):
     """

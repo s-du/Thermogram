@@ -369,7 +369,7 @@ class ProcessedIm:
         tmax_opt = np.percentile(temp_flat, upper_percentile)
         return tmin_opt, tmax_opt
 
-    def generate_temperature_histogram(self, bins=256):
+    def generate_temperature_histogram(self, bins=50):
         from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
         import matplotlib.pyplot as plt
         from matplotlib import cm
