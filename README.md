@@ -68,13 +68,13 @@ The app offers the following key features:
 </p>
 
 <p align="center">
-    <a href=""><img src="docs/screens/capture5.png" alt="Thermogram" border="0" style="width: 100%;"></a>
+    <a href=""><img src="docs/screens/capture5b.png" alt="Thermogram" border="0" style="width: 100%;"></a>
     
     Edge overlay
 </p>
 
 <p align="center">
-    <a href=""><img src="docs/screens/capture6.png" alt="Thermogram" border="0" style="width: 100%;"></a>
+    <a href=""><img src="docs/screens/capture6b.png" alt="Thermogram" border="0" style="width: 100%;"></a>
     
     Denoising
 </p>
