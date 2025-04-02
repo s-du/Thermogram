@@ -7,18 +7,48 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from PIL import Image, ImageOps, ImageFilter
 from matplotlib import cm, pyplot as plt
 import matplotlib.colors as mcol
-from blend_modes import dodge, multiply
+from blend_modes import dodge, multiply, overlay, normal
+from tools.core import *
 
 # PySide6 imports
 from PyQt6 import QtCore
 
 # Custom libraries
 from tools.core import *
+from utils.config import config, thermal_config
+from utils.logger import info, error, debug, warning
+from utils.exceptions import ThermogramError, FileOperationError
 
 # LISTS __________________________________________________
 OUT_LIM = ['continuous', 'black', 'white', 'red']
 OUT_LIM_MATPLOT = ['c', 'k', 'w', 'r']
 POST_PROCESS = ['none', 'denoise - light', 'denoise - medium', 'denoise - strong', 'smooth', 'sharpen', 'sharpen strong', 'edge (simple)', 'contours']
+
+# Add a mapping for common color names to BGR tuples used by OpenCV
+BGR_COLORS = {
+    'black': (0, 0, 0),
+    'white': (255, 255, 255),
+    'red': (0, 0, 255),
+    'green': (0, 255, 0),
+    'blue': (255, 0, 0),
+    'yellow': (0, 255, 255),
+    'cyan': (255, 255, 0),
+    'magenta': (255, 0, 255)
+}
+
+EDGE_METHODS = ['Canny', 'Canny-L2', 'SOBEL', 'Laplacian']
+# Predefined Edge Styles
+PREDEFINED_EDGE_STYLES = {
+    "Subtle White 1": {"method": 3, "color": "white", "bil": True, "blur": False, "blur_size": 3, "opacity": 0.7},
+    "Subtle White 2": {"method": 1, "color": "white", "bil": True, "blur": True, "blur_size": 3, "opacity": 0.6},
+    "Crystal Clear White":  {"method": 0, "color": "white", "bil": False, "blur": False, "blur_size": 3, "opacity": 0.4},
+    "Subtle Black 1": {"method": 3, "color": "black", "bil": True, "blur": False, "blur_size": 3, "opacity": 0.7},
+    "Subtle Black 2": {"method": 1, "color": "black", "bil": True, "blur": True, "blur_size": 3, "opacity": 0.6},
+    "Crystal Clear Black": {"method": 0, "color": "black", "bil": False, "blur": False, "blur_size": 3, "opacity": 0.4},
+    "Highlight Red": {"method": 3, "color": "red", "bil": False, "blur": False, "blur_size": 3, "opacity": 0.7},
+    "Highlight Magenta": {"method": 3, "color": "magenta", "bil": False, "blur": False, "blur_size": 3, "opacity": 0.7},
+}
+EDGE_STYLE_NAMES = ["Custom"] + list(PREDEFINED_EDGE_STYLES.keys())
 
 LIST_CUSTOM_CMAPS = ['Arctic',
                      'Iron',
@@ -33,6 +63,7 @@ LIST_CUSTOM_CMAPS = ['Arctic',
                      'Tint',
                      'BlueWhiteRed',
                      'FIJI_Temp']
+
 COLORMAP_NAMES = ['WhiteHot',
                   'BlackHot',
                   'Arctic',
@@ -57,6 +88,7 @@ COLORMAP_NAMES = ['WhiteHot',
                   'Pyplot_Cividis',
                   'Pyplot_Viridis',
                   'FIJI_Temp']
+
 COLORMAPS = ['Greys_r',
              'Greys',
              'Arctic',
@@ -81,7 +113,6 @@ COLORMAPS = ['Greys_r',
              'cividis',
              'viridis',
              'FIJI_Temp']
-
 
 # Runner classes
 class RunnerSignals(QtCore.QObject):
@@ -311,18 +342,16 @@ def match_rgb_custom_parameters_zoom(cv_img, drone_model):
             w_ir / h_ir)  # Aspect ratio adjustment to fit RGB image to IR
 
     new_h = h2 * aspect_factor
-    x_offset = drone_model.x_offset
-    y_offset = drone_model.y_offset
 
     # Adjust crop size based on zoom factor
     ret_x = int((w2 / drone_model.zoom) / 2)
     ret_y = int((new_h / drone_model.zoom) / 2)
 
     # Calculate crop bounds
-    x1 = int(w2 / 2 + x_offset) - ret_x
-    x2 = int(w2 / 2 + x_offset) + ret_x
-    y1 = int(h2 / 2 + y_offset) - ret_y
-    y2 = int(h2 / 2 + y_offset) + ret_y
+    x1 = int(w2 / 2 + drone_model.x_offset) - ret_x
+    x2 = int(w2 / 2 + drone_model.x_offset) + ret_x
+    y1 = int(h2 / 2 + drone_model.y_offset) - ret_y
+    y2 = int(h2 / 2 + drone_model.y_offset) + ret_y
 
     # Check if crop bounds go beyond the image dimensions
     pad_top = max(0, -y1)
@@ -377,105 +406,195 @@ def match_rgb_custom_parameters_zoom(cv_img, drone_model):
 # LINES __________________________________________________
 def add_lines_from_rgb(path_ir, cv_match_rgb_img, drone_model, mode=1, color='white', bilateral=True, blur=True,
                        blur_size=3, opacity=0.7):
-    cv_ir_img = cv_read_all_path(path_ir)
-    img_gray = cv2.cvtColor(cv_match_rgb_img, cv2.COLOR_BGR2GRAY)
+    """
+    Adds edge lines extracted from an RGB image to a thermal IR image.
 
-    if blur:
-        img_gray = cv2.GaussianBlur(img_gray, (blur_size, blur_size), 0)
+    Args:
+        path_ir (str): Path to the thermal IR image file.
+        cv_match_rgb_img (numpy.ndarray): OpenCV image object of the matched RGB image.
+        drone_model (str): The model of the drone (used for potential model-specific processing).
+        mode (int): Edge detection mode (e.g., 0 for Canny, 1 for custom/laplacian-like). Defaults to 1.
+        color (str): Color name for the edge lines (e.g., 'white', 'black', 'red'). Defaults to 'white'.
+        bilateral (bool): Apply bilateral filter before edge detection. Defaults to True.
+        blur (bool): Apply blur effect to the detected edges. Defaults to True.
+        blur_size (int): Kernel size for blurring edges. Defaults to 3.
+        opacity (float): Opacity of the overlaid edges (0.0 to 1.0). Defaults to 0.7.
 
-    if bilateral:
-        img_gray = cv2.bilateralFilter(img_gray, 15, 75, 75)
+    Returns:
+        PIL.Image.Image: Thermal image with edge lines overlaid.
 
-    if mode == 0:
+    Raises:
+        FileOperationError: If the thermal image cannot be opened.
+        ThermogramError: For general processing errors.
+    """
+    try:
+        # 1) load IR image
+        try:
+            ir_img = Image.open(path_ir).convert('RGB')  # Ensure IR image is RGB for blending
+        except FileNotFoundError:
+            error(f"Thermal image file not found at {path_ir}")
+            raise FileOperationError(f"Thermal image file not found at {path_ir}")
+        except Exception as e:
+            error(f"Error opening thermal image {path_ir}: {e}")
+            raise FileOperationError(f"Could not open thermal image {path_ir}")
+
+        # --- Pre-process RGB image (optional blur) ---
+        processed_rgb_img = cv_match_rgb_img.copy()
+
+        # --- Resize RGB image to match thermal dimensions (if needed) ---
+        if hasattr(drone_model, 'dim_undis_ir'):
+            target_dim = drone_model.dim_undis_ir
+            if processed_rgb_img.shape[1] != target_dim[0] or processed_rgb_img.shape[0] != target_dim[1]:
+                info(
+                    f"Resizing RGB image from {processed_rgb_img.shape[1]}x{processed_rgb_img.shape[0]} to {target_dim[0]}x{target_dim[1]} for edge detection")
+                processed_rgb_img = cv2.resize(processed_rgb_img, target_dim, interpolation=cv2.INTER_AREA)
+        else:
+            warning("drone_model does not have 'dim_undis_ir' attribute. Skipping RGB resize.")
+
+        # 2) get edges from the resized RGB image
+        edges_img = create_lines(processed_rgb_img, bil=bilateral, mode=mode)
+
+        if blur:
+             # Ensure blur_size is odd
+            blur_size = blur_size if blur_size % 2 != 0 else blur_size + 1
+            info(f'Applying pre-blur to RGB image with kernel size {blur_size}')
+            edges_img = cv2.GaussianBlur(edges_img, (blur_size, blur_size), 0)
+
+        # 3) create color mask for edges
+        # Convert edges_img (grayscale) to a 3-channel BGR image
+        edges_color_mask_bgr = cv2.cvtColor(edges_img, cv2.COLOR_GRAY2BGR)
+
+        # Get the BGR color tuple from the name
+        line_color_bgr = BGR_COLORS.get(color.lower(), (255, 255, 255)) # Default to white if color not found
+
+        # Create a boolean mask where edges are detected (non-zero pixels in original grayscale edges_img)
+        edge_mask = edges_img > 0
+
+        # Apply the color: Where edge_mask is True, set the color mask to line_color_bgr
+        edges_color_mask_bgr[edge_mask] = line_color_bgr
+        # Make non-edge areas black
+        edges_color_mask_bgr[~edge_mask] = [0, 0, 0]
+
+        # 4) Blending the layers
+        # Convert the thermal image PIL object (RGB) to RGBA NumPy array
+        ir_img_rgba = ir_img.convert('RGBA')
+        background_float = np.array(ir_img_rgba).astype(float)
+
+        # Convert our BGR color mask to RGBA NumPy array
+        # First, convert BGR to RGB for standard RGBA format
+        edges_color_mask_rgb = cv2.cvtColor(edges_color_mask_bgr, cv2.COLOR_BGR2RGB)
+        # Create an alpha channel based on the original edges_img (edges are opaque, others transparent)
+        # Use the blurred edges_img for smoother alpha transition if blur was applied
+        alpha_channel = edges_img.astype(np.uint8) # Alpha matches edge intensity (0-255)
+
+        # Merge RGB and alpha channel
+        edges_rgba = cv2.merge((edges_color_mask_rgb, alpha_channel))
+        cv2.imwrite('edge.png', edges_rgba)
+
+
+        # Convert resized edge overlay to float for blending
+        foreground_float = edges_rgba.astype(float)
+
+        # --- Blending logic using blend_modes library ---
+        blend_opacity = max(0.0, min(1.0, opacity))
+
+        # Dodge works well for adding light details, Multiply for dark.
+        # Let's stick to the original logic based on color name.
+        if color.lower() != 'black':
+             blended_float = normal(background_float, foreground_float, blend_opacity)
+        else:
+             blended_float = multiply(background_float, foreground_float, blend_opacity)
+
+        # --- Post-blending ---
+        # Clip values and convert back to uint8
+        blended_float = np.clip(blended_float, 0, 255)
+        blended_uint8 = blended_float.astype(np.uint8)
+
+        # Convert final RGBA numpy array back to PIL Image (RGB)
+        final_image = Image.fromarray(blended_uint8, 'RGBA').convert('RGB')
+
+        debug(f"Edges overlaid with color {color}, opacity {opacity}, mode {mode}")
+        return final_image
+
+    except (FileOperationError, ThermogramError) as e:
+        # Re-raise known errors
+        raise e
+    except Exception as e:
+        error(f"Unexpected error in add_lines_from_rgb for {path_ir}: {str(e)}")
+        import traceback
+        traceback.print_exc() # Print stack trace for debugging
+        # Attempt to return original IR image as fallback
+        try:
+            return Image.open(path_ir).convert('RGB')
+        except Exception as fallback_e:
+            error(f"Fallback failed: Could not return original image {path_ir}: {fallback_e}")
+            raise ThermogramError(f"Failed to process edges or return original image for {path_ir}")
+
+
+def create_lines(cv_img, bil=True, mode=1): # Added mode parameter
+    """
+    Creates edge lines from an image using specified method.
+
+    Args:
+        cv_img (numpy.ndarray): Input image (OpenCV format, assumed BGR or Grayscale).
+        bil (bool): Apply bilateral filter before edge detection. Defaults to True.
+        mode (int): Edge detection mode (0 for Canny, 1 for Laplacian). Defaults to 1.
+
+    Returns:
+        numpy.ndarray: Grayscale image containing detected edges (0-255).
+    """
+    # Convert to grayscale if necessary
+    if len(cv_img.shape) == 3 and cv_img.shape[2] == 3:
+        gray = cv2.cvtColor(cv_img, cv2.COLOR_BGR2GRAY)
+    elif len(cv_img.shape) == 2:
+        gray = cv_img # Assume already grayscale
+    else:
+         error(f"Unsupported image format for edge detection: shape={cv_img.shape}")
+         raise ThermogramError("Unsupported image format for edge detection.")
+
+    # Apply bilateral filter for noise reduction while keeping edges sharp
+    if bil:
+        # Parameters might need tuning based on image characteristics
+        gray = cv2.bilateralFilter(gray, d=9, sigmaColor=75, sigmaSpace=75)
+
+    # Edge detection method
+    if mode == 0: # Canny Edges
+        # Canny thresholds might need adjustment. Lower thresholds detect more edges.
+        edges = cv2.Canny(gray, threshold1=100, threshold2=200) # Returns binary image (0 or 255)
+    elif mode == 1: # Canny with gradient
+        edges = cv2.Canny(gray, 100, 200, L2gradient=True)
+    elif mode == 2: # Laplacian Method
+        # Using CV_16S to avoid overflow, then convert back
+        laplacian = cv2.Laplacian(gray, cv2.CV_16S, ksize=3)
+        edges = cv2.convertScaleAbs(laplacian) # Converts to CV_8U
+        # Laplacian highlights regions of rapid intensity change.
+        # It might not produce thin lines like Canny. Optional thresholding:
+        # _, edges = cv2.threshold(edges, 30, 255, cv2.THRESH_BINARY)
+    elif mode == 3:
         scale = 1
         delta = 0
         k_size = 3
         ddepth = cv2.CV_16S
 
-        grad_x = cv2.Sobel(img_gray, ddepth, 1, 0, ksize=k_size, scale=scale, delta=delta,
+        grad_x = cv2.Sobel(gray, ddepth, 1, 0, ksize=k_size, scale=scale, delta=delta,
                            borderType=cv2.BORDER_DEFAULT)
-        grad_y = cv2.Sobel(img_gray, ddepth, 0, 1, ksize=k_size, scale=scale, delta=delta,
+        grad_y = cv2.Sobel(gray, ddepth, 0, 1, ksize=k_size, scale=scale, delta=delta,
                            borderType=cv2.BORDER_DEFAULT)
 
         abs_grad_x = cv2.convertScaleAbs(grad_x)
         abs_grad_y = cv2.convertScaleAbs(grad_y)
 
         edges = cv2.addWeighted(abs_grad_x, 0.5, abs_grad_y, 0.5, 0)
-
-        pil_edges = Image.fromarray(edges)
-
-    elif mode == 1:
-        image_pil = Image.fromarray(img_gray)
-        pil_edges = image_pil.filter(ImageFilter.Kernel((3, 3), (-1, -1, -1, -1, 8,
-                                                                 -1, -1, -1, -1), 1, 0))
-
-    elif mode == 2:
-        image_pil = Image.fromarray(img_gray)
-        pil_edges = image_pil.filter(ImageFilter.Kernel((3, 3), (0, -1, 0, -1, 4,
-                                                                 -1, 0, -1, 0), 1, 0))
-
-    elif mode == 3:
-        edges = cv2.Canny(img_gray, 100, 200)
-        pil_edges = Image.fromarray(edges)
-
-    elif mode == 4:
-        edges = cv2.Canny(img_gray, 100, 200, L2gradient=True)
-        pil_edges = Image.fromarray(edges)
-
-    elif mode == 5:
-        pass
-
-    if color == 'black':
-        pil_edges = ImageOps.invert(pil_edges)
-
-    pil_edges = pil_edges.convert('RGB')
-    pil_edges_rgba = pil_edges.convert('RGBA')
-    foreground = np.array(pil_edges_rgba)
-
-    # resize
-    dim = drone_model.dim_undis_ir
-    foreground = cv2.resize(foreground, dim, interpolation=cv2.INTER_AREA)
-    foreground_float = foreground.astype(float)  # Inputs to blend_modes need to be floats.
-
-    cv_ir_img = cv2.cvtColor(cv_ir_img, cv2.COLOR_BGR2RGB)
-    ir_img = Image.fromarray(cv_ir_img)
-    ir_img = ir_img.convert('RGBA')
-    background = np.array(ir_img)
-    background_float = background.astype(float)
-
-    if color != 'black':
-        blended = dodge(background_float, foreground_float, opacity)
     else:
-        blended = multiply(background_float, foreground_float, opacity)
+        info(f"Unrecognized edge detection mode: {mode}. Defaulting to mode 1 (Laplacian).")
+        laplacian = cv2.Laplacian(gray, cv2.CV_16S, ksize=3)
+        edges = cv2.convertScaleAbs(laplacian)
 
-    blended_img = np.uint8(blended)
-    blended_img_raw = Image.fromarray(blended_img)
-    blended_img_raw = blended_img_raw.convert('RGB')
-
-    return blended_img_raw
-
-
-def create_lines(cv_img, bil=True):
-    img_gray = cv2.cvtColor(cv_img, cv2.COLOR_BGR2GRAY)
-
-    if bil:
-        # img_gray = cv2.GaussianBlur(img_gray, (3, 3), 0)
-        img_gray = cv2.bilateralFilter(img_gray, 7, 75, 75)
-
-    scale = 1
-    delta = 0
-    ddepth = cv2.CV_16S
-    grad_x = cv2.Sobel(img_gray, ddepth, 1, 0, ksize=3, scale=scale, delta=delta, borderType=cv2.BORDER_DEFAULT)
-    grad_y = cv2.Sobel(img_gray, ddepth, 0, 1, ksize=3, scale=scale, delta=delta, borderType=cv2.BORDER_DEFAULT)
-
-    abs_grad_x = cv2.convertScaleAbs(grad_x)
-    abs_grad_y = cv2.convertScaleAbs(grad_y)
-
-    # edges = cv2.addWeighted(abs_grad_x, 0.5, abs_grad_y, 0.5, 0)
-    edges = cv2.Canny(image=img_gray, threshold1=50, threshold2=200)
+    # Ensure output is a single channel grayscale image (0-255)
+    if len(edges.shape) == 3:
+        edges = cv2.cvtColor(edges, cv2.COLOR_BGR2GRAY)
 
     return edges
-
 
 # THERMAL PROCESSING __________________________________________________
 # custom colormaps
@@ -717,7 +836,7 @@ def process_raw_data(img_object, dest_path, edges=False, edge_params=[], radio_p
     elif post_process == 'edge (simple)':
         img_th_smooth = img_thermal.filter(ImageFilter.SMOOTH)
         img_th_findedge = img_th_smooth.filter(ImageFilter.Kernel((3, 3), (-1, -1, -1, -1, 8,
-                                                                           -1, -1, -1, -1), 1, 0))
+                                                                 -1, -1, -1, -1), 1, 0))
         img_th_findedge = img_th_findedge.convert('RGBA')
         img_thermal = img_thermal.convert('RGBA')
         foreground = np.array(img_th_findedge)  # Inputs to blend_modes need to be numpy arrays.
@@ -1004,7 +1123,7 @@ def insert_th_in_rgb(img_obj, ir_path, dest_path, drone_model, extension):
     mask[y1:y2, x1:x2] = 255
 
     # Save resized or padded image
-    cv_write_all_path(cv_rgb, dest_path, extension=extension)
+    cv_write_all_path(cv_rgb, dest_path)
 
     # Save the mask with a `_mask` suffix
     mask_path = os.path.splitext(dest_path)[0] + "_mask." + extension

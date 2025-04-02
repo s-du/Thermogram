@@ -56,11 +56,10 @@ LINE_MEAS_NAME = config.LINE_MEAS_NAME
 
 EDGE_COLOR = 'white'
 EDGE_BLUR_SIZE = 3
-EDGE_METHOD = 0
+EDGE_METHOD = 3
 EDGE_OPACITY = 0.7
 
 VIEWS = config.VIEWS
-
 
 def get_next_available_folder(base_folder, app_folder_base_name=APP_FOLDER):
     # Start with the initial folder name (i.e., 'ThermogramApp_1')
@@ -194,10 +193,16 @@ class DroneIrWindow(QMainWindow):
             self._colormap_list = tt.COLORMAPS
             self._view_list = VIEWS
 
-            # Add content to comboboxes
+            # Set up colormap combobox
             self.comboBox.clear()
             self.comboBox.addItems(tt.COLORMAP_NAMES)
             self.comboBox.setCurrentIndex(0)
+
+            # Set up edge style combobox
+            self.comboBox_edge_overlay_selection.clear()
+            self.comboBox_edge_overlay_selection.addItems(tt.EDGE_STYLE_NAMES)
+            self.comboBox_edge_overlay_selection.setCurrentIndex(0)
+
 
             # Set up color limit combo boxes
             self.comboBox_colors_low.clear()
@@ -390,21 +395,22 @@ class DroneIrWindow(QMainWindow):
             self.pushButton_heatflow.clicked.connect(self.viz_heatflow)
             self.pushButton_optimhisto.clicked.connect(self.optimal_range)
 
-            # Dropdowns
+            # Dropdowns Comboboxes
             self.comboBox.currentIndexChanged.connect(self.update_img_preview)
             self.comboBox_colors_low.currentIndexChanged.connect(self.update_img_preview)
             self.comboBox_colors_high.currentIndexChanged.connect(self.update_img_preview)
             self.comboBox_post.currentIndexChanged.connect(self.update_img_preview)
             self.comboBox_img.currentIndexChanged.connect(lambda: self.update_img_to_preview('other'))
             self.comboBox_view.currentIndexChanged.connect(self.update_img_preview)
+            self.comboBox_edge_overlay_selection.currentIndexChanged.connect(self.change_edge_style)
 
             # Line edits
             self.lineEdit_min_temp.editingFinished.connect(self.adapt_slider_values)
             self.lineEdit_max_temp.editingFinished.connect(self.adapt_slider_values)
             self.lineEdit_colors.editingFinished.connect(self.update_img_preview)
-            self.lineEdit_emissivity.editingFinished.connect(self.define_options)
-            self.lineEdit_distance.editingFinished.connect(self.define_options)
-            self.lineEdit_refl_temp.editingFinished.connect(self.define_options)
+            self.lineEdit_emissivity.editingFinished.connect(self.define_thermal_parameters)
+            self.lineEdit_distance.editingFinished.connect(self.define_thermal_parameters)
+            self.lineEdit_refl_temp.editingFinished.connect(self.define_thermal_parameters)
 
             # Double slider
             self.range_slider.lowerValueChanged.connect(self.change_line_edits)
@@ -421,38 +427,44 @@ class DroneIrWindow(QMainWindow):
             error(f"Failed to create UI connections: {str(e)}")
             raise ThermogramError("Failed to create UI connections") from e
 
-    # TEMPERATURE RANGE _________________________________________________________________
-    def optimal_range(self):
-        tmin_shown, tmax_shown = self.work_image.compute_optimal_temp_range()
-        self.lineEdit_min_temp.setText(str(round(tmin_shown, 2)))
-        self.lineEdit_max_temp.setText(str(round(tmax_shown, 2)))
-        self.range_slider.setLowerValue(tmin_shown * 100)
-        self.range_slider.setUpperValue(tmax_shown * 100)
-
-    def reset_temp_range(self):
-        """Reset the temperature range to the full range of the current image.
-
-        Updates the temperature range slider and display to show the full
-        temperature range of the current thermal image. This resets any user-defined
-        temperature range limits.
-        """
+    # THERMAL PARAMETERS FUNCTIONS __________________________________________________________________________
+    def define_thermal_parameters(self):
         try:
-            self.work_image.update_data_from_param(copy.deepcopy(self.work_image.thermal_param))
-            tmin, tmax, _, _ = self.work_image.get_temp_data()
-            # Fill values lineedits
-            self.lineEdit_min_temp.setText(str(round(tmin, 2)))
-            self.lineEdit_max_temp.setText(str(round(tmax, 2)))
-            self.range_slider.setLowerValue(tmin * 100)
-            self.range_slider.setUpperValue(tmax * 100)
-            self.range_slider.setMinimum(int(tmin * 100))
-            self.range_slider.setMaximum(int(tmax * 100))
+            # Store original values to restore if validation fails
+            original_thermal_param = copy.deepcopy(self.thermal_param)
 
-            debug(f"Temperature range reset to {tmin:.1f} - {tmax:.1f}")
+            em = float(self.lineEdit_emissivity.text())
+            # check if value is acceptable
+            if em < 0.1 or em > 1:
+                self.lineEdit_emissivity.setText(str(round(self.thermal_param['emissivity'], 2)))
+                raise ValueError
+            else:
+                self.thermal_param['emissivity'] = em
 
-        except Exception as e:
-            error(f"Failed to reset temperature range: {str(e)}")
-            raise ThermogramError("Failed to reset temperature range") from e
+            dist = float(self.lineEdit_distance.text())
+            if dist < 1 or dist > 25:
+                self.lineEdit_distance.setText(str(round(self.thermal_param['distance'], 1)))
+                raise ValueError
+            else:
+                self.thermal_param['distance'] = dist
 
+            refl_temp = float(self.lineEdit_refl_temp.text())
+            if refl_temp < -40 or refl_temp > 500:
+                self.lineEdit_refl_temp.setText(str(round(self.thermal_param['reflection'], 1)))
+                raise ValueError
+            else:
+                self.thermal_param['reflection'] = refl_temp
+
+            # Now we can safely switch image data and update preview
+            self.switch_image_data()
+            self.update_img_preview()
+
+        except ValueError:
+            QMessageBox.warning(self, "Warning",
+                                "Oops! Some of the values are not valid!")
+            self.thermal_param = original_thermal_param
+
+    # TEMPERATURE RANGE _________________________________________________________________
     def adapt_slider_values(self):
         """Update temperature range based on slider values.
 
@@ -503,6 +515,37 @@ class DroneIrWindow(QMainWindow):
 
             self.update_img_preview()
 
+    def optimal_range(self):
+        tmin_shown, tmax_shown = self.work_image.compute_optimal_temp_range()
+        self.lineEdit_min_temp.setText(str(round(tmin_shown, 2)))
+        self.lineEdit_max_temp.setText(str(round(tmax_shown, 2)))
+        self.range_slider.setLowerValue(tmin_shown * 100)
+        self.range_slider.setUpperValue(tmax_shown * 100)
+
+    def reset_temp_range(self):
+        """Reset the temperature range to the full range of the current image.
+
+        Updates the temperature range slider and display to show the full
+        temperature range of the current thermal image. This resets any user-defined
+        temperature range limits.
+        """
+        try:
+            self.work_image.update_data_from_param(copy.deepcopy(self.work_image.thermal_param))
+            tmin, tmax, _, _ = self.work_image.get_temp_data()
+            # Fill values lineedits
+            self.lineEdit_min_temp.setText(str(round(tmin, 2)))
+            self.lineEdit_max_temp.setText(str(round(tmax, 2)))
+            self.range_slider.setLowerValue(tmin * 100)
+            self.range_slider.setUpperValue(tmax * 100)
+            self.range_slider.setMinimum(int(tmin * 100))
+            self.range_slider.setMaximum(int(tmax * 100))
+
+            debug(f"Temperature range reset to {tmin:.1f} - {tmax:.1f}")
+
+        except Exception as e:
+            error(f"Failed to reset temperature range: {str(e)}")
+            raise ThermogramError("Failed to reset temperature range") from e
+
     def estimate_temp(self):
         ref_pic_name = QFileDialog.getOpenFileName(self, 'Open file',
                                                    self.ir_folder, "Image files (*.jpg *.JPG *.gif)")
@@ -513,27 +556,6 @@ class DroneIrWindow(QMainWindow):
             self.lineEdit_max_temp.setText(str(round(tmax, 2)))
 
         self.update_img_preview()
-
-    def show_info(self):
-        """Show application information dialog."""
-        try:
-            info_text = f"""
-            Thermogram v{config.APP_VERSION}
-            
-            A comprehensive thermal image processing application
-            for DJI drone thermal imagery.
-            
-            Features:
-            - Thermal image visualization
-            - Temperature analysis
-            - Measurement tools
-            - Batch processing
-            """
-
-            QMessageBox.information(self, "About Thermogram", info_text)
-
-        except Exception as e:
-            error(f"Failed to show info dialog: {str(e)}")
 
     # ANNOTATIONS _________________________________________________________________
     def viz_heatflow(self):
@@ -727,42 +749,124 @@ class DroneIrWindow(QMainWindow):
 
             self.viewer.add_item_from_annot(line.main_item)
 
-    # THERMAL PARAMETERS FUNCTIONS __________________________________________________________________________
-    def define_options(self):
-        try:
-            # Store original values to restore if validation fails
-            original_thermal_param = copy.deepcopy(self.thermal_param)
+    def change_meas_color(self):
+        self.viewer.change_meas_color()
+        self.switch_image_data()
 
-            em = float(self.lineEdit_emissivity.text())
-            # check if value is acceptable
-            if em < 0.1 or em > 1:
-                self.lineEdit_emissivity.setText(str(round(self.thermal_param['emissivity'], 2)))
-                raise ValueError
-            else:
-                self.thermal_param['emissivity'] = em
+    # ANNOTATION CONTEXT MENU IN TREEVIEW _________________________________________________
+    def onContextMenu(self, point):
+        print("Context menu requested at:", point)  # Debug print
+        # Get the index of the item that was clicked
+        index = self.treeView.indexAt(point)
+        if not index.isValid():
+            return
 
-            dist = float(self.lineEdit_distance.text())
-            if dist < 1 or dist > 25:
-                self.lineEdit_distance.setText(str(round(self.thermal_param['distance'], 1)))
-                raise ValueError
-            else:
-                self.thermal_param['distance'] = dist
+        item = self.model.itemFromIndex(index)
 
-            refl_temp = float(self.lineEdit_refl_temp.text())
-            if refl_temp < -40 or refl_temp > 500:
-                self.lineEdit_refl_temp.setText(str(round(self.thermal_param['reflection'], 1)))
-                raise ValueError
-            else:
-                self.thermal_param['reflection'] = refl_temp
+        # Check if the clicked item is a second level item (annotation object)
+        if item and item.parent() and item.parent().text() in [RECT_MEAS_NAME, POINT_MEAS_NAME, LINE_MEAS_NAME]:
+            # Create Context Menu
+            contextMenu = QMenu(self.treeView)  # Use None as parent if self.treeView causes issues
 
-            # Now we can safely switch image data and update preview
-            self.switch_image_data()
-            self.update_img_preview()
+            deleteAction = contextMenu.addAction("Delete Annotation")
+            showAction = contextMenu.addAction("Show Annotation")
 
-        except ValueError:
-            QMessageBox.warning(self, "Warning",
-                                "Oops! Some of the values are not valid!")
-            self.thermal_param = original_thermal_param
+            # Connect actions to methods
+            deleteAction.triggered.connect(lambda: self.deleteAnnotation(item))
+            showAction.triggered.connect(lambda: self.showAnnotation(item))
+
+            # Display the menu
+            global_point = self.treeView.viewport().mapToGlobal(point)
+            contextMenu.exec(global_point)
+
+    def deleteAnnotation(self, item):
+        # Implement the logic to delete the annotation
+        lookup_text = item.text()
+        print(f"Deleting annotation: {lookup_text}")
+        if 'line' in lookup_text:
+            for i, annot in enumerate(self.images[self.active_image].meas_line_list):
+                if annot.name == lookup_text:
+                    remove_index = i
+                    break
+
+            if remove_index != -1:
+                self.images[self.active_image].meas_line_list.pop(remove_index)
+
+        if 'rect' in lookup_text:
+            for i, annot in enumerate(self.images[self.active_image].meas_rect_list):
+                if annot.name == lookup_text:
+                    remove_index = i
+                    break
+
+            if remove_index != -1:
+                self.images[self.active_image].meas_rect_list.pop(remove_index)
+
+        if 'spot' in lookup_text:
+            for i, annot in enumerate(self.images[self.active_image].meas_point_list):
+                if annot.name == lookup_text:
+                    remove_index = i
+                    break
+
+            if remove_index != -1:
+                self.images[self.active_image].meas_point_list.pop(remove_index)
+
+        # retrace items
+        self.retrace_items()
+
+    def showAnnotation(self, item):
+            # Implement the logic to show the annotation
+            lookup_text = item.text()
+            print(f"Deleting annotation: {lookup_text}")
+
+            if 'line' in lookup_text:
+                for i, annot in enumerate(self.images[self.active_image].meas_line_list):
+                    if annot.name == lookup_text:
+                        interest = self.images[self.active_image].meas_line_list[i]
+
+                        # bring data 2d figure
+                        dialog = dia.MeasLineDialog(interest.data_roi)
+                        if dialog.exec():
+                            pass
+            if 'rect' in lookup_text:
+                for i, annot in enumerate(self.images[self.active_image].meas_rect_list):
+                    if annot.name == lookup_text:
+                        interest = self.images[self.active_image].meas_rect_list[i]
+
+                        # bring data 3d figure
+                        if self.has_rgb:
+                            rgb_path = os.path.join(self.rgb_folder, self.rgb_imgs[self.active_image])
+                        else:
+                            rgb_path = ''
+
+                        ir_path = self.dest_path_post
+                        coords = interest.get_coord_from_item(interest.main_item)
+                        roi_ir, roi_rgb = interest.compute_data(coords, self.work_image.raw_data_undis, rgb_path,
+                                                                ir_path)
+                        roi_ir_path = os.path.join(self.preview_folder, 'roi_ir.JPG')
+                        tt.cv_write_all_path(roi_ir, roi_ir_path)
+
+                        if self.has_rgb:
+                            roi_rgb_path = os.path.join(self.preview_folder, 'roi_rgb.JPG')
+                            tt.cv_write_all_path(roi_rgb, roi_rgb_path)
+
+                            dialog = dia.Meas3dDialog(interest)
+                            dialog.dual_view.load_images_from_path(roi_rgb_path, roi_ir_path)
+
+                        else:
+                            dialog = dia.Meas3dDialog_simple(interest)
+
+                        dialog.surface_from_image_matplot(self.work_image.colormap, self.work_image.n_colors,
+                                                          self.work_image.user_lim_col_low,
+                                                          self.work_image.user_lim_col_high)
+                        if dialog.exec():
+                            pass
+
+            if 'spot' in lookup_text:
+                for i, annot in enumerate(self.images[self.active_image].meas_point_list):
+                    if annot.name == lookup_text:
+                        interest = self.images[self.active_image].meas_point_list[i]
+
+            # show dialog:
 
     # LOAD AND SAVE ACTIONS ______________________________________________________________________________
     def export_anim(self):
@@ -1136,6 +1240,16 @@ class DroneIrWindow(QMainWindow):
     def process_all_phase2(self):
         self.update_progress(nb=100, text="Status: Continue analyses!")
 
+    def full_reset(self):
+        """
+        Reset all model parameters (image and categories)
+        """
+        self.initialize_variables()
+        self.initialize_tree_view()
+
+        # clean graphicscene
+        self.viewer.clean_complete()
+
     # IMAGE ALIGNMENT __________________________________________________________
     def image_matching(self):
         temp_folder = os.path.join(self.app_folder, 'temp')
@@ -1275,6 +1389,31 @@ class DroneIrWindow(QMainWindow):
             if self.checkBox_edges.isChecked():
                 self.update_img_preview()
 
+    def change_edge_style(self):
+        """Handles changes in the edge overlay style selection combobox."""
+        selected_style = self.comboBox_edge_overlay_selection.currentText()
+
+        if selected_style == "Custom":
+            self.pushButton_edge_options.setEnabled(True)
+            # Optional: Maybe revert to last custom settings if needed, or do nothing
+            # until the user clicks the options button. For now, we do nothing.
+        else:
+            self.pushButton_edge_options.setEnabled(False)
+            if selected_style in tt.PREDEFINED_EDGE_STYLES:
+                style_params = tt.PREDEFINED_EDGE_STYLES[selected_style]
+                self.edge_method = style_params["method"]
+                self.edge_color = style_params["color"]
+                self.edge_bil = style_params["bil"]
+                self.edge_blur = style_params["blur"]
+                self.edge_blur_size = style_params["blur_size"]
+                self.edge_opacity = style_params["opacity"]
+
+                info(f"Applied predefined edge style: {selected_style}")
+                # Update preview if edges are active
+                if self.checkBox_edges.isChecked():
+                    self.update_img_preview()
+            else:
+                error(f"Selected style '{selected_style}' not found in predefined styles.")
 
     # VISUALIZE __________________________________________________________________
     def toggle_legend(self):
@@ -1286,10 +1425,6 @@ class DroneIrWindow(QMainWindow):
                         self.work_image.user_lim_col_high, self.work_image.user_lim_col_low, self.work_image.n_colors,
                         self.work_image.tmin_shown, self.work_image.tmax_shown)
 
-    def change_meas_color(self):
-        self.viewer.change_meas_color()
-        self.switch_image_data()
-
     def find_maxima(self):
         dialog = dia.HotSpotDialog(self.dest_path_post, self.work_image.raw_data_undis)
         if dialog.exec():
@@ -1298,7 +1433,6 @@ class DroneIrWindow(QMainWindow):
     def update_combo_view(self):
         self.comboBox_view.clear()
         self.comboBox_view.addItems(self._view_list)
-
 
     # CHANGE AND VIEW IMAGE ___________________________________________________
     def compile_user_temps_values(self):
@@ -1508,120 +1642,6 @@ class DroneIrWindow(QMainWindow):
             pixmap = QPixmap.fromImage(image)
             self.label_summary.setPixmap(pixmap)
 
-    # CONTEXT MENU IN TREEVIEW _________________________________________________
-    def onContextMenu(self, point):
-        print("Context menu requested at:", point)  # Debug print
-        # Get the index of the item that was clicked
-        index = self.treeView.indexAt(point)
-        if not index.isValid():
-            return
-
-        item = self.model.itemFromIndex(index)
-
-        # Check if the clicked item is a second level item (annotation object)
-        if item and item.parent() and item.parent().text() in [RECT_MEAS_NAME, POINT_MEAS_NAME, LINE_MEAS_NAME]:
-            # Create Context Menu
-            contextMenu = QMenu(self.treeView)  # Use None as parent if self.treeView causes issues
-
-            deleteAction = contextMenu.addAction("Delete Annotation")
-            showAction = contextMenu.addAction("Show Annotation")
-
-            # Connect actions to methods
-            deleteAction.triggered.connect(lambda: self.deleteAnnotation(item))
-            showAction.triggered.connect(lambda: self.showAnnotation(item))
-
-            # Display the menu
-            global_point = self.treeView.viewport().mapToGlobal(point)
-            contextMenu.exec(global_point)
-
-    def deleteAnnotation(self, item):
-        # Implement the logic to delete the annotation
-        lookup_text = item.text()
-        print(f"Deleting annotation: {lookup_text}")
-        if 'line' in lookup_text:
-            for i, annot in enumerate(self.images[self.active_image].meas_line_list):
-                if annot.name == lookup_text:
-                    remove_index = i
-                    break
-
-            if remove_index != -1:
-                self.images[self.active_image].meas_line_list.pop(remove_index)
-
-        if 'rect' in lookup_text:
-            for i, annot in enumerate(self.images[self.active_image].meas_rect_list):
-                if annot.name == lookup_text:
-                    remove_index = i
-                    break
-
-            if remove_index != -1:
-                self.images[self.active_image].meas_rect_list.pop(remove_index)
-
-        if 'spot' in lookup_text:
-            for i, annot in enumerate(self.images[self.active_image].meas_point_list):
-                if annot.name == lookup_text:
-                    remove_index = i
-                    break
-
-            if remove_index != -1:
-                self.images[self.active_image].meas_point_list.pop(remove_index)
-
-        # retrace items
-        self.retrace_items()
-
-    def showAnnotation(self, item):
-        # Implement the logic to show the annotation
-        lookup_text = item.text()
-        print(f"Deleting annotation: {lookup_text}")
-
-        if 'line' in lookup_text:
-            for i, annot in enumerate(self.images[self.active_image].meas_line_list):
-                if annot.name == lookup_text:
-                    interest = self.images[self.active_image].meas_line_list[i]
-
-                    # bring data 2d figure
-                    dialog = dia.MeasLineDialog(interest.data_roi)
-                    if dialog.exec():
-                        pass
-        if 'rect' in lookup_text:
-            for i, annot in enumerate(self.images[self.active_image].meas_rect_list):
-                if annot.name == lookup_text:
-                    interest = self.images[self.active_image].meas_rect_list[i]
-
-                    # bring data 3d figure
-                    if self.has_rgb:
-                        rgb_path = os.path.join(self.rgb_folder, self.rgb_imgs[self.active_image])
-                    else:
-                        rgb_path = ''
-
-                    ir_path = self.dest_path_post
-                    coords = interest.get_coord_from_item(interest.main_item)
-                    roi_ir, roi_rgb = interest.compute_data(coords, self.work_image.raw_data_undis, rgb_path, ir_path)
-                    roi_ir_path = os.path.join(self.preview_folder, 'roi_ir.JPG')
-                    tt.cv_write_all_path(roi_ir, roi_ir_path)
-
-                    if self.has_rgb:
-                        roi_rgb_path = os.path.join(self.preview_folder, 'roi_rgb.JPG')
-                        tt.cv_write_all_path(roi_rgb, roi_rgb_path)
-
-                        dialog = dia.Meas3dDialog(interest)
-                        dialog.dual_view.load_images_from_path(roi_rgb_path, roi_ir_path)
-
-                    else:
-                        dialog = dia.Meas3dDialog_simple(interest)
-
-                    dialog.surface_from_image_matplot(self.work_image.colormap, self.work_image.n_colors,
-                                                      self.work_image.user_lim_col_low,
-                                                      self.work_image.user_lim_col_high)
-                    if dialog.exec():
-                        pass
-
-        if 'spot' in lookup_text:
-            for i, annot in enumerate(self.images[self.active_image].meas_point_list):
-                if annot.name == lookup_text:
-                    interest = self.images[self.active_image].meas_point_list[i]
-
-        # show dialog:
-
     # AI METHODS __________________________________________________________________________
     def detect_object(self):
         if self.work_image:
@@ -1704,16 +1724,6 @@ class DroneIrWindow(QMainWindow):
         add_icon(res.find('img/robot.png'), self.actionDetect_object)
         add_icon(res.find('img/layers.png'), self.actionProcess_all)
 
-    def full_reset(self):
-        """
-        Reset all model parameters (image and categories)
-        """
-        self.initialize_variables()
-        self.initialize_tree_view()
-
-        # clean graphicscene
-        self.viewer.clean_complete()
-
     def toggle_stylesheet(self):
         # Toggle the application stylesheet on and off
         if self.style_active:
@@ -1731,6 +1741,27 @@ class DroneIrWindow(QMainWindow):
             stylesheet_file = "dark_theme.qss" if is_dark_theme else "light_theme.qss"
             QApplication.instance().setStyleSheet(load_stylesheet(stylesheet_file))
             self.style_active = True
+
+    def show_info(self):
+        """Show application information dialog."""
+        try:
+            info_text = f"""
+            Thermogram v{config.APP_VERSION}
+
+            A comprehensive thermal image processing application
+            for DJI drone thermal imagery.
+
+            Features:
+            - Thermal image visualization
+            - Temperature analysis
+            - Measurement tools
+            - Batch processing
+            """
+
+            QMessageBox.information(self, "About Thermogram", info_text)
+
+        except Exception as e:
+            error(f"Failed to show info dialog: {str(e)}")
 
 
 def load_stylesheet(filename):

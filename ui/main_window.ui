@@ -1016,7 +1016,7 @@
           <bool>false</bool>
          </property>
          <property name="text">
-          <string>Advanced  options</string>
+          <string>Custom  options</string>
          </property>
         </widget>
        </item>
@@ -1030,7 +1030,7 @@
       </widget>
      </item>
      <item>
-      <widget class="QComboBox" name="comboBox_edge_predef"/>
+      <widget class="QComboBox" name="comboBox_edge_overlay_selection"/>
      </item>
      <item>
       <widget class="QPushButton" name="pushButton_match">
