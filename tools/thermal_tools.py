@@ -36,7 +36,7 @@ BGR_COLORS = {
     'magenta': (255, 0, 255)
 }
 
-EDGE_METHODS = ['Canny', 'Canny-L2', 'SOBEL', 'Laplacian']
+EDGE_METHODS = ['Canny', 'Canny-L2', 'SOBEL', 'Laplacian','Cross']
 # Predefined Edge Styles
 PREDEFINED_EDGE_STYLES = {
     "Subtle White 1": {"method": 3, "color": "white", "bil": True, "blur": False, "blur_size": 3, "opacity": 0.7},
@@ -585,6 +585,15 @@ def create_lines(cv_img, bil=True, mode=1): # Added mode parameter
         abs_grad_y = cv2.convertScaleAbs(grad_y)
 
         edges = cv2.addWeighted(abs_grad_x, 0.5, abs_grad_y, 0.5, 0)
+    elif mode == 4:  # Cross Operator
+        kernelx = np.array([[1, 0], [0, -1]], dtype=np.float32)
+        kernely = np.array([[0, 1], [-1, 0]], dtype=np.float32)
+        grad_x = cv2.filter2D(gray, cv2.CV_16S, kernelx)
+        grad_y = cv2.filter2D(gray, cv2.CV_16S, kernely)
+        abs_grad_x = cv2.convertScaleAbs(grad_x)
+        abs_grad_y = cv2.convertScaleAbs(grad_y)
+        edges = cv2.addWeighted(abs_grad_x, 0.5, abs_grad_y, 0.5, 0)
+
     else:
         info(f"Unrecognized edge detection mode: {mode}. Defaulting to mode 1 (Laplacian).")
         laplacian = cv2.Laplacian(gray, cv2.CV_16S, ksize=3)
