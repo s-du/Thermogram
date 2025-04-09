@@ -1227,28 +1227,38 @@ class DroneIrWindow(QMainWindow):
             raise ThermogramError(f"Failed to update image list: {str(e)}") from e
 
     def save_image(self):
-        """Save the current thermal image with measurements."""
+        """Save the current thermal image with measurements and legend (PyQt6 compatible)."""
         try:
-            # Create a QImage with the size of the viewport
-            image = QImage(self.viewer.viewport().size(), QImage.Format.Format_ARGB32_Premultiplied)
+            from PyQt6.QtCore import QRectF, QPoint
+
+            # Create an image the size of the full viewer
+            image = QImage(self.viewer.size(), QImage.Format.Format_ARGB32_Premultiplied)
             image.fill(Qt.GlobalColor.transparent)
 
-            # Paint the QGraphicsView's viewport onto the QImage
             painter = QPainter(image)
-            self.viewer.render(painter)
+
+            # First render the viewer itself
+            self.viewer.render(painter, target=QRectF(0, 0, self.viewer.width(), self.viewer.height()))
+
+            # Then render all children (e.g., QLabel overlays like legendLabel and tickLabels)
+            for child in self.viewer.findChildren(QWidget):
+                if child.isVisible():
+                    # Map child widget geometry relative to viewer
+                    pos = child.mapTo(self.viewer, QPoint(0, 0))
+                    child.render(painter, targetOffset=pos)
+
             painter.end()
 
-            # Open 'Save As' dialog
+            # Save dialog
             file_path, _ = QFileDialog.getSaveFileName(
                 None, "Save Image", "", "PNG Image (*.png);;JPEG Image (*.jpg *.jpeg *.JPEG)"
             )
 
-            # Save the image if a file path was provided, using high-quality settings for JPEG
             if file_path:
-                if file_path.lower().endswith('.jpg') or file_path.lower().endswith('.jpeg'):
+                if file_path.lower().endswith(('.jpg', '.jpeg')):
                     image.save(file_path, 'JPEG', 100)
                 else:
-                    image.save(file_path)  # PNG is lossless by default
+                    image.save(file_path)
 
         except Exception as e:
             error(f"Failed to save image: {str(e)}")
@@ -1755,9 +1765,11 @@ class DroneIrWindow(QMainWindow):
             # add legend
             idx = self.comboBox_legend_type.currentIndex()
             if idx == 0:
-                self.viewer.setupLegendLabel(self.work_image, legend_type='bar')
-            elif idx == 1:
                 self.viewer.setupLegendLabel(self.work_image, legend_type='colorbar')
+            elif idx == 1:
+                self.viewer.setupLegendLabel(self.work_image, legend_type='bar')
+            elif idx == 2:
+                self.viewer.setupLegendLabel(self.work_image, legend_type='histo')
 
             # set left and right views (in dual viewer)
             if self.has_rgb:
@@ -1859,6 +1871,11 @@ class DroneIrWindow(QMainWindow):
         add_icon(res.find('img/reset_range.png'), self.pushButton_reset_range)
         add_icon(res.find('img/from_img.png'), self.pushButton_estimate)
         add_icon(res.find('img/histo.png'), self.pushButton_optimhisto)
+
+        add_icon(res.find('img/color_meas.png'), self.pushButton_meas_color)
+        add_icon(res.find('img/del_spot.png'), self.pushButton_delete_points)
+        add_icon(res.find('img/del_line.png'), self.pushButton_delete_lines)
+        add_icon(res.find('img/del_rect.png'), self.pushButton_delete_area)
 
     def toggle_stylesheet(self):
         # Toggle the application stylesheet on and off

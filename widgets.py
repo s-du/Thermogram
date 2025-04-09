@@ -440,7 +440,7 @@ class PhotoViewer(QGraphicsView):
         self.images = None
         self.active_image = None
 
-    def setupLegendLabel(self, img_object, legend_type="bar"):
+    def setupLegendLabel(self, img_object, legend_type="colorbar"):
         # Clear existing legend and tick labels
         self.clearLegend()
 
@@ -448,6 +448,8 @@ class PhotoViewer(QGraphicsView):
             self._setupBarLegend(img_object)
         elif legend_type == "colorbar":
             self._setupMatplotlibLegend(img_object)
+        elif legend_type == "histo":
+            self._setupHistoLegend(img_object)
         else:
             print(f"Unknown legend_type: {legend_type}")
 
@@ -461,14 +463,13 @@ class PhotoViewer(QGraphicsView):
         legendPixmap = self.createLegendPixmap(custom_cmap, img_object.n_colors)
         self.legendLabel = QLabel(self)
         self.legendLabel.setPixmap(legendPixmap)
-        self.legendLabel.move(50, 50)
         self.legendLabel.show()
 
         tick_interval = legendPixmap.height() / 4
         for i, temp in enumerate(self.generateTicks(img_object.tmin_shown, img_object.tmax_shown, 5)):
             tick_label = QLabel(f"{temp:.2f}°C", self)
-            tick_label_pos_y = 45 + (4 - i) * tick_interval
-            tick_label_pos_x = 50 + legendPixmap.width() + 10
+            tick_label_pos_y = (4 - i) * tick_interval
+            tick_label_pos_x = legendPixmap.width() + 10
             tick_label.move(int(tick_label_pos_x), int(tick_label_pos_y))
             tick_label.setFont(QFont("Calibri", 10, QFont.Weight.Bold))
             tick_label.setStyleSheet("background-color: rgba(255, 255, 255, 128);")
@@ -516,6 +517,67 @@ class PhotoViewer(QGraphicsView):
         ax.remove()
 
         # Save to memory buffer
+        buf = BytesIO()
+        plt.savefig(buf, format='png', bbox_inches='tight')
+        plt.close(fig)
+        buf.seek(0)
+
+        image = QImage.fromData(buf.read())
+        pixmap = QPixmap.fromImage(image)
+
+        self.legendLabel = QLabel(self)
+        self.legendLabel.setPixmap(pixmap)
+        self.legendLabel.show()
+
+    def _setupHistoLegend(self, img_object):
+        import matplotlib.pyplot as plt
+        import numpy as np
+        from matplotlib import cm
+        from io import BytesIO
+
+        tmin = img_object.tmin_shown
+        tmax = img_object.tmax_shown
+        n_colors = img_object.n_colors
+        colormap = img_object.colormap
+
+        temp_clipped = np.clip(img_object.raw_data, tmin, tmax).flatten()
+
+        if colormap in tt.LIST_CUSTOM_NAMES:
+            all_cmaps = tt.get_all_custom_cmaps(n_colors)
+            cmap = all_cmaps[colormap]
+        else:
+            cmap = cm.get_cmap(colormap, n_colors)
+
+        # Manually calculate histogram so we can normalize counts
+        counts, bin_edges = np.histogram(temp_clipped, bins=50, range=(tmin, tmax))
+        counts = counts / counts.max()  # Normalize to range 0–1
+
+        bin_centers = 0.5 * (bin_edges[:-1] + bin_edges[1:])
+        bar_heights = bin_edges[1:] - bin_edges[:-1]
+
+        # Plot
+        fig, ax = plt.subplots(figsize=(1.2, 4), dpi=100)
+
+        for count, center, height in zip(counts, bin_centers, bar_heights):
+            norm_val = (center - tmin) / (tmax - tmin)
+            norm_val = np.clip(norm_val, 0, 1)
+            color = cmap(norm_val)
+            ax.barh(y=center, width=count, height=height, color=color, edgecolor='none')
+
+        # Set limits and ticks
+        ax.set_xlim(0, 1)
+        ax.set_ylim(tmin, tmax)
+
+        # Show tmin and tmax labels (plus optional middle)
+        ticks = np.linspace(tmin, tmax, 5)
+        ax.set_yticks(ticks)
+        ax.set_yticklabels([f"{t:.2f}°C" for t in ticks], fontsize=7)
+
+        ax.grid(True, axis='y', linestyle='--', linewidth=0.3, alpha=0.4)
+        fig.tight_layout()
+        fig.patch.set_facecolor((1, 1, 1, 0.5))
+
+        # Export to image
         buf = BytesIO()
         plt.savefig(buf, format='png', bbox_inches='tight')
         plt.close(fig)

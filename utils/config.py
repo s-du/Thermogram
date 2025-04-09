@@ -56,7 +56,7 @@ class AppConfig(BaseModel):
     LINE_MEAS_NAME: str = 'Line measurements'
 
     VIEWS: List[str] = ['Thermal undistorted', 'RGB crop']
-    LEGEND: List[str] = ['Clean style', 'Matplotlib style']
+    LEGEND: List[str] = ['Matplotlib style', 'Clean style','Histogram']
 
     # File paths
     BASE_DIR: Path = Path(__file__).parent.parent

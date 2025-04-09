@@ -10,12 +10,12 @@ from pathlib import Path
 import numpy as np
 from shutil import copyfile
 from PIL import Image
+from PIL.ExifTags import TAGS, GPSTAGS
 from PyQt6.QtCore import QPointF, QRectF, Qt
 from PyQt6.QtWidgets import QGraphicsEllipseItem, QGraphicsTextItem
 import subprocess
 from tools import thermal_tools as tt
-from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
-from matplotlib.figure import Figure
+
 
 # Paths
 sdk_tool_path = Path(res.find('dji/dji_irp.exe'))
@@ -125,6 +125,46 @@ def get_resolution(img_path):
 
 def rename_from_exif(img_folder):
     pass
+
+def get_gps_data(image):
+    """Extract EXIF data from an image and return it as a dictionary."""
+    exif_data = {}
+    try:
+        info = image._getexif()
+        if info is not None:
+            for tag, value in info.items():
+                tag_name = TAGS.get(tag, tag)
+                if tag_name == "GPSInfo":
+                    gps_data = {}
+                    for t in value:
+                        sub_tag = GPSTAGS.get(t, t)
+                        gps_data[sub_tag] = value[t]
+                    exif_data[tag_name] = gps_data
+                else:
+                    exif_data[tag_name] = value
+
+                gps_info = exif_data.get("GPSInfo")
+    except AttributeError:
+        pass
+    return gps_info
+
+def get_coordinates(gps_info):
+    """Convert GPS information from EXIF data to latitude and longitude."""
+    def convert_to_degrees(value):
+        d, m, s = value
+        return d + (m / 60.0) + (s / 3600.0)
+
+    if "GPSLatitude" in gps_info and "GPSLongitude" in gps_info:
+        lat = convert_to_degrees(gps_info["GPSLatitude"])
+        lon = convert_to_degrees(gps_info["GPSLongitude"])
+
+        if gps_info["GPSLatitudeRef"] == "S":
+            lat = -lat
+        if gps_info["GPSLongitudeRef"] == "W":
+            lon = -lon
+
+        return lat, lon
+    return None
 
 
 # BASIC PROCESSING __________________________________
