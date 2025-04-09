@@ -967,35 +967,61 @@ class MeasLineDialog(QtWidgets.QDialog):
         uifile = os.path.join(basepath, 'ui/%s.ui' % basename)
         loadUi(uifile, self)
 
+        self.setWindowTitle('Line Measurement')
+
         self.data = data
         self.y_values = data
         self.x_values = np.arange(len(self.y_values))
 
+        self.highlights = self.create_highlights()
+
         # Assuming a DPI of 100
         dpi = 100
-        width, height = 600 / dpi, 400 / dpi  # Convert pixel dimensions to inches
+        width, height = 400 / dpi, 300 / dpi  # Convert pixel dimensions to inches
 
         # Plotting Area
-        self.figure = Figure(figsize=(width, height), dpi=dpi)
+        self.figure = Figure(figsize=(width, height), dpi=dpi, constrained_layout=True)
         self.canvas = FigureCanvas(self.figure)
         self.verticalLayout_2.addWidget(self.canvas)
 
-        ax = self.figure.add_subplot()  # 1 row, 2 columns, second plot
-        ax.plot(self.x_values, self.y_values, 'b-')  # Assuming 'r' is accessible and correctly sized
-        ax.set_xlabel("length [pixels]")
-        ax.set_ylabel("Temperature [°C]")
+        ax = self.figure.add_subplot()
 
-        # Improve the axis
-        ax.spines['top'].set_color('none')
-        ax.spines['right'].set_color('none')
-        ax.spines['bottom'].set_position(('data', 0))
-        ax.spines['left'].set_position(('data', 0))
-        ax.xaxis.set_ticks_position('bottom')
-        ax.yaxis.set_ticks_position('left')
+        # Plot main temperature line
+        ax.plot(self.x_values, self.y_values, color='#1f77b4', linewidth=2, label='Temperature')
 
-        ax.grid(True, linestyle='--', which='both', zorder=0)
+        # Plot local maxima
+        if hasattr(self, 'local_max_idx') and len(self.local_max_idx) > 0:
+            max_x = self.x_values[self.local_max_idx]
+            max_y = self.y_values[self.local_max_idx]
+            ax.plot(max_x, max_y, 'o', color='red', markersize=7, label='Local Maxima',
+                    markeredgecolor='black', markeredgewidth=0.5)
 
-        self.highlights = self.create_highlights()
+        # Plot local minima
+        if hasattr(self, 'local_min_idx') and len(self.local_min_idx) > 0:
+            min_x = self.x_values[self.local_min_idx]
+            min_y = self.y_values[self.local_min_idx]
+            ax.plot(min_x, min_y, 'o', color='blue', markersize=7, label='Local Minima',
+                    markeredgecolor='black', markeredgewidth=0.5)
+
+        # Aesthetics
+        ax.set_xlabel("Length [pixels]", fontsize=10)
+        ax.set_ylabel("Temperature [°C]", fontsize=10)
+        ax.tick_params(axis='both', which='major', labelsize=9)
+        ax.grid(True, linestyle='--', linewidth=0.5, alpha=0.7)
+        ax.set_facecolor('#fafafa')
+
+        # Remove top and right spines
+        for spine in ['top', 'right']:
+            ax.spines[spine].set_visible(False)
+
+        # Move bottom/left spines outward slightly for clarity
+        ax.spines['bottom'].set_position(('outward', 5))
+        ax.spines['left'].set_position(('outward', 5))
+
+        self.figure.tight_layout()
+
+        # Legend styling
+        ax.legend(loc='upper right', fontsize=9, frameon=False)
 
         # add table model for data
         self.model = wid.TableModel(self.highlights)
@@ -1015,19 +1041,26 @@ class MeasLineDialog(QtWidgets.QDialog):
         pass
 
     def create_highlights(self):
-        # extrema
+        # Basic stats
         self.tmax = np.amax(self.y_values)
         self.tmin = np.amin(self.y_values)
         self.tmean = np.mean(self.y_values)
 
-        # normalized data
-        self.th_norm = (self.y_values - self.tmin) / (self.tmax - self.tmin)
-
         highlights = [
-            ['Max. Temp. [°C]', str(self.tmax)],
-            ['Min. Temp. [°C]', str(self.tmin)],
-            ['Average Temp. [°C]', str(self.tmean)]
+            ['Max. Temp. [°C]', f"{self.tmax:.2f}"],
+            ['Min. Temp. [°C]', f"{self.tmin:.2f}"],
+            ['Average Temp. [°C]', f"{self.tmean:.2f}"]
         ]
+
+        # --- Local extrema using utility function ---
+        self.local_max_idx, self.local_min_idx = tt.find_local_extrema(self.y_values, order=20, max_points=4)
+
+        for i, idx in enumerate(self.local_max_idx):
+            highlights.append([f"Local Max {i + 1} @ {idx}", f"{self.y_values[idx]:.2f}"])
+
+        for i, idx in enumerate(self.local_min_idx):
+            highlights.append([f"Local Min {i + 1} @ {idx}", f"{self.y_values[idx]:.2f}"])
+
         return highlights
 
 

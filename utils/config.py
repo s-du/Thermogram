@@ -36,6 +36,8 @@ class ThermalConfig(BaseModel):
     N_COLORS: int = 256
     EDGE_COLOR: str = 'white'
     EDGE_OPACITY: float = 0.7
+    EDGE_BLUR_SIZE: int = 3
+    EDGE_METHOD: int = 3
 
 
 class AppConfig(BaseModel):
@@ -53,7 +55,8 @@ class AppConfig(BaseModel):
     POINT_MEAS_NAME: str = 'Spot measurements'
     LINE_MEAS_NAME: str = 'Line measurements'
 
-    VIEWS: List[str] = ['th. undistorted', 'RGB crop']
+    VIEWS: List[str] = ['Thermal undistorted', 'RGB crop']
+    LEGEND: List[str] = ['Clean style', 'Matplotlib style']
 
     # File paths
     BASE_DIR: Path = Path(__file__).parent.parent

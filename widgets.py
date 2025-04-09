@@ -440,11 +440,18 @@ class PhotoViewer(QGraphicsView):
         self.images = None
         self.active_image = None
 
-    def setupLegendLabel(self, img_object):
+    def setupLegendLabel(self, img_object, legend_type="bar"):
         # Clear existing legend and tick labels
         self.clearLegend()
 
-        # Setup for new legend
+        if legend_type == "bar":
+            self._setupBarLegend(img_object)
+        elif legend_type == "colorbar":
+            self._setupMatplotlibLegend(img_object)
+        else:
+            print(f"Unknown legend_type: {legend_type}")
+
+    def _setupBarLegend(self, img_object):
         if img_object.colormap in tt.LIST_CUSTOM_NAMES:
             all_cmaps = tt.get_all_custom_cmaps(256)
             custom_cmap = all_cmaps[img_object.colormap]
@@ -452,26 +459,74 @@ class PhotoViewer(QGraphicsView):
             custom_cmap = cm.get_cmap(img_object.colormap, 256)
 
         legendPixmap = self.createLegendPixmap(custom_cmap, img_object.n_colors)
-        self.legendLabel = QLabel(self)  # Re-create the legend label
+        self.legendLabel = QLabel(self)
         self.legendLabel.setPixmap(legendPixmap)
-        self.legendLabel.move(50, 50)  # Adjust position
+        self.legendLabel.move(50, 50)
         self.legendLabel.show()
 
-        # Calculate the height of each tick label's position
         tick_interval = legendPixmap.height() / 4
-
-        # Add new labels for ticks
         for i, temp in enumerate(self.generateTicks(img_object.tmin_shown, img_object.tmax_shown, 5)):
             tick_label = QLabel(f"{temp:.2f}°C", self)
-            # Adjust the y-position so that max temp is at the top
             tick_label_pos_y = 45 + (4 - i) * tick_interval
             tick_label_pos_x = 50 + legendPixmap.width() + 10
-
             tick_label.move(int(tick_label_pos_x), int(tick_label_pos_y))
             tick_label.setFont(QFont("Calibri", 10, QFont.Weight.Bold))
             tick_label.setStyleSheet("background-color: rgba(255, 255, 255, 128);")
             tick_label.show()
             self.tickLabels.append(tick_label)
+
+    def _setupMatplotlibLegend(self, img_object):
+        import matplotlib.pyplot as plt
+        import numpy as np
+        from matplotlib import cm
+        from io import BytesIO
+
+        tmin = img_object.tmin_shown
+        tmax = img_object.tmax_shown
+        n_colors = img_object.n_colors
+        colormap = img_object.colormap
+
+        # Get the colormap
+        if colormap in tt.LIST_CUSTOM_NAMES:
+            all_cmaps = tt.get_all_custom_cmaps(n_colors)
+            custom_cmap = all_cmaps[colormap]
+        else:
+            custom_cmap = cm.get_cmap(colormap, n_colors)
+
+        if img_object.user_lim_col_high != 'c':
+            custom_cmap.set_over(img_object.user_lim_col_high)
+        if img_object.user_lim_col_low != 'c':
+            custom_cmap.set_under(img_object.user_lim_col_low)
+
+        # Dummy gradient data
+        data = np.linspace(tmin, tmax, 100).reshape(10, 10)
+
+        fig, ax = plt.subplots()
+        im = ax.imshow(data, cmap=custom_cmap, vmin=tmin, vmax=tmax)
+
+        ax.axis("off")  # Hide axes without removing
+
+        ticks = np.linspace(tmin, tmax, 5)
+        cbar = fig.colorbar(im, ticks=ticks, extend='both')
+        cbar.ax.tick_params(labelsize=8)
+
+        # Add a semi-transparent rounded rectangle background
+        fig.patch.set_facecolor((1, 1, 1, 0.5))
+
+        ax.remove()
+
+        # Save to memory buffer
+        buf = BytesIO()
+        plt.savefig(buf, format='png', bbox_inches='tight')
+        plt.close(fig)
+        buf.seek(0)
+
+        image = QImage.fromData(buf.read())
+        pixmap = QPixmap.fromImage(image)
+
+        self.legendLabel = QLabel(self)
+        self.legendLabel.setPixmap(pixmap)
+        self.legendLabel.show()
 
     def createLegendPixmap(self, colormap, num_colors):
         height = 300

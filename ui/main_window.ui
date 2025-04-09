@@ -161,27 +161,28 @@
         <item>
          <layout class="QVBoxLayout" name="verticalLayout_8">
           <item>
-           <widget class="QComboBox" name="comboBox_view">
-            <property name="enabled">
-             <bool>false</bool>
-            </property>
-            <property name="maximumSize">
-             <size>
-              <width>300</width>
-              <height>16777215</height>
-             </size>
-            </property>
-           </widget>
-          </item>
-          <item>
-           <widget class="QCheckBox" name="checkBox_legend">
-            <property name="text">
-             <string>Show legend</string>
-            </property>
-            <property name="checked">
-             <bool>true</bool>
-            </property>
-           </widget>
+           <layout class="QHBoxLayout" name="horizontalLayout_15">
+            <item>
+             <layout class="QVBoxLayout" name="verticalLayout_14">
+              <item>
+               <widget class="QComboBox" name="comboBox_view">
+                <property name="enabled">
+                 <bool>false</bool>
+                </property>
+                <property name="maximumSize">
+                 <size>
+                  <width>300</width>
+                  <height>16777215</height>
+                 </size>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </item>
+            <item>
+             <layout class="QVBoxLayout" name="verticalLayout_16"/>
+            </item>
+           </layout>
           </item>
          </layout>
         </item>
@@ -241,7 +242,7 @@
      <x>0</x>
      <y>0</y>
      <width>1496</width>
-     <height>21</height>
+     <height>26</height>
     </rect>
    </property>
    <widget class="QMenu" name="menuFile">
@@ -268,7 +269,7 @@
    </widget>
    <widget class="QMenu" name="menuview">
     <property name="title">
-     <string>View</string>
+     <string>Views</string>
     </property>
     <addaction name="actionRadiometric_parameters"/>
     <addaction name="actionEdge_Mix"/>
@@ -422,46 +423,110 @@
       <layout class="QHBoxLayout" name="horizontalLayout_slider"/>
      </item>
      <item>
-      <widget class="QPushButton" name="pushButton_estimate">
-       <property name="enabled">
-        <bool>false</bool>
+      <layout class="QHBoxLayout" name="horizontalLayout_14">
+       <property name="leftMargin">
+        <number>65</number>
        </property>
-       <property name="minimumSize">
-        <size>
-         <width>100</width>
-         <height>0</height>
-        </size>
+       <property name="rightMargin">
+        <number>65</number>
        </property>
-       <property name="maximumSize">
-        <size>
-         <width>16777215</width>
-         <height>16777215</height>
-        </size>
-       </property>
-       <property name="text">
-        <string>Estimate from picture</string>
-       </property>
-      </widget>
+       <item>
+        <widget class="QPushButton" name="pushButton_estimate">
+         <property name="enabled">
+          <bool>false</bool>
+         </property>
+         <property name="minimumSize">
+          <size>
+           <width>32</width>
+           <height>32</height>
+          </size>
+         </property>
+         <property name="maximumSize">
+          <size>
+           <width>32</width>
+           <height>32</height>
+          </size>
+         </property>
+         <property name="toolTip">
+          <string>Get temperature range from picture</string>
+         </property>
+         <property name="text">
+          <string/>
+         </property>
+         <property name="iconSize">
+          <size>
+           <width>22</width>
+           <height>22</height>
+          </size>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="pushButton_reset_range">
+         <property name="enabled">
+          <bool>false</bool>
+         </property>
+         <property name="minimumSize">
+          <size>
+           <width>32</width>
+           <height>32</height>
+          </size>
+         </property>
+         <property name="maximumSize">
+          <size>
+           <width>32</width>
+           <height>32</height>
+          </size>
+         </property>
+         <property name="toolTip">
+          <string>Reset temperature range</string>
+         </property>
+         <property name="text">
+          <string/>
+         </property>
+         <property name="iconSize">
+          <size>
+           <width>22</width>
+           <height>22</height>
+          </size>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="pushButton_optimhisto">
+         <property name="enabled">
+          <bool>false</bool>
+         </property>
+         <property name="minimumSize">
+          <size>
+           <width>32</width>
+           <height>32</height>
+          </size>
+         </property>
+         <property name="maximumSize">
+          <size>
+           <width>32</width>
+           <height>32</height>
+          </size>
+         </property>
+         <property name="toolTip">
+          <string>Optimize temperature range with histogram</string>
+         </property>
+         <property name="text">
+          <string/>
+         </property>
+         <property name="iconSize">
+          <size>
+           <width>22</width>
+           <height>22</height>
+          </size>
+         </property>
+        </widget>
+       </item>
+      </layout>
      </item>
      <item>
-      <widget class="QPushButton" name="pushButton_reset_range">
-       <property name="enabled">
-        <bool>false</bool>
-       </property>
-       <property name="text">
-        <string>Reset range</string>
-       </property>
-      </widget>
-     </item>
-     <item>
-      <widget class="QPushButton" name="pushButton_optimhisto">
-       <property name="enabled">
-        <bool>false</bool>
-       </property>
-       <property name="text">
-        <string>Optimize with histogram</string>
-       </property>
-      </widget>
+      <layout class="QHBoxLayout" name="layout_histo"/>
      </item>
      <item>
       <spacer name="verticalSpacer">
@@ -811,18 +876,29 @@
       </widget>
      </item>
      <item>
-      <widget class="QLabel" name="label_summary">
-       <property name="minimumSize">
-        <size>
-         <width>0</width>
-         <height>200</height>
-        </size>
-       </property>
+      <widget class="QCheckBox" name="checkBox_legend">
        <property name="text">
-        <string>Summary:</string>
+        <string>Show legend</string>
        </property>
-       <property name="alignment">
-        <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignTop</set>
+       <property name="checked">
+        <bool>true</bool>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLabel" name="label_12">
+       <property name="text">
+        <string>Legend type:</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QComboBox" name="comboBox_legend_type">
+       <property name="maximumSize">
+        <size>
+         <width>300</width>
+         <height>16777215</height>
+        </size>
        </property>
       </widget>
      </item>
@@ -1253,12 +1329,12 @@
   </action>
   <action name="actionRadiometric_parameters">
    <property name="text">
-    <string>Radiometric parameters</string>
+    <string>Show 'Radiometric Parameters'</string>
    </property>
   </action>
   <action name="actionEdge_Mix">
    <property name="text">
-    <string>Edge Mix</string>
+    <string>Show 'Edge Mix' </string>
    </property>
   </action>
   <action name="actionToggle_stylesheet">

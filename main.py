@@ -54,13 +54,19 @@ RECT_MEAS_NAME = config.RECT_MEAS_NAME
 POINT_MEAS_NAME = config.POINT_MEAS_NAME
 LINE_MEAS_NAME = config.LINE_MEAS_NAME
 
-EDGE_COLOR = 'white'
-EDGE_BLUR_SIZE = 3
-EDGE_METHOD = 3
-EDGE_OPACITY = 0.7
-
 VIEWS = config.VIEWS
+LEGEND = config.LEGEND
 
+EDGE_COLOR = thermal_config.EDGE_COLOR
+EDGE_BLUR_SIZE = thermal_config.EDGE_BLUR_SIZE
+EDGE_METHOD = thermal_config.EDGE_METHOD
+EDGE_OPACITY = thermal_config.EDGE_OPACITY
+N_COLORS = thermal_config.N_COLORS
+
+
+
+
+# FUNCTIONS
 def get_next_available_folder(base_folder, app_folder_base_name=APP_FOLDER):
     # Start with the initial folder name (i.e., 'ThermogramApp_1')
     folder_number = 1
@@ -75,6 +81,18 @@ def get_next_available_folder(base_folder, app_folder_base_name=APP_FOLDER):
 
         # Increment the folder number and try again
         folder_number += 1
+
+
+def add_item_in_tree(parent, line):
+    item = QStandardItem(line)
+    parent.appendRow(item)
+
+
+def add_icon(img_source, pushButton_object):
+    """
+    Function to add an icon to a pushButton
+    """
+    pushButton_object.setIcon(QIcon(img_source))
 
 
 # CLASSES
@@ -97,18 +115,6 @@ class SplashScreen(QSplashScreen):
         except Exception as e:
             error(f"Failed to initialize splash screen: {str(e)}")
             raise ThermogramError("Could not create splash screen") from e
-
-
-def add_item_in_tree(parent, line):
-    item = QStandardItem(line)
-    parent.appendRow(item)
-
-
-def add_icon(img_source, pushButton_object):
-    """
-    Function to add an icon to a pushButton
-    """
-    pushButton_object.setIcon(QIcon(img_source))
 
 
 class DroneIrWindow(QMainWindow):
@@ -143,7 +149,7 @@ class DroneIrWindow(QMainWindow):
         uic.loadUi(str(ui_file), self)
 
         # Boolean flag to track the stylesheet state
-        self.style_active = True
+        self.style_active = False
 
         # Initialize status
         self.update_progress(nb=100, text="Status: Choose image folder")
@@ -191,7 +197,12 @@ class DroneIrWindow(QMainWindow):
 
             self._img_post = tt.POST_PROCESS
             self._colormap_list = tt.COLORMAPS
-            self._view_list = VIEWS
+            self._view_list = copy.deepcopy(VIEWS)
+
+            # Set up legend combobox
+            self.comboBox_legend_type.clear()
+            self.comboBox_legend_type.addItems(LEGEND)
+
 
             # Set up colormap combobox
             self.comboBox_palette.clear()
@@ -202,7 +213,6 @@ class DroneIrWindow(QMainWindow):
             self.comboBox_edge_overlay_selection.clear()
             self.comboBox_edge_overlay_selection.addItems(tt.EDGE_STYLE_NAMES)
             self.comboBox_edge_overlay_selection.setCurrentIndex(0)
-
 
             # Set up color limit combo boxes
             self.comboBox_colors_low.clear()
@@ -225,6 +235,7 @@ class DroneIrWindow(QMainWindow):
         """Initialize and set up UI components."""
         try:
             # Group dock widgets
+
             self.tabifyDockWidget(self.dockWidget, self.dockWidget_2)
             self.dockWidget.raise_()  # Make the first dock widget visible by default
 
@@ -247,8 +258,8 @@ class DroneIrWindow(QMainWindow):
             onlyInt = QIntValidator()
             onlyInt.setRange(0, 999)
             self.lineEdit_colors.setValidator(onlyInt)
-            self.n_colors = 256  # default number of colors
-            self.lineEdit_colors.setText(str(256))
+            self.n_colors = N_COLORS  # default number of colors
+            self.lineEdit_colors.setText(str(N_COLORS))
 
             # Add actions to action group (mutually exclusive functions)
             ag = QActionGroup(self)
@@ -303,6 +314,9 @@ class DroneIrWindow(QMainWindow):
             self.images = []
             self.work_image = None
 
+            # histogram
+            self.hist_canvas = None
+
             # Default thermal options:
             self.thermal_param = {'emissivity': thermal_config.DEFAULT_EMISSIVITY,
                                   'distance': thermal_config.DEFAULT_DISTANCE,
@@ -321,6 +335,9 @@ class DroneIrWindow(QMainWindow):
         except Exception as e:
             error(f"Failed to initialize variables: {str(e)}")
             raise ThermogramError(f"Failed to initialize application: {str(e)}") from e
+
+    def store_variables(self):
+        pass
 
     def initialize_tree_view(self):
         """Initialize the tree view for displaying image measurements and annotations.
@@ -404,6 +421,7 @@ class DroneIrWindow(QMainWindow):
             self.comboBox_img.currentIndexChanged.connect(lambda: self.update_img_to_preview('other'))
             self.comboBox_view.currentIndexChanged.connect(self.update_img_preview)
             self.comboBox_edge_overlay_selection.currentIndexChanged.connect(self.change_edge_style)
+            self.comboBox_legend_type.currentIndexChanged.connect(self.update_img_preview)
 
             # Line edits
             self.lineEdit_min_temp.editingFinished.connect(self.adapt_slider_values)
@@ -458,6 +476,8 @@ class DroneIrWindow(QMainWindow):
 
             # Now we can safely switch image data and update preview
             self.switch_image_data()
+
+            self.retrace_items()
             self.update_img_preview()
 
         except ValueError:
@@ -505,6 +525,7 @@ class DroneIrWindow(QMainWindow):
         finally:
             # Re-enable slider sensitivity
             self.slider_sensitive = True
+            self.update_img_preview()
 
     def change_line_edits(self, value):
         if self.slider_sensitive:
@@ -567,7 +588,7 @@ class DroneIrWindow(QMainWindow):
         from dialogs import CustomPaletteDialog
         import matplotlib.colors as mcol
         import numpy as np
-        
+
         # Create and show the custom palette dialog
         dialog = CustomPaletteDialog(self)
         if dialog.exec():
@@ -576,10 +597,10 @@ class DroneIrWindow(QMainWindow):
             if not palette_data:
                 self.statusbar.showMessage("Invalid palette data", 3000)
                 return
-                
+
             palette_name = palette_data['name']
             colors = palette_data['colors']
-            
+
             # Check if the name already exists
             if palette_name in tt.LIST_CUSTOM_NAMES or palette_name in tt.COLORMAP_NAMES:
                 # Add a suffix to make it unique
@@ -588,14 +609,14 @@ class DroneIrWindow(QMainWindow):
                 while palette_name in tt.LIST_CUSTOM_NAMES or palette_name in tt.COLORMAP_NAMES:
                     palette_name = f"{original_name}_{i}"
                     i += 1
-                    
+
                 info(f"Renamed palette to '{palette_name}' to avoid name collision")
-            
+
             # Add the new palette to the global lists
             tt.LIST_CUSTOM_NAMES.append(palette_name)
             tt.COLORMAP_NAMES.append(palette_name)
             tt.COLORMAPS.append(palette_name)
-            
+
             # Create and register the new colormap
             tt.register_custom_cmap(palette_name, colors)
 
@@ -603,11 +624,11 @@ class DroneIrWindow(QMainWindow):
             current_index = self.comboBox_palette.currentIndex()
             self.comboBox_palette.clear()
             self.comboBox_palette.addItems(tt.COLORMAP_NAMES)
-            
+
             # Find the index of the new palette and select it
             new_index = tt.COLORMAP_NAMES.index(palette_name)
             self.comboBox_palette.setCurrentIndex(new_index)
-            
+
             # Show success message
             self.statusbar.showMessage(f"Custom palette '{palette_name}' created successfully", 3000)
             info(f"Created custom palette: {palette_name}")
@@ -686,6 +707,11 @@ class DroneIrWindow(QMainWindow):
 
         # compute stuff
         new_line_annot.compute_data(self.work_image.raw_data_undis)
+        new_line_annot.compute_highlights()
+        new_line_annot.create_items()
+        for item in new_line_annot.spot_items + new_line_annot.text_items:
+            self.viewer.add_item_from_annot(item)
+
         self.work_image.nb_meas_line += 1
         desc = 'line_measure_' + str(self.work_image.nb_meas_line)
         new_line_annot.name = desc
@@ -696,7 +722,7 @@ class DroneIrWindow(QMainWindow):
         line_cat = self.model.findItems(LINE_MEAS_NAME)
         add_item_in_tree(line_cat[0], desc)
 
-        # bring data 3d figure
+        # bring data figure
         dialog = dia.MeasLineDialog(new_line_annot.data_roi)
         if dialog.exec():
             pass
@@ -802,6 +828,9 @@ class DroneIrWindow(QMainWindow):
             desc = line.name
             add_item_in_tree(line_cat[0], desc)
 
+            for item in line.spot_items + line.text_items:
+                self.viewer.add_item_from_annot(item)
+
             self.viewer.add_item_from_annot(line.main_item)
 
     def change_meas_color(self):
@@ -869,59 +898,59 @@ class DroneIrWindow(QMainWindow):
         self.retrace_items()
 
     def showAnnotation(self, item):
-            # Implement the logic to show the annotation
-            lookup_text = item.text()
-            print(f"Deleting annotation: {lookup_text}")
+        # Implement the logic to show the annotation
+        lookup_text = item.text()
+        print(f"Deleting annotation: {lookup_text}")
 
-            if 'line' in lookup_text:
-                for i, annot in enumerate(self.images[self.active_image].meas_line_list):
-                    if annot.name == lookup_text:
-                        interest = self.images[self.active_image].meas_line_list[i]
+        if 'line' in lookup_text:
+            for i, annot in enumerate(self.images[self.active_image].meas_line_list):
+                if annot.name == lookup_text:
+                    interest = self.images[self.active_image].meas_line_list[i]
 
-                        # bring data 2d figure
-                        dialog = dia.MeasLineDialog(interest.data_roi)
-                        if dialog.exec():
-                            pass
-            if 'rect' in lookup_text:
-                for i, annot in enumerate(self.images[self.active_image].meas_rect_list):
-                    if annot.name == lookup_text:
-                        interest = self.images[self.active_image].meas_rect_list[i]
+                    # bring data 2d figure
+                    dialog = dia.MeasLineDialog(interest.data_roi)
+                    if dialog.exec():
+                        pass
+        if 'rect' in lookup_text:
+            for i, annot in enumerate(self.images[self.active_image].meas_rect_list):
+                if annot.name == lookup_text:
+                    interest = self.images[self.active_image].meas_rect_list[i]
 
-                        # bring data 3d figure
-                        if self.has_rgb:
-                            rgb_path = os.path.join(self.rgb_folder, self.rgb_imgs[self.active_image])
-                        else:
-                            rgb_path = ''
+                    # bring data 3d figure
+                    if self.has_rgb:
+                        rgb_path = os.path.join(self.rgb_folder, self.rgb_imgs[self.active_image])
+                    else:
+                        rgb_path = ''
 
-                        ir_path = self.dest_path_post
-                        coords = interest.get_coord_from_item(interest.main_item)
-                        roi_ir, roi_rgb = interest.compute_data(coords, self.work_image.raw_data_undis, rgb_path,
-                                                                ir_path)
-                        roi_ir_path = os.path.join(self.preview_folder, 'roi_ir.JPG')
-                        tt.cv_write_all_path(roi_ir, roi_ir_path)
+                    ir_path = self.dest_path_post
+                    coords = interest.get_coord_from_item(interest.main_item)
+                    roi_ir, roi_rgb = interest.compute_data(coords, self.work_image.raw_data_undis, rgb_path,
+                                                            ir_path)
+                    roi_ir_path = os.path.join(self.preview_folder, 'roi_ir.JPG')
+                    tt.cv_write_all_path(roi_ir, roi_ir_path)
 
-                        if self.has_rgb:
-                            roi_rgb_path = os.path.join(self.preview_folder, 'roi_rgb.JPG')
-                            tt.cv_write_all_path(roi_rgb, roi_rgb_path)
+                    if self.has_rgb:
+                        roi_rgb_path = os.path.join(self.preview_folder, 'roi_rgb.JPG')
+                        tt.cv_write_all_path(roi_rgb, roi_rgb_path)
 
-                            dialog = dia.Meas3dDialog(interest)
-                            dialog.dual_view.load_images_from_path(roi_rgb_path, roi_ir_path)
+                        dialog = dia.Meas3dDialog(interest)
+                        dialog.dual_view.load_images_from_path(roi_rgb_path, roi_ir_path)
 
-                        else:
-                            dialog = dia.Meas3dDialog_simple(interest)
+                    else:
+                        dialog = dia.Meas3dDialog_simple(interest)
 
-                        dialog.surface_from_image_matplot(self.work_image.colormap, self.work_image.n_colors,
-                                                          self.work_image.user_lim_col_low,
-                                                          self.work_image.user_lim_col_high)
-                        if dialog.exec():
-                            pass
+                    dialog.surface_from_image_matplot(self.work_image.colormap, self.work_image.n_colors,
+                                                      self.work_image.user_lim_col_low,
+                                                      self.work_image.user_lim_col_high)
+                    if dialog.exec():
+                        pass
 
-            if 'spot' in lookup_text:
-                for i, annot in enumerate(self.images[self.active_image].meas_point_list):
-                    if annot.name == lookup_text:
-                        interest = self.images[self.active_image].meas_point_list[i]
+        if 'spot' in lookup_text:
+            for i, annot in enumerate(self.images[self.active_image].meas_point_list):
+                if annot.name == lookup_text:
+                    interest = self.images[self.active_image].meas_point_list[i]
 
-            # show dialog:
+        # show dialog:
 
     # LOAD AND SAVE ACTIONS ______________________________________________________________________________
     def export_anim(self):
@@ -1058,6 +1087,7 @@ class DroneIrWindow(QMainWindow):
         including image list updates, UI initialization, and enabling relevant
         controls.
         """
+
         # Get list to main window
         self.update_img_list()
         # Activate buttons and options
@@ -1112,6 +1142,7 @@ class DroneIrWindow(QMainWindow):
             self.tab_2.setEnabled(True)
             self.actionDetect_object.setEnabled(True)
 
+
         print('all action enabled!')
 
     def update_img_list(self):
@@ -1162,9 +1193,15 @@ class DroneIrWindow(QMainWindow):
                 self.images.append(image)
 
             self.update_progress(nb=100, text=f'finalizing')
+
             # Define active image
             self.active_image = 0
             self.work_image = self.images[self.active_image]
+
+            # create histogram
+            if self.hist_canvas is None:
+                self.hist_canvas = self.work_image.create_temperature_histogram_canvas()
+                self.layout_histo.addWidget(self.hist_canvas)
 
             # Create temporary folder
             self.preview_folder = os.path.join(self.ir_folder, 'preview')
@@ -1369,8 +1406,9 @@ class DroneIrWindow(QMainWindow):
         self.update_img_preview(refresh_dual=True)
 
     def compose_pic(self):
-        self.number_custom_pic += 1
-        dest_path_temp = self.dest_path_post[:-4] + f'_custom{self.number_custom_pic}.PNG'
+        self.work_image.nb_custom_imgs += 1
+        _, img_name = os.path.split(self.work_image.path)
+        dest_path_temp = self.dest_path_post[:-4] + img_name[:-4] + f'_custom{self.work_image.nb_custom_imgs}.PNG'
         print(dest_path_temp)
         dialog = dia.ImageFusionDialog(self.work_image, self.dest_path_post, dest_path_temp)
         if dialog.exec():
@@ -1391,10 +1429,11 @@ class DroneIrWindow(QMainWindow):
             # add custom image to list
             dialog.exportComposedImage(dest_path_temp)
             self.custom_images.append(dest_path_temp)
-            self._view_list.append(f'Custom_img{self.number_custom_pic}')
+            self.work_image.custom_images.append(dest_path_temp)
+
             self.update_combo_view()
         else:
-            self.number_custom_pic -= 1
+            self.work_image.nb_custom_imgs -= 1
 
     # EDGE OVERLAY _______________________________________________________________
     def activate_edges(self):
@@ -1486,6 +1525,11 @@ class DroneIrWindow(QMainWindow):
             pass
 
     def update_combo_view(self):
+        self._view_list = copy.deepcopy(VIEWS)
+        print(self._view_list)
+        for i in range(self.work_image.nb_custom_imgs):
+            self._view_list.append(f'Custom_img_{i+1}')
+
         self.comboBox_view.clear()
         self.comboBox_view.addItems(self._view_list)
 
@@ -1561,8 +1605,40 @@ class DroneIrWindow(QMainWindow):
                 if old_param[key] != self.thermal_param.get(key):
                     # assign a **copy** of the current radiometric parameters to the image
                     self.work_image.update_data_from_param(copy.deepcopy(self.thermal_param))
+
+                    # update measurements with new radiometric params
+                    for i, point in enumerate(self.work_image.meas_point_list):
+                        # update temperatures with new radiometric parameters
+                        point.temp = self.work_image.raw_data_undis[int(point.qpoint.y()), int(point.qpoint.x())]
+
+                        point.text_item.clear()
+                        point.ellipse_item.clear()
+
+                        # recreate all graphical items
+                        point.create_items()
+
+                    for i, rect in enumerate(self.work_image.meas_rect_list):
+                        # update temperatures with new radiometric parameters
+                        coords = rect.get_coord_from_item(rect.rect)
+                        rect.compute_temp_data(coords, self.work_image.raw_data_undis)
+                        rect.compute_highlights()
+
+                        rect.text_items.clear()
+                        rect.ellipse_items.clear()
+
+                        # recreate all graphical items
+                        rect.create_items()
+
+                    for i, line in enumerate(self.work_image.meas_line_list):
+                        # update temperatures with new radiometric parameters
+                        line.compute_temp_data(self.work_image.raw_data_undis)
+                        line.compute_highlights()
+
+                        # recreate all graphical items
+                        line.create_items()
+
                 else:
-                    print('identical')
+                    print('No change in radiometric parameters')
 
         if not self.checkBox_keep_temp.isChecked():
             tmin, tmax, tmin_shown, tmax_shown = self.work_image.get_temp_data()
@@ -1596,6 +1672,9 @@ class DroneIrWindow(QMainWindow):
             self.comboBox_post.setCurrentIndex(d)
             self.lineEdit_colors.setText(str(self.n_colors))
             self.range_slider.setHandleColorsFromColormap(self.colormap)
+
+        # load custom views for the selected image
+        self.update_combo_view()
 
         # clean measurements and annotations
         self.retrace_items()
@@ -1671,10 +1750,14 @@ class DroneIrWindow(QMainWindow):
             tt.process_raw_data(img, dest_path_post, edges=self.edges, edge_params=self.edge_params)
             self.range_slider.setHandleColorsFromColormap(self.work_image.colormap)
 
-            # add legend
             self.viewer.setPhoto(QPixmap(dest_path_post))
             self.viewer.fitInView()
-            self.viewer.setupLegendLabel(self.work_image)
+            # add legend
+            idx = self.comboBox_legend_type.currentIndex()
+            if idx == 0:
+                self.viewer.setupLegendLabel(self.work_image, legend_type='bar')
+            elif idx == 1:
+                self.viewer.setupLegendLabel(self.work_image, legend_type='colorbar')
 
             # set left and right views (in dual viewer)
             if self.has_rgb:
@@ -1689,13 +1772,7 @@ class DroneIrWindow(QMainWindow):
                 self.viewer.toggleLegendVisibility()
 
             # add histogram in label_summary
-            # Generate histogram as image bytes
-            hist_bytes = self.work_image.generate_temperature_histogram()
-
-            # Convert bytes to QPixmap and set it in the QLabel
-            image = QImage.fromData(hist_bytes)
-            pixmap = QPixmap.fromImage(image)
-            self.label_summary.setPixmap(pixmap)
+            self.work_image.update_temperature_histogram(self.hist_canvas)
 
     # AI METHODS __________________________________________________________________________
     def detect_object(self):
@@ -1778,6 +1855,10 @@ class DroneIrWindow(QMainWindow):
         add_icon(res.find('img/maxima.png'), self.actionFind_maxima)
         add_icon(res.find('img/robot.png'), self.actionDetect_object)
         add_icon(res.find('img/layers.png'), self.actionProcess_all)
+
+        add_icon(res.find('img/reset_range.png'), self.pushButton_reset_range)
+        add_icon(res.find('img/from_img.png'), self.pushButton_estimate)
+        add_icon(res.find('img/histo.png'), self.pushButton_optimhisto)
 
     def toggle_stylesheet(self):
         # Toggle the application stylesheet on and off

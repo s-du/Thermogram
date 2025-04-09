@@ -10,10 +10,13 @@ from pathlib import Path
 import numpy as np
 from shutil import copyfile
 from PIL import Image
-from PyQt6.QtCore import QPointF, QRectF
+from PyQt6.QtCore import QPointF, QRectF, Qt
 from PyQt6.QtWidgets import QGraphicsEllipseItem, QGraphicsTextItem
 import subprocess
 from tools import thermal_tools as tt
+from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.figure import Figure
+
 # Paths
 sdk_tool_path = Path(res.find('dji/dji_irp.exe'))
 m2t_ir_xml_path = res.find('other/cam_calib_m2t_opencv.xml')
@@ -319,6 +322,10 @@ class ProcessedIm:
         self.nb_meas_line = 0  # number of line measurements (classes)
         self.meas_line_list = []
 
+        # for custom images
+        self.nb_custom_imgs = 0
+        self.custom_images = []
+
     @property
     def exif(self):
         # Lazy load the EXIF data
@@ -369,52 +376,69 @@ class ProcessedIm:
         tmax_opt = np.percentile(temp_flat, upper_percentile)
         return tmin_opt, tmax_opt
 
-    def generate_temperature_histogram(self, bins=50):
-        from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
-        import matplotlib.pyplot as plt
+    def create_temperature_histogram_canvas(self):
+        from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
+        from matplotlib.figure import Figure
+
+        fig = Figure(figsize=(2.5, 1.5), dpi=100)
+        ax = fig.add_subplot(111)
+        canvas = FigureCanvas(fig)
+        canvas.setFixedSize(250, 150)
+
+        # Attach ax for later use
+        canvas.ax = ax
+
+        # Make canvas background transparent
+        canvas.setStyleSheet("background-color: transparent;")
+        canvas.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        canvas.setAutoFillBackground(False)
+
+        return canvas
+
+    def update_temperature_histogram(self, canvas, bins=50):
+        if canvas is None or not hasattr(canvas, 'ax'):
+            print("Warning: Tried to update histogram, but canvas is None or incomplete.")
+            return
+
+        import numpy as np
         from matplotlib import cm
-        import io
-        """
-        Returns a PNG byte stream of the histogram (for use in QLabel via QPixmap).
-        """
-        # Step 1: Get flattened, clipped data
+
+        ax = canvas.ax
+        fig = ax.figure
+        ax.clear()  # Clear previous content
+
         temp_clipped = np.clip(self.raw_data, self.tmin_shown, self.tmax_shown).flatten()
 
-        # Step 2: Get colormap
+        # Get colormap
         if self.colormap in tt.LIST_CUSTOM_NAMES:
             all_cmaps = tt.get_all_custom_cmaps(self.n_colors)
             cmap = all_cmaps[self.colormap]
         else:
             cmap = cm.get_cmap(self.colormap, self.n_colors)
 
-        # Step 3: Create histogram
-        fig, ax = plt.subplots(figsize=(3, 2), dpi=100)
+        # Plot histogram
         counts, bin_edges, patches = ax.hist(temp_clipped, bins=bins, edgecolor='none')
 
-        # Step 4: Color bars according to bin center value
+        # Color bars
         bin_centers = 0.5 * (bin_edges[:-1] + bin_edges[1:])
         normed = (bin_centers - self.tmin_shown) / (self.tmax_shown - self.tmin_shown)
         normed = np.clip(normed, 0, 1)
-
         for patch, color_value in zip(patches, normed):
             patch.set_facecolor(cmap(color_value))
 
-        # Step 5: Beautify
-        ax.set_xlabel("Temperature (°C)", fontsize=9)
-        ax.set_ylabel("Pixel Count", fontsize=9)
-        ax.set_facecolor('#F7F7F7')
-        fig.patch.set_facecolor('#F7F7F7')
-        ax.grid(True, linestyle='--', linewidth=0.3, alpha=0.5)
-        ax.tick_params(axis='both', labelsize=8)
-        plt.tight_layout()
+        # Transparent background
+        ax.set_facecolor("none")
+        fig.patch.set_alpha(0.0)
 
-        # Step 6: Export as PNG buffer
-        buf = io.BytesIO()
-        canvas = FigureCanvas(fig)
-        canvas.print_png(buf)
-        plt.close(fig)
+        # Enable x-axis with temperature ticks
+        ax.tick_params(axis='x', labelsize=7)
+        ax.yaxis.set_visible(False)
 
-        return buf.getvalue()
+        # Light grid if you like
+        ax.grid(True, linestyle='--', linewidth=0.3, alpha=0.4)
+
+        fig.tight_layout(rect=[0.05, 0.05, 0.95, 0.95])  # adds breathing room
+        canvas.draw()
 
 
 # MEASUREMENTS CLASSES _____________________________________
@@ -500,8 +524,45 @@ class LineMeas:
         self.tmax = np.amax(self.data_roi)
         self.tmin = np.amin(self.data_roi)
 
+        maxima_idx, minima_idx = tt.find_local_extrema(self.data_roi, order=10)
+        self.local_maxima = maxima_idx
+        self.local_minima = minima_idx
+
     def create_items(self):
-        pass
+        self.spot_items.clear()
+        self.text_items.clear()
+
+        start_point = self.main_item.line().p1()
+        end_point = self.main_item.line().p2()
+
+        P1 = np.array([start_point.x(), start_point.y()])
+        P2 = np.array([end_point.x(), end_point.y()])
+        num_points = len(self.data_roi)
+
+        xs = np.linspace(P1[0], P2[0], num_points)
+        ys = np.linspace(P1[1], P2[1], num_points)
+
+        for i, idx in enumerate(np.concatenate((self.local_maxima, self.local_minima))):
+            x, y = xs[idx], ys[idx]
+            temp = self.data_roi[idx]
+            temp_str = f"{temp:.2f}"
+
+            # Create ellipse
+            ellipse = QGraphicsEllipseItem()
+            p1 = QPointF(x - 2, y - 2)
+            p2 = QPointF(x + 2, y + 2)
+            ellipse.setRect(QRectF(p1, p2))
+
+            # Create text with vertical offset to avoid overlapping
+            text = QGraphicsTextItem()
+            vertical_offset = (-25 if i % 2 == 0 else 0)
+            text.setPos(QPointF(x, y + vertical_offset))
+            text.setHtml(
+                f"<div style='background-color:rgba(255, 255, 255, 0.3);'>{temp_str}</div>"
+            )
+
+            self.spot_items.append(ellipse)
+            self.text_items.append(text)
 
 
 class RectMeas:
@@ -519,10 +580,18 @@ class RectMeas:
         self.tmax = 0
 
     def get_coord_from_item(self, QGraphicsRect):
+        self.rect = QGraphicsRect
         rect = QGraphicsRect.rect()
         coord = [rect.topLeft(), rect.bottomRight()]
 
         return coord
+
+    def compute_temp_data(self, coords, raw_data):
+        p1 = coords[0]
+        p2 = coords[1]
+
+        # crop data to last rectangle
+        self.data_roi = raw_data[int(p1.y()):int(p2.y()), int(p1.x()):int(p2.x())]
 
     def compute_data(self, coords, raw_data, rgb_path, ir_path):
         p1 = coords[0]
@@ -553,6 +622,7 @@ class RectMeas:
         self.tmax = np.amax(self.data_roi)
         self.tmin = np.amin(self.data_roi)
         self.tmean = np.mean(self.data_roi)
+        self.tstd = np.std(self.data_roi)
 
         self.area = self.data_roi.shape[0] * self.data_roi.shape[1]
 
@@ -563,7 +633,8 @@ class RectMeas:
             ['Size [pxl²]', self.area],
             ['Max. Temp. [°C]', str(self.tmax)],
             ['Min. Temp. [°C]', str(self.tmin)],
-            ['Average Temp. [°C]', str(self.tmean)]
+            ['Average Temp. [°C]', str(self.tmean)],
+            ['Std. Dev. Temp. [°C]', str(self.tstd)]
         ]
         return highlights
 

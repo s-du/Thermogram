@@ -7,6 +7,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from PIL import Image, ImageOps, ImageFilter
 from matplotlib import cm, pyplot as plt
 import matplotlib.colors as mcol
+from scipy.signal import argrelextrema
 from blend_modes import dodge, multiply, overlay, normal
 from tools.core import *
 
@@ -662,6 +663,16 @@ def create_lines(cv_img, bil=True, mode=1): # Added mode parameter
     return edges
 
 # THERMAL PROCESSING __________________________________________________
+def find_local_extrema(data, order=20, max_points=4):
+    maxima = argrelextrema(data, np.greater, order=order)[0]
+    minima = argrelextrema(data, np.less, order=order)[0]
+
+    # Sort by intensity and keep top 2 of each
+    sorted_maxima = sorted(maxima, key=lambda i: data[i], reverse=True)[:max_points // 2]
+    sorted_minima = sorted(minima, key=lambda i: data[i])[:max_points // 2]
+
+    return np.array(sorted_maxima), np.array(sorted_minima)
+
 def compute_delta(img_path, thermal_param):
     raw_out = img_path[:-4] + '.raw'
     read_dji_image(img_path, raw_out, thermal_param)
