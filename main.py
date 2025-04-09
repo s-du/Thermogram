@@ -1132,6 +1132,7 @@ class DroneIrWindow(QMainWindow):
         self.actionFind_maxima.setEnabled(True)
         self.actionProcess_all.setEnabled(True)
         self.actionCreate_anim.setEnabled(True)
+        self.actionSave_Image.setEnabled(True)
 
         # RGB condition
         if self.has_rgb:
@@ -1236,6 +1237,9 @@ class DroneIrWindow(QMainWindow):
             image.fill(Qt.GlobalColor.transparent)
 
             painter = QPainter(image)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
+            painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
 
             # First render the viewer itself
             self.viewer.render(painter, target=QRectF(0, 0, self.viewer.width(), self.viewer.height()))
@@ -1867,6 +1871,7 @@ class DroneIrWindow(QMainWindow):
         add_icon(res.find('img/maxima.png'), self.actionFind_maxima)
         add_icon(res.find('img/robot.png'), self.actionDetect_object)
         add_icon(res.find('img/layers.png'), self.actionProcess_all)
+        add_icon(res.find('img/save_image.png'), self.actionSave_Image)
 
         add_icon(res.find('img/reset_range.png'), self.pushButton_reset_range)
         add_icon(res.find('img/from_img.png'), self.pushButton_estimate)

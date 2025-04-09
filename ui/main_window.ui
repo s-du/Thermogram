@@ -242,7 +242,7 @@
      <x>0</x>
      <y>0</y>
      <width>1496</width>
-     <height>26</height>
+     <height>21</height>
     </rect>
    </property>
    <widget class="QMenu" name="menuFile">
@@ -308,6 +308,8 @@
    <addaction name="action3D_temperature"/>
    <addaction name="actionFind_maxima"/>
    <addaction name="actionDetect_object"/>
+   <addaction name="separator"/>
+   <addaction name="actionSave_Image"/>
    <addaction name="actionProcess_all"/>
   </widget>
   <widget class="QDockWidget" name="dockWidget">
@@ -1357,6 +1359,9 @@
    </property>
   </action>
   <action name="actionSave_Image">
+   <property name="enabled">
+    <bool>false</bool>
+   </property>
    <property name="text">
     <string>Save Image</string>
    </property>
@@ -1403,6 +1408,9 @@
    </property>
   </action>
   <action name="actionCreate_anim">
+   <property name="enabled">
+    <bool>false</bool>
+   </property>
    <property name="text">
     <string>Create animation</string>
    </property>
