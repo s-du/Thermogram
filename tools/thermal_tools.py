@@ -1017,7 +1017,68 @@ def process_th_image_with_zoom(img_obj, out_folder, theta, replace_rgb_with_th=F
 
     return mse
 
+def insert_th_in_rgb_fast(img_obj, ir_path, dest_path, drone_model, extension):
+    # Read RGB and IR images
+    cv_rgb = cv_read_all_path(img_obj.rgb_path_original)
+    cv_ir = cv_read_all_path(ir_path)
 
+    h_rgb, w_rgb = cv_rgb.shape[:2]
+    h_ir, w_ir = cv_ir.shape[:2]
+
+    if h_ir == 0:
+        aspect_factor = 1
+    else:
+        aspect_factor = (w_rgb / h_rgb) / (w_ir / h_ir)
+
+    new_h = h_rgb * aspect_factor
+
+    # Zoom and offset params
+    zoom = drone_model.zoom
+    x_offset = drone_model.x_offset
+    y_offset = drone_model.y_offset
+
+    # Compute crop center and size
+    ret_x = int((w_rgb / zoom) / 2)
+    ret_y = int((new_h / zoom) / 2)
+    center_x = int(w_rgb / 2 + x_offset)
+    center_y = int(h_rgb / 2 + y_offset)
+
+    # Determine crop bounds
+    x1, x2 = center_x - ret_x, center_x + ret_x
+    y1, y2 = center_y - ret_y, center_y + ret_y
+
+    # Calculate required padding
+    pad_left = max(0, -x1)
+    pad_right = max(0, x2 - w_rgb)
+    pad_top = max(0, -y1)
+    pad_bottom = max(0, y2 - h_rgb)
+
+    if pad_top or pad_bottom or pad_left or pad_right:
+        cv_rgb = cv2.copyMakeBorder(cv_rgb, pad_top, pad_bottom, pad_left, pad_right,
+                                    cv2.BORDER_CONSTANT, value=[0, 0, 0])
+        center_x += pad_left
+        center_y += pad_top
+        x1, x2 = center_x - ret_x, center_x + ret_x
+        y1, y2 = center_y - ret_y, center_y + ret_y
+
+    # Crop region
+    rgb_crop = cv_rgb[y1:y2, x1:x2]
+
+    # Resize IR image to match the crop
+    target_h, target_w = rgb_crop.shape[:2]
+    cv_ir_resized = cv2.resize(cv_ir, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
+
+    # Replace region in RGB image
+    cv_rgb[y1:y2, x1:x2] = cv_ir_resized
+
+    # Create and apply mask
+    mask = np.zeros((cv_rgb.shape[0], cv_rgb.shape[1]), dtype=np.uint8)
+    mask[y1:y2, x1:x2] = 255
+
+    # Write outputs
+    cv_write_all_path(cv_rgb, dest_path)
+    mask_path = os.path.splitext(dest_path)[0] + "_mask." + extension
+    cv_write_all_path(mask, mask_path)
 def insert_th_in_rgb(img_obj, ir_path, dest_path, drone_model, extension):
     # read images
     cv_rgb = cv_read_all_path(img_obj.rgb_path_original)  # read rgb image

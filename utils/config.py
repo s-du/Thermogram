@@ -55,7 +55,7 @@ class AppConfig(BaseModel):
     POINT_MEAS_NAME: str = 'Spot measurements'
     LINE_MEAS_NAME: str = 'Line measurements'
 
-    VIEWS: List[str] = ['Thermal undistorted', 'RGB crop']
+    VIEWS: List[str] = ['Thermal undistorted', 'RGB crop', 'Picture-in-Picture']
     LEGEND: List[str] = ['Matplotlib style', 'Clean style','Histogram']
 
     # File paths

@@ -64,8 +64,6 @@ EDGE_OPACITY = thermal_config.EDGE_OPACITY
 N_COLORS = thermal_config.N_COLORS
 
 
-
-
 # FUNCTIONS
 def get_next_available_folder(base_folder, app_folder_base_name=APP_FOLDER):
     # Start with the initial folder name (i.e., 'ThermogramApp_1')
@@ -202,7 +200,6 @@ class DroneIrWindow(QMainWindow):
             # Set up legend combobox
             self.comboBox_legend_type.clear()
             self.comboBox_legend_type.addItems(LEGEND)
-
 
             # Set up colormap combobox
             self.comboBox_palette.clear()
@@ -1143,8 +1140,25 @@ class DroneIrWindow(QMainWindow):
             self.tab_2.setEnabled(True)
             self.actionDetect_object.setEnabled(True)
 
-
         print('all action enabled!')
+
+    def toggle_thermal_actions(self, enable=True):
+        if not enable:
+            self.actionRectangle_meas.setEnabled(False)
+            self.actionSpot_meas.setEnabled(False)
+            self.actionLine_meas.setEnabled(False)
+            self.action3D_temperature.setEnabled(False)
+            self.actionFind_maxima.setEnabled(False)
+            self.actionCompose.setEnabled(False)
+            self.dockWidget.setEnabled(False)
+        else:
+            self.actionRectangle_meas.setEnabled(True)
+            self.actionSpot_meas.setEnabled(True)
+            self.actionLine_meas.setEnabled(True)
+            self.action3D_temperature.setEnabled(True)
+            self.actionFind_maxima.setEnabled(True)
+            self.actionCompose.setEnabled(True)
+            self.dockWidget.setEnabled(True)
 
     def update_img_list(self):
         """Update the list of images and initialize image processing classes.
@@ -1542,7 +1556,7 @@ class DroneIrWindow(QMainWindow):
         self._view_list = copy.deepcopy(VIEWS)
         print(self._view_list)
         for i in range(self.work_image.nb_custom_imgs):
-            self._view_list.append(f'Custom_img_{i+1}')
+            self._view_list.append(f'Custom_img_{i + 1}')
 
         self.comboBox_view.clear()
         self.comboBox_view.addItems(self._view_list)
@@ -1724,6 +1738,44 @@ class DroneIrWindow(QMainWindow):
         else:
             self.pushButton_left.setEnabled(True)
 
+    def create_th_img_preview(self, refresh_dual=False):
+        self.compile_user_values()  # store combobox choices in img data
+        dest_path_post = os.path.join(self.preview_folder, 'preview_post.PNG')
+        img = self.work_image
+
+        # get edge detection parameters
+        self.edge_params = [self.edge_method, self.edge_color, self.edge_bil, self.edge_blur, self.edge_blur_size,
+                            self.edge_opacity]
+
+        tt.process_raw_data(img, dest_path_post, edges=self.edges, edge_params=self.edge_params)
+        self.range_slider.setHandleColorsFromColormap(self.work_image.colormap)
+
+        self.viewer.setPhoto(QPixmap(dest_path_post))
+        self.viewer.fitInView()
+        # add legend
+        idx = self.comboBox_legend_type.currentIndex()
+        if idx == 0:
+            self.viewer.setupLegendLabel(self.work_image, legend_type='colorbar')
+        elif idx == 1:
+            self.viewer.setupLegendLabel(self.work_image, legend_type='bar')
+        elif idx == 2:
+            self.viewer.setupLegendLabel(self.work_image, legend_type='histo')
+
+        # set left and right views (in dual viewer)
+        if self.has_rgb:
+            if refresh_dual:
+                # reset the dual viewer
+                self.dual_viewer.refresh()
+            self.dual_viewer.load_images_from_path(self.work_image.rgb_path, dest_path_post)
+        self.dest_path_post = dest_path_post
+
+        # check if legend is needed
+        if not self.checkBox_legend.isChecked():
+            self.viewer.toggleLegendVisibility()
+
+        # add histogram in label_summary
+        self.work_image.update_temperature_histogram(self.hist_canvas)
+
     def update_img_preview(self, refresh_dual=False):
         if self.skip_update:  # allows to skip image update
             return
@@ -1743,8 +1795,24 @@ class DroneIrWindow(QMainWindow):
             if self.viewer.legendLabel.isVisible():
                 self.viewer.toggleLegendVisibility()
 
-        elif v > 1:  # picture-in-picture (or custom)
-            self.viewer.setPhoto(QPixmap(self.custom_images[v - 2]))
+            self.toggle_thermal_actions(enable=False)
+
+        elif v == 2:  # picture-in-picture
+            self.create_th_img_preview(refresh_dual=refresh_dual)
+            dest_path_post = os.path.join(self.preview_folder, 'preview_picpic.PNG')
+            img = self.work_image
+            original_th_img = copy.deepcopy(self.dest_path_post)
+
+            tt.insert_th_in_rgb_fast(img, original_th_img, dest_path_post, img.drone_model, extension='JPG')
+
+            self.viewer.setPhoto(QPixmap(dest_path_post))
+            self.viewer.fitInView()
+
+            self.toggle_thermal_actions(enable=False)
+
+
+        elif v > 2:  # custom compositions
+            self.viewer.setPhoto(QPixmap(self.custom_images[v - 3]))
             # scale view
             self.viewer.fitInView()
 
@@ -1752,43 +1820,17 @@ class DroneIrWindow(QMainWindow):
             if self.viewer.legendLabel.isVisible():
                 self.viewer.toggleLegendVisibility()
 
+            # add annotations
+            self.retrace_items()
+
+            self.toggle_thermal_actions(enable=False)
+
         else:  # IR picture
-            self.compile_user_values()  # store combobox choices in img data
-            dest_path_post = os.path.join(self.preview_folder, 'preview_post.PNG')
-            img = self.work_image
+            self.create_th_img_preview(refresh_dual=refresh_dual)
+            # add annotations
+            self.retrace_items()
 
-            # get edge detection parameters
-            self.edge_params = [self.edge_method, self.edge_color, self.edge_bil, self.edge_blur, self.edge_blur_size,
-                                self.edge_opacity]
-
-            tt.process_raw_data(img, dest_path_post, edges=self.edges, edge_params=self.edge_params)
-            self.range_slider.setHandleColorsFromColormap(self.work_image.colormap)
-
-            self.viewer.setPhoto(QPixmap(dest_path_post))
-            self.viewer.fitInView()
-            # add legend
-            idx = self.comboBox_legend_type.currentIndex()
-            if idx == 0:
-                self.viewer.setupLegendLabel(self.work_image, legend_type='colorbar')
-            elif idx == 1:
-                self.viewer.setupLegendLabel(self.work_image, legend_type='bar')
-            elif idx == 2:
-                self.viewer.setupLegendLabel(self.work_image, legend_type='histo')
-
-            # set left and right views (in dual viewer)
-            if self.has_rgb:
-                if refresh_dual:
-                    # reset the dual viewer
-                    self.dual_viewer.refresh()
-                self.dual_viewer.load_images_from_path(self.work_image.rgb_path, dest_path_post)
-            self.dest_path_post = dest_path_post
-
-            # check if legend is needed
-            if not self.checkBox_legend.isChecked():
-                self.viewer.toggleLegendVisibility()
-
-            # add histogram in label_summary
-            self.work_image.update_temperature_histogram(self.hist_canvas)
+            self.toggle_thermal_actions(enable=True)
 
     # AI METHODS __________________________________________________________________________
     def detect_object(self):
