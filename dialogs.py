@@ -34,11 +34,11 @@ handler = logging.StreamHandler(stream=sys.stdout)
 log.addHandler(handler)
 
 CLASS_COLORS = {
-    0: QColor(255, 0, 0),   # Red for class 0
-    1: QColor(0, 255, 0),   # Green for class 1
-    2: QColor(0, 0, 255),   # Blue for class 2
-    3: QColor(255, 255, 0), # Yellow for class 3
-    4: QColor(255, 0, 255), # Magenta for class 4
+    0: QColor(255, 0, 0),  # Red for class 0
+    1: QColor(0, 255, 0),  # Green for class 1
+    2: QColor(0, 0, 255),  # Blue for class 2
+    3: QColor(255, 255, 0),  # Yellow for class 3
+    4: QColor(255, 0, 255),  # Magenta for class 4
     # Add more colors as needed for additional classes
 }
 
@@ -141,6 +141,7 @@ class CustomGraphicsItem(QGraphicsItem):
 
 
 class HotSpotDialog(QDialog):
+    spot_exported = pyqtSignal(list)  # list of QPointF
     def __init__(self, thermal_image, raw_data, parent=None):
         super().__init__(parent)
         self.raw_data = raw_data  # Store the raw temperature data (NumPy array)
@@ -169,6 +170,8 @@ class HotSpotDialog(QDialog):
         self.scene = QGraphicsScene(self)
         self.graphics_view.setScene(self.scene)
         self.layout.addWidget(self.graphics_view)
+
+
 
         # Display the image
         self.display_image()
@@ -217,6 +220,11 @@ class HotSpotDialog(QDialog):
         self.exclude_edges_checkbox.setChecked(False)
         self.exclude_edges_checkbox.stateChanged.connect(self.toggle_edge_exclusion)
         self.layout.addWidget(self.exclude_edges_checkbox)
+
+        # Export all spots button
+        self.export_button = QPushButton("Export All Measurements")
+        self.export_button.clicked.connect(self.export_all_measurements)
+        self.layout.addWidget(self.export_button)
 
         self.setLayout(self.layout)
 
@@ -395,6 +403,13 @@ class HotSpotDialog(QDialog):
                 self.scene.removeItem(item)
         self.spot_measurements.clear()
 
+    def export_all_measurements(self):
+        """
+        Emit all collected spot measurements as QPointF list.
+        """
+        points = [spot.qpoint for spot in self.spot_measurements]
+        self.spot_exported.emit(points)
+        self.accept()
 
 
 class ImageFusionDialog(QtWidgets.QDialog):
@@ -820,7 +835,8 @@ class DialogBatchExport(QtWidgets.QDialog):
     Dialog that allows the user to choose batch export options.
     """
 
-    def __init__(self, img_list, default_folder, parameters_style, parameters_temp, parameters_radiometric, parent=None):
+    def __init__(self, img_list, default_folder, parameters_style, parameters_temp, parameters_radiometric,
+                 parent=None):
         super().__init__(parent)
         basepath = os.path.dirname(__file__)
         basename = 'export_dialog'
@@ -879,6 +895,7 @@ class DialogBatchExport(QtWidgets.QDialog):
         if folder_path:
             self.lineEdit.setText(folder_path)
 
+
 class DialogEdgeOptions(QtWidgets.QDialog):
     """
     Dialog that allows the user to choose advances thermography options
@@ -934,29 +951,6 @@ class DialogEdgeOptions(QtWidgets.QDialog):
             self.comboBox_blur_size.setEnabled(True)
         else:
             self.comboBox_blur_size.setEnabled(False)
-
-
-class DialogThParams(QtWidgets.QDialog):
-    """
-    Dialog that allows the user to choose advances thermography options
-    """
-
-    def __init__(self, param, parent=None):
-        QtWidgets.QDialog.__init__(self)
-        basepath = os.path.dirname(__file__)
-        basename = 'dialog_options'
-        uifile = os.path.join(basepath, 'ui/%s.ui' % basename)
-        loadUi(uifile, self)
-        self.lineEdit_em.setText(str(param['emissivity']))
-        self.lineEdit_dist.setText(str(param['distance']))
-        self.lineEdit_rh.setText(str(param['humidity']))
-        self.lineEdit_temp.setText(str(param['reflection']))
-
-        # define constraints on lineEdit
-
-        # button actions
-        self.buttonBox.accepted.connect(self.accept)
-        self.buttonBox.rejected.connect(self.reject)
 
 
 class MeasLineDialog(QtWidgets.QDialog):
@@ -1021,7 +1015,16 @@ class MeasLineDialog(QtWidgets.QDialog):
         self.figure.tight_layout()
 
         # Legend styling
-        ax.legend(loc='upper right', fontsize=9, frameon=False)
+        legend = ax.legend(
+            loc='upper left',  # try 'lower left', 'center right', etc. if needed
+            fontsize=9,
+            frameon=True,
+            facecolor='white',
+            edgecolor='black',
+            framealpha=0.9,
+            borderpad=1,
+            labelspacing=0.5
+        )
 
         # add table model for data
         self.model = wid.TableModel(self.highlights)
@@ -1148,7 +1151,7 @@ class Meas3dDialog_simple(QtWidgets.QDialog):
             z_scaling_factor = 1  # Default to 1 if no variation in data
 
         # Set the box aspect ratio to ensure Z-axis matches the X and Y axes proportionally
-        self.ax.set_box_aspect((self.data.shape[0], self.data.shape[1], z_scaling_factor*z_extent))
+        self.ax.set_box_aspect((self.data.shape[0], self.data.shape[1], z_scaling_factor * z_extent))
 
         # Step 6: Draw the figure
         self.matplot_c.figure.canvas.draw_idle()
@@ -1242,18 +1245,19 @@ class Meas3dDialog(QtWidgets.QDialog):
             z_scaling_factor = 1  # Default to 1 if no variation in data
 
         # Set the box aspect ratio to ensure Z-axis matches the X and Y axes proportionally
-        self.ax.set_box_aspect((self.data.shape[0], self.data.shape[1], z_scaling_factor*z_extent))
+        self.ax.set_box_aspect((self.data.shape[0], self.data.shape[1], z_scaling_factor * z_extent))
 
         # Step 6: Draw the figure
         self.matplot_c.figure.canvas.draw_idle()
+
 
 class ZoomableGraphicsView(QGraphicsView):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._zoom_factor = 1.25  # Factor for zooming in/out
-        self._current_zoom = 0     # Keep track of current zoom level
+        self._current_zoom = 0  # Keep track of current zoom level
         self._zoom_clamp_min = -10  # Min zoom level
-        self._zoom_clamp_max = 10   # Max zoom level
+        self._zoom_clamp_max = 10  # Max zoom level
 
         # Enable antialiasing and smooth pixmap transformation
         self.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -1277,8 +1281,10 @@ class ZoomableGraphicsView(QGraphicsView):
         if self._current_zoom > self._zoom_clamp_min:
             self.scale(1 / self._zoom_factor, 1 / self._zoom_factor)
             self._current_zoom -= 1
+
+
 class DetectionDialog(QDialog):
-    box_exported = pyqtSignal(QRectF)  # Signal to return the bounding box coordinates
+    box_exported = pyqtSignal(QGraphicsRectItem)  # Signal to return the bounding box coordinates
 
     def __init__(self, image_path, parent=None):
         super().__init__(parent)
@@ -1323,6 +1329,13 @@ class DetectionDialog(QDialog):
         # Button to run segmentation
         self.run_button = QPushButton("Run Detection")
         self.run_button.clicked.connect(self.run_segmentation)
+        self.run_button.setEnabled(False)  # Initially disabled
+
+        # Button to close dialog
+        self.close_button = QPushButton("Close")
+        self.close_button.clicked.connect(self.close)  # or self.reject()
+
+
 
         # Layouts: Split left and right sections
         left_layout = QVBoxLayout()
@@ -1333,6 +1346,8 @@ class DetectionDialog(QDialog):
         left_layout.addWidget(self.class_list)
         left_layout.addLayout(class_layout)
         left_layout.addWidget(self.run_button)
+        # Add to layout
+        left_layout.addWidget(self.close_button)
 
         main_layout = QHBoxLayout()
         main_layout.addLayout(left_layout)  # All widgets on the left side
@@ -1354,10 +1369,14 @@ class DetectionDialog(QDialog):
     def add_class(self):
         class_name = self.class_input.text().strip()
         if class_name and class_name not in self.ontology:
-            self.ontology[class_name] = class_name  # Add class to ontology dict
+            self.ontology[class_name] = class_name
             self.class_list.addItem(class_name)
             self.class_input.clear()
             self.class_denominations.append(class_name)
+
+            # Enable the Run Detection button if there's at least one class
+            if len(self.ontology) > 0:
+                self.run_button.setEnabled(True)
 
     def run_segmentation(self):
         if not self.ontology:
@@ -1443,41 +1462,66 @@ class DetectionDialog(QDialog):
 
     def open_context_menu(self, position: QPoint):
         """
-        Open context menu when right-clicking on a detection in the tree view.
+        Open context menu when right-clicking on a detection or class in the tree view.
         """
-        # Get the index of the selected item
         index = self.tree_view.indexAt(position)
         if not index.isValid():
             return
 
-        # Create a context menu
+        item = self.model.itemFromIndex(index)
+
+        # Create context menu
         context_menu = QMenu(self)
 
-        # Add the "Export this box" option
-        export_action = QAction("Export this box", self)
-        export_action.triggered.connect(lambda: self.export_box(index))
-        context_menu.addAction(export_action)
+        # Check if it's a top-level class item (has no parent)
+        if not index.parent().isValid():
+            export_all_action = QAction("Export all boxes", self)
+            export_all_action.triggered.connect(lambda: self.export_all_boxes(index))
+            context_menu.addAction(export_all_action)
+        else:
+            export_action = QAction("Export this box", self)
+            export_action.triggered.connect(lambda: self.export_box(index))
+            context_menu.addAction(export_action)
 
-        # Open the menu at the cursor position
         context_menu.exec(self.tree_view.viewport().mapToGlobal(position))
 
+    def export_all_boxes(self, index):
+        """
+        Export all bounding boxes under the selected class.
+        """
+        class_item = self.model.itemFromIndex(index)
+        if not class_item:
+            return
+
+        for row in range(class_item.rowCount()):
+            detection_item = class_item.child(row)
+            global_index = detection_item.data(Qt.ItemDataRole.UserRole)
+
+            if global_index is not None and 0 <= global_index < len(self.rect_items):
+                rect_item = self.rect_items[global_index]
+
+                # Emit each rect one by one (you can batch this too if needed)
+                self.box_exported.emit(rect_item)
+
+        # self.accept()  # Close dialog after exporting all
     def export_box(self, index):
         """
         Export the bounding box coordinates for the selected detection.
         """
-        # Find the detection index (the grandchild of the class item)
-        if index.parent().isValid():  # Ensure it's a child under a detection item
-            detection_index = index.parent().row()
+        # Walk up if user clicked on "Confidence" item (child)
+        while index.isValid() and index.data(Qt.ItemDataRole.UserRole) is None:
+            index = index.parent()
 
-            if 0 <= detection_index < len(self.rect_items):
-                # Get the corresponding QRectF for the selected detection
-                selected_rect = self.rect_items[detection_index].rect()
+        global_index = index.data(Qt.ItemDataRole.UserRole)
 
-                # Emit the signal with the exported rectangle coordinates
-                self.box_exported.emit(selected_rect)
+        if global_index is not None and isinstance(global_index, int):
+            if 0 <= global_index < len(self.rect_items):
+                selected_item = self.rect_items[global_index]
 
-                # Close the dialog
-                self.accept()
+                # Emit the item
+                self.box_exported.emit(selected_item)
+
+                # self.accept()
 
     def on_tree_selection_changed(self, selected, deselected):
         """
@@ -1519,20 +1563,21 @@ class DetectionDialog(QDialog):
                     pen.setWidth(20)  # Make the rectangle outline bold
                     rect_item.setPen(pen)
 
+
 class CustomPaletteDialog(QDialog):
     """Dialog that allows the user to design a custom color palette for thermal image rendering."""
-    
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Create Custom Color Palette")
         self.setMinimumSize(600, 500)
-        
+
         # Store color steps
         self.color_steps = []
-        
+
         # Main layout
         layout = QVBoxLayout(self)
-        
+
         # Palette name
         name_layout = QHBoxLayout()
         name_label = QLabel("Palette Name:")
@@ -1541,10 +1586,10 @@ class CustomPaletteDialog(QDialog):
         name_layout.addWidget(name_label)
         name_layout.addWidget(self.name_edit)
         layout.addLayout(name_layout)
-        
+
         # Color steps list
         layout.addWidget(QLabel("Color Steps:"))
-        
+
         # Table for color steps
         self.table = QTableWidget()
         self.table.setColumnCount(3)
@@ -1554,7 +1599,7 @@ class CustomPaletteDialog(QDialog):
         self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
         self.table.setColumnWidth(2, 100)
         layout.addWidget(self.table)
-        
+
         # Add/Remove buttons
         btn_layout = QHBoxLayout()
         self.add_btn = QPushButton("Add Color Step")
@@ -1564,7 +1609,7 @@ class CustomPaletteDialog(QDialog):
         btn_layout.addWidget(self.add_btn)
         btn_layout.addWidget(self.remove_btn)
         layout.addLayout(btn_layout)
-        
+
         # Preview section
         preview_layout = QVBoxLayout()
         preview_layout.addWidget(QLabel("Preview:"))
@@ -1573,23 +1618,23 @@ class CustomPaletteDialog(QDialog):
         self.preview_label.setStyleSheet("border: 1px solid #cccccc;")
         preview_layout.addWidget(self.preview_label)
         layout.addLayout(preview_layout)
-        
+
         # Button box
         self.button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         self.button_box.accepted.connect(self.accept)
         self.button_box.rejected.connect(self.reject)
         layout.addWidget(self.button_box)
-        
+
         # Add default color steps (black to white gradient)
         self.add_default_color_steps()
-        
+
     def add_default_color_steps(self):
         """Add default color steps (black to white gradient)"""
-        self.add_color_step_at(0, QColor(0, 0, 0))      # Black at 0%
-        self.add_color_step_at(50, QColor(255, 0, 0))   # Red at 50%
-        self.add_color_step_at(100, QColor(255, 255, 0)) # Yellow at 100%
+        self.add_color_step_at(0, QColor(0, 0, 0))  # Black at 0%
+        self.add_color_step_at(50, QColor(255, 0, 0))  # Red at 50%
+        self.add_color_step_at(100, QColor(255, 255, 0))  # Yellow at 100%
         self.update_preview()
-        
+
     def add_color_step(self):
         """Add a new color step with color picker"""
         # Default to 50% if no steps exist, otherwise add in the middle of the range
@@ -1597,17 +1642,17 @@ class CustomPaletteDialog(QDialog):
             position = 50
         else:
             position = 50  # Default middle position
-            
+
         color = QColorDialog.getColor(QColor(255, 255, 255), self, "Select Color")
         if color.isValid():
             self.add_color_step_at(position, color)
             self.update_preview()
-            
+
     def add_color_step_at(self, position, color):
         """Add a color step at the specified position with the given color"""
         row = self.table.rowCount()
         self.table.insertRow(row)
-        
+
         # Position spinner (0-100%)
         position_spinner = QSpinBox()
         position_spinner.setRange(0, 100)
@@ -1615,37 +1660,37 @@ class CustomPaletteDialog(QDialog):
         position_spinner.setSuffix("%")
         position_spinner.valueChanged.connect(self.update_preview)
         self.table.setCellWidget(row, 0, position_spinner)
-        
+
         # Color button
         color_btn = QPushButton()
         color_btn.setStyleSheet(f"background-color: {color.name()}; min-height: 25px;")
         color_btn.clicked.connect(lambda: self.choose_color(row))
         self.table.setCellWidget(row, 1, color_btn)
-        
+
         # Remove button
         remove_btn = QPushButton("Remove")
         remove_btn.clicked.connect(lambda: self.remove_row(row))
         self.table.setCellWidget(row, 2, remove_btn)
-        
+
         # Store the color
         color_btn.color = color
-        
+
     def choose_color(self, row):
         """Open color picker for a specific row"""
         color_btn = self.table.cellWidget(row, 1)
         current_color = color_btn.color
-        
+
         color = QColorDialog.getColor(current_color, self, "Select Color")
         if color.isValid():
             color_btn.setStyleSheet(f"background-color: {color.name()}; min-height: 25px;")
             color_btn.color = color
             self.update_preview()
-            
+
     def remove_row(self, row):
         """Remove a specific row"""
         self.table.removeRow(row)
         self.update_preview()
-        
+
     def remove_color_step(self):
         """Remove the selected color step"""
         selected_rows = self.table.selectionModel().selectedRows()
@@ -1653,49 +1698,49 @@ class CustomPaletteDialog(QDialog):
             for row in sorted([index.row() for index in selected_rows], reverse=True):
                 self.table.removeRow(row)
             self.update_preview()
-            
+
     def update_preview(self):
         """Update the preview gradient based on current color steps"""
         if self.table.rowCount() < 2:
             return
-            
+
         # Get all positions and colors
         steps = []
         for row in range(self.table.rowCount()):
             position = self.table.cellWidget(row, 0).value() / 100.0  # Convert to 0-1 range
             color = self.table.cellWidget(row, 1).color
             steps.append((position, color))
-            
+
         # Sort by position
         steps.sort(key=lambda x: x[0])
-        
+
         # Create gradient
         gradient = QLinearGradient(0, 0, self.preview_label.width(), 0)
         for pos, color in steps:
             gradient.setColorAt(pos, color)
-            
+
         # Create pixmap with gradient
         pixmap = QPixmap(self.preview_label.width(), self.preview_label.height())
         painter = QPainter(pixmap)
         painter.fillRect(0, 0, pixmap.width(), pixmap.height(), gradient)
         painter.end()
-        
+
         self.preview_label.setPixmap(pixmap)
-        
+
     def resizeEvent(self, event):
         """Handle resize event to update preview"""
         super().resizeEvent(event)
         self.update_preview()
-        
+
     def get_palette_data(self):
         """Get the palette data in the format needed for thermal_tools"""
         if self.table.rowCount() < 2:
             return None
-            
+
         name = self.name_edit.text().strip()
         if not name:
             name = "Custom_Palette"
-            
+
         # Get all positions and colors
         steps = []
         for row in range(self.table.rowCount()):
@@ -1704,13 +1749,13 @@ class CustomPaletteDialog(QDialog):
             # Convert to RGB tuple format (0-255)
             rgb = (color.red(), color.green(), color.blue())
             steps.append((position, rgb))
-            
+
         # Sort by position
         steps.sort(key=lambda x: x[0])
-        
+
         # Extract just the RGB values in order
         colors = [rgb for _, rgb in steps]
-        
+
         return {
             'name': name,
             'colors': colors

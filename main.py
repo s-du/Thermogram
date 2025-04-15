@@ -1364,6 +1364,9 @@ class DroneIrWindow(QMainWindow):
         """
         Reset all model parameters (image and categories)
         """
+        if hasattr(self, 'hist_canvas') and self.hist_canvas is not None:
+            self.layout_histo.removeWidget(self.hist_canvas)
+
         self.initialize_variables()
         self.initialize_tree_view()
 
@@ -1549,8 +1552,12 @@ class DroneIrWindow(QMainWindow):
 
     def find_maxima(self):
         dialog = dia.HotSpotDialog(self.dest_path_post, self.work_image.raw_data_undis)
-        if dialog.exec():
-            pass
+        dialog.spot_exported.connect(self.receive_spot_measurements)
+        dialog.exec()
+
+    def receive_spot_measurements(self, points: list):
+        for point in points:
+            self.add_point_meas(point)
 
     def update_combo_view(self):
         self._view_list = copy.deepcopy(VIEWS)
@@ -1836,7 +1843,38 @@ class DroneIrWindow(QMainWindow):
     def detect_object(self):
         if self.work_image:
             dialog = dia.DetectionDialog(self.work_image.rgb_path, self)
+            dialog.box_exported.connect(self.prepare_box_measurements)  # Connect the signal to your method
             dialog.exec()
+
+    def prepare_box_measurements(self, rgb_rect):
+        # Step 1: Get drone model info and IR image dimensions
+        drone_model = self.work_image.drone_model
+        target_dim = drone_model.dim_undis_ir  # (width, height) of IR image
+
+        # Step 2: Get the original RGB image dimensions
+        rgb_image = QImage(self.work_image.rgb_path)
+        input_dim = (rgb_image.width(), rgb_image.height())
+
+        # Step 3: Map the QRectF from RGB to IR coordinates
+        rect = rgb_rect.rect()
+        x_scale = target_dim[0] / input_dim[0]
+        y_scale = target_dim[1] / input_dim[1]
+
+        ir_rect_f = QRectF(
+            rect.x() * x_scale,
+            rect.y() * y_scale,
+            rect.width() * x_scale,
+            rect.height() * y_scale
+        )
+
+        # Step 4: Create a new QGraphicsRectItem in IR coordinates
+        ir_rect_item = QGraphicsRectItem(ir_rect_f)
+        ir_rect_item.setPen(rgb_rect.pen())  # preserve color/style
+
+        # Step 5: Call your existing measurement method
+        self.add_rect_meas(ir_rect_item)
+        self.retrace_items()
+
 
     # GENERAL GUI METHODS __________________________________________________________________________
     def show_radio_dock(self):
