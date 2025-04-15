@@ -546,8 +546,6 @@ def add_lines_from_rgb(path_ir, cv_match_rgb_img, drone_model, mode=1, color='wh
 
         # Merge RGB and alpha channel
         edges_rgba = cv2.merge((edges_color_mask_rgb, alpha_channel))
-        cv2.imwrite('edge.png', edges_rgba)
-
 
         # Convert resized edge overlay to float for blending
         foreground_float = edges_rgba.astype(float)
