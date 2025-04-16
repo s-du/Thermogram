@@ -314,6 +314,8 @@ class DroneIrWindow(QMainWindow):
             # histogram
             self.hist_canvas = None
 
+            self.current_view = 0
+
             # Default thermal options:
             self.thermal_param = {'emissivity': thermal_config.DEFAULT_EMISSIVITY,
                                   'distance': thermal_config.DEFAULT_DISTANCE,
@@ -1759,7 +1761,8 @@ class DroneIrWindow(QMainWindow):
 
         # set photo
         self.viewer.setPhoto(QPixmap(dest_path_post))
-        self.viewer.fitInView()
+        if self.fit_in_view:
+            self.viewer.fitInView()
 
         # pass thermal data to the viewer
         self.viewer.set_thermal_data(img.raw_data_undis)
@@ -1798,6 +1801,11 @@ class DroneIrWindow(QMainWindow):
         """
         # fetch user choices
         v = self.comboBox_view.currentIndex()
+        if v == 0 and self.current_view == 0:
+            self.fit_in_view = False
+        else:
+            self.fit_in_view = True
+        self.current_view = copy.deepcopy(v)
 
         if v == 1:  # if rgb view
             self.viewer.setPhoto(QPixmap(self.work_image.rgb_path))

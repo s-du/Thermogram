@@ -23,7 +23,7 @@ from utils.exceptions import ThermogramError, FileOperationError
 # LISTS __________________________________________________
 OUT_LIM = ['continuous', 'black', 'white', 'red']
 OUT_LIM_MATPLOT = ['c', 'k', 'w', 'r']
-POST_PROCESS = ['none', 'denoise - light', 'denoise - medium', 'denoise - strong', 'smooth', 'sharpen', 'sharpen strong', 'edge (simple)', 'contours']
+POST_PROCESS = ['none', 'denoise - light', 'denoise - medium', 'denoise - strong', 'smooth', 'sharpen', 'sharpen strong', 'sharpen + denoise', 'edge (simple)', 'contours']
 
 # Add a mapping for common color names to BGR tuples used by OpenCV
 BGR_COLORS = {
@@ -787,19 +787,34 @@ def process_raw_data(img_object, dest_path, edges=False, edge_params=[], radio_p
             img_denoised.save(dest_path, exif=exif, quality=99)
         elif dest_path.endswith('PNG'):
             img_denoised.save(dest_path, exif=exif, compression_level=0)
-    elif post_process == 'sharpen':
+    elif post_process == 'sharpen'or 'sharpen + denoise':
         img_th_sharpened = img_thermal.filter(ImageFilter.SHARPEN)
+
+        if post_process == 'sharpen + denoise':
+            img_cv = np.array(img_th_sharpened)
+            img_cv = cv2.cvtColor(img_cv, cv2.COLOR_RGB2BGR)
+            # Apply OpenCV's fast non-local means denoising
+            denoised = cv2.fastNlMeansDenoisingColored(img_cv, None, h=5, hColor=5,
+                                                       templateWindowSize=7,
+                                                       searchWindowSize=21)
+
+            # Convert back to PIL (RGB)
+            denoised_rgb = denoised[:, :, ::-1]  # BGR to RGB
+            img_th_sharpened = Image.fromarray(denoised_rgb)
         if dest_path.endswith('JPG'):
             img_th_sharpened.save(dest_path, exif=exif, quality=99)
         elif dest_path.endswith('PNG'):
             img_th_sharpened.save(dest_path, exif=exif, compression_level=0)
-    elif post_process == 'sharpen strong':
+    elif post_process == 'sharpen strong' :
         img_th_sharpened = img_thermal.filter(ImageFilter.SHARPEN)
         img_th_sharpened2 = img_th_sharpened.filter(ImageFilter.SHARPEN)
+
         if dest_path.endswith('JPG'):
             img_th_sharpened2.save(dest_path, exif=exif, quality=99)
         elif dest_path.endswith('PNG'):
             img_th_sharpened2.save(dest_path, exif=exif, compression_level=0)
+
+
     elif post_process == 'edge (simple)':
         img_th_smooth = img_thermal.filter(ImageFilter.SMOOTH)
         img_th_findedge = img_th_smooth.filter(ImageFilter.Kernel((3, 3), (-1, -1, -1, -1, 8,
