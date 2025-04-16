@@ -23,7 +23,7 @@ from utils.exceptions import ThermogramError, FileOperationError
 # LISTS __________________________________________________
 OUT_LIM = ['continuous', 'black', 'white', 'red']
 OUT_LIM_MATPLOT = ['c', 'k', 'w', 'r']
-POST_PROCESS = ['none', 'denoise - light', 'denoise - medium', 'denoise - strong', 'smooth', 'sharpen', 'sharpen strong', 'sharpen + denoise', 'edge (simple)', 'contours']
+POST_PROCESS = ['none', 'denoise - light', 'denoise - medium', 'denoise - strong', 'smooth', 'sharpen', 'sharpen strong', 'sharpen + denoise', 'edge (simple)', 'contours', 'contours blended']
 
 # Add a mapping for common color names to BGR tuples used by OpenCV
 BGR_COLORS = {
@@ -760,6 +760,7 @@ def process_raw_data(img_object, dest_path, edges=False, edge_params=[], radio_p
         # adding exif
         subprocess.run(["resources/exiftool/exiftool.exe", "-overwrite_original", "-TagsFromFile", img_object.rgb_path_original, dest_path_tif])
 
+
     elif post_process == 'none':
         if dest_path.endswith('JPG'):
             img_thermal.save(dest_path, exif=exif, quality=99)
@@ -787,7 +788,7 @@ def process_raw_data(img_object, dest_path, edges=False, edge_params=[], radio_p
             img_denoised.save(dest_path, exif=exif, quality=99)
         elif dest_path.endswith('PNG'):
             img_denoised.save(dest_path, exif=exif, compression_level=0)
-    elif post_process == 'sharpen'or 'sharpen + denoise':
+    elif post_process == 'sharpen'or post_process == 'sharpen + denoise':
         img_th_sharpened = img_thermal.filter(ImageFilter.SHARPEN)
 
         if post_process == 'sharpen + denoise':
@@ -805,7 +806,7 @@ def process_raw_data(img_object, dest_path, edges=False, edge_params=[], radio_p
             img_th_sharpened.save(dest_path, exif=exif, quality=99)
         elif dest_path.endswith('PNG'):
             img_th_sharpened.save(dest_path, exif=exif, compression_level=0)
-    elif post_process == 'sharpen strong' :
+    elif post_process == 'sharpen strong':
         img_th_sharpened = img_thermal.filter(ImageFilter.SHARPEN)
         img_th_sharpened2 = img_th_sharpened.filter(ImageFilter.SHARPEN)
 
@@ -813,7 +814,6 @@ def process_raw_data(img_object, dest_path, edges=False, edge_params=[], radio_p
             img_th_sharpened2.save(dest_path, exif=exif, quality=99)
         elif dest_path.endswith('PNG'):
             img_th_sharpened2.save(dest_path, exif=exif, compression_level=0)
-
 
     elif post_process == 'edge (simple)':
         img_th_smooth = img_thermal.filter(ImageFilter.SMOOTH)
@@ -841,7 +841,8 @@ def process_raw_data(img_object, dest_path, edges=False, edge_params=[], radio_p
             img_th_smooth.save(dest_path, exif=exif, quality=99)
         elif dest_path.endswith('PNG'):
             img_th_smooth.save(dest_path, exif=exif, compression_level=0)
-    elif post_process == 'contours':
+    elif post_process == 'contours' or post_process == 'contours blended':
+        print('go contours')
         thermal_normalized_clipped = np.clip(thermal_normalized, 0, 1)
 
         # Generate a blank canvas to draw contours on, in grayscale for thresholding
@@ -866,13 +867,16 @@ def process_raw_data(img_object, dest_path, edges=False, edge_params=[], radio_p
             contours, _ = cv2.findContours(thresh, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
 
             # Draw contours on the blank canvas
-            cv2.drawContours(contour_canvas, contours, -1, color, 1)  # Change thickness as needed
+            cv2.drawContours(contour_canvas, contours, -1, color, 2)  # Change thickness as needed
 
         # Blend the contour canvas with the original thermal image
-        blended_img = cv2.addWeighted(np.array(img_thermal), 0.5, contour_canvas, 0.5, 0)
+        blended_img = cv2.addWeighted(np.array(img_thermal), 0.3, contour_canvas, 0.7, 0)
 
         # Save the blended image
-        img_with_contours = Image.fromarray(contour_canvas)
+        if post_process == 'contours':
+            img_with_contours = Image.fromarray(contour_canvas)
+        else:
+            img_with_contours = Image.fromarray(blended_img)
         if dest_path.endswith('JPG'):
             img_with_contours.save(dest_path, exif=exif, quality=99)
         elif dest_path.endswith('PNG'):
