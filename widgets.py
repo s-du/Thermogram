@@ -66,9 +66,9 @@ class QRangeSlider(QSlider):
         yPos = (self.height() - self.handleHeight) // 2  # Center handle vertically
         return QRect(
             int(xPos - self.handleWidth // 2),  # Horizontal center
-            yPos,                               # Vertical center
-            int(self.handleWidth),              # Handle width
-            int(self.handleHeight)              # Handle height
+            yPos,  # Vertical center
+            int(self.handleWidth),  # Handle width
+            int(self.handleHeight)  # Handle height
         )
 
     def scalePosition(self, value):
@@ -360,6 +360,7 @@ class DualViewer(QWidget):
                 self.pan_origin = QPointF()
 
 
+# LEGEND
 class LegendContainer(QGraphicsRectItem):
     def __init__(self, width, height, radius, parent=None):
         super().__init__(parent)
@@ -370,6 +371,118 @@ class LegendContainer(QGraphicsRectItem):
         painter.setBrush(QColor(255, 255, 255, 128))  # Semi-transparent white
         painter.setPen(Qt.PenStyle.NoPen)
         painter.drawRoundedRect(self.rect(), self.radius, self.radius)
+
+
+# MAGNIFYING GLASS
+class CircularPixmapItem(QGraphicsRectItem):
+    def __init__(self, pixmap, size, parent=None, center_temperature=None, eyedropper_icon=res.find('img/dropper.png')):
+        super().__init__(-size / 2, -size / 2, size, size, parent)
+        self.pixmap = pixmap
+        self.size = size
+        self.center_temperature = center_temperature
+        self.eyedropper_icon = QPixmap(eyedropper_icon)  # QPixmap for the icon
+
+    def set_center_temperature(self, temp):
+        self.center_temperature = temp
+        self.update()
+
+    def paint(self, painter, option, widget=None):
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        # Clip circle
+        path = QPainterPath()
+        path.addEllipse(self.rect())
+        painter.setClipPath(path)
+
+        # Draw the image
+        targetRect = self.rect().toRect()
+        painter.drawPixmap(targetRect, self.pixmap, self.pixmap.rect())
+
+        painter.setClipping(False)
+
+
+        # Draw temperature text in box *below* center
+        if self.center_temperature is not None:
+            # Draw eyedropper icon at center
+
+            if self.eyedropper_icon:
+                icon_size = 18
+                icon_rect = QRectF(
+                    0,
+                    -icon_size,
+                    icon_size,
+                    icon_size
+                )
+                painter.drawPixmap(icon_rect.toRect(), self.eyedropper_icon)
+
+            painter.save()
+            text = f"{self.center_temperature:.1f}°C"
+
+            font = painter.font()
+            font.setBold(True)
+            font.setPointSize(10)
+            painter.setFont(font)
+
+            metrics = painter.fontMetrics()
+            text_width = metrics.horizontalAdvance(text)
+            text_height = metrics.height()
+            padding = 6
+
+            box_width = text_width + 2 * padding
+            box_height = text_height + 2 * padding
+
+            box_rect = QRectF(
+                -box_width / 2,
+                self.rect().center().y() + 20,  # 20 pixels below center
+                box_width,
+                box_height
+            )
+
+            # Draw semi-transparent background
+            painter.setBrush(QColor(255, 255, 255, 180))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.drawRoundedRect(box_rect, 8, 8)
+
+            # Draw text
+            painter.setPen(Qt.GlobalColor.black)
+            painter.drawText(box_rect, Qt.AlignmentFlag.AlignCenter, text)
+            painter.restore()
+
+
+class MagnifyingGlass(QGraphicsEllipseItem):
+    def __init__(self, size=200, border_width=5, parent=None):
+        self._size = size
+        super().__init__(-self._size / 2, -self._size / 2, self._size, self._size, parent)
+        self.setBrush(Qt.GlobalColor.transparent)
+        self.pen = QPen()
+        self.pen.setStyle(Qt.PenStyle.DashDotLine)
+        self.pen.setWidth(border_width)
+        self.pen.setColor(QColor(255, 255, 255, 200))
+
+        self.setPen(self.pen)
+        self.pixmap_item = QGraphicsPixmapItem(self)
+        self.pixmap_item.setPos(-self._size / 2, -self._size / 2)
+        self.setZValue(1)
+
+        self.setCursor(Qt.CursorShape.BlankCursor)
+
+        self.center_temperature = None
+
+    def update_size(self, new_size):
+        self._size = new_size
+
+        # Update the ellipse size
+        self.setRect(-self._size / 2, -self._size / 2, self._size, self._size)
+
+    def set_pixmap(self, pixmap):
+        if hasattr(self, 'pixmap_item'):
+            self.pixmap_item.setParentItem(None)
+            del self.pixmap_item
+
+        self.pixmap_item = CircularPixmapItem(
+            pixmap, self._size, self, center_temperature=self.center_temperature
+        )
+        self.pixmap_item.setPos(0, 0)
 
 
 class PhotoViewer(QGraphicsView):
@@ -440,6 +553,21 @@ class PhotoViewer(QGraphicsView):
         self.images = None
         self.active_image = None
 
+        # magnifying glass
+        self.right_mouse_pressed = False
+        self.middle_mouse_pressed = False
+
+        # thermal data
+        self.thermal_array = []
+
+        # initialize magnifying glass
+        self.magnifying_glass_size = 600  # Adjust this value to change the size
+        self.magnifying_factor = 4
+        self.magnifying_glass = None
+        self.line_size = 4
+
+
+    # LEGEND-RELATED
     def setupLegendLabel(self, img_object, legend_type="colorbar"):
         # Clear existing legend and tick labels
         self.clearLegend()
@@ -666,56 +794,12 @@ class PhotoViewer(QGraphicsView):
 
         self.tickLabels.clear()
 
-    def has_photo(self):
-        return not self._empty
-
+    # MEASUREMENT-RELATED
+    def set_thermal_data(self, thermal_data):
+        self.thermal_array = thermal_data
     def change_meas_color(self):
         self.meas_color = QColorDialog.getColor()
         self.pen_meas.setColor(self.meas_color)
-
-    def showEvent(self, event):
-        self.fitInView()
-        super(PhotoViewer, self).showEvent(event)
-
-    def fitInView(self, scale=True):
-        rect = QRectF(self._photo.pixmap().rect())
-        print(rect)
-        if not rect.isNull():
-            self.setSceneRect(rect)
-            if self.has_photo():
-                unity = self.transform().mapRect(QRectF(0, 0, 1, 1))
-                print('unity: ', unity)
-                self.scale(1 / unity.width(), 1 / unity.height())
-                viewrect = self.viewport().rect()
-                print('view: ', viewrect)
-                scenerect = self.transform().mapRect(rect)
-                print('scene: ', viewrect)
-                factor = min(viewrect.width() / scenerect.width(),
-                             viewrect.height() / scenerect.height())
-                self.scale(factor, factor)
-            self._zoom = 0
-
-    def clean_scene(self):
-        for item in self._scene.items():
-            print(type(item))
-            if isinstance(item, QGraphicsPathItem):
-                self._scene.removeItem(item)
-            elif isinstance(item, QGraphicsRectItem):
-                self._scene.removeItem(item)
-            elif isinstance(item, QGraphicsEllipseItem):
-                self._scene.removeItem(item)
-            elif isinstance(item, QGraphicsTextItem):
-                self._scene.removeItem(item)
-            elif isinstance(item, QGraphicsLineItem):
-                self._scene.removeItem(item)
-
-    def clean_complete(self):
-        self.clean_scene()
-
-        self._scene = QGraphicsScene(self)
-        self._photo = QGraphicsPixmapItem()
-        self._scene.addItem(self._photo)
-        self.setScene(self._scene)
 
     def draw_all_meas(self, meas_items):
         for item in meas_items:
@@ -724,43 +808,99 @@ class PhotoViewer(QGraphicsView):
                 item.setPen(self.pen_meas)
             self._scene.addItem(item)
 
-    def setPhoto(self, pixmap=None):
-        # self._zoom = 0
-        if pixmap and not pixmap.isNull():
-            self._empty = False
-            self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
-            self._photo.setPixmap(pixmap)
-        else:
-            self._empty = True
-            self.setDragMode(QGraphicsView.DragMode.NoDrag)
-            self._photo.setPixmap(QPixmap())
-        # self.fitInView()
-
-    def change_to_brush_cursor(self):
-        self.setCursor(self.brush_cur)
-
-    def toggleDragMode(self):
-        if not self.rect_meas or self.point_meas or self.painting:
-            if self.dragMode() == QGraphicsView.DragMode.ScrollHandDrag:
-                self.setDragMode(QGraphicsView.DragMode.NoDrag)
-            elif not self._photo.pixmap().isNull():
-                self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
-        else:
-            self.setDragMode(QGraphicsView.DragMode.NoDrag)
-
-    def get_current_image(self):
-        return self.active_image
-
     def add_item_from_annot(self, item):
         if not isinstance(item, QGraphicsTextItem):
             item.setPen(self.pen_meas)
 
         self._scene.addItem(item)
 
-    # mouse events
+    # IMAGE-RELATED
+    def has_photo(self):
+        return not self._empty
+
+    def setPhoto(self, pixmap=None):
+        # self._zoom = 0
+        if pixmap and not pixmap.isNull():
+            self._empty = False
+            self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
+            self._photo.setPixmap(pixmap)
+            self.scene_image = pixmap.toImage()
+
+            # adapt magnifier border
+            self._scene.removeItem(self.magnifying_glass)
+            self.magnifying_glass_size = int(self.scene_image.width() / 3)
+            self.line_size = int(self.scene_image.width() / 300)
+            self.magnifying_glass = MagnifyingGlass(self.magnifying_glass_size, border_width=self.line_size * 3)
+            self._scene.addItem(self.magnifying_glass)
+            # Temporarily hide the magnifying glass to avoid rendering it
+            self.magnifying_glass.hide()
+
+        else:
+            self._empty = True
+            self.setDragMode(QGraphicsView.DragMode.NoDrag)
+            self._photo.setPixmap(QPixmap())
+        # self.fitInView()
+
+    def get_current_image(self):
+        return self.active_image
+
+    # MAGNIFIER-RELATED
+    def update_magnifier_wheel(self, event):
+        scene_pos = self.mapToScene(event.position().toPoint())
+
+        # Adjust these values for desired magnification
+        magnify_factor = self.magnifying_factor
+
+        # Calculate the dimensions of the sub-pixmap to grab
+        grab_width = int(self.magnifying_glass_size // magnify_factor)
+        grab_height = int(self.magnifying_glass_size // magnify_factor)
+
+        # Calculate the top-left corner of the sub-pixmap to grab, such that the cursor is centered
+        grab_x = int(scene_pos.x() - grab_width / 2)
+        grab_y = int(scene_pos.y() - grab_height / 2)
+
+        # Extract the portion of the rendered scene around the cursor
+        sub_image = self.scene_image.copy(grab_x, grab_y, grab_width, grab_height)
+
+        # Convert QImage to QPixmap and scale it to achieve magnification
+        magnified_pixmap = QPixmap.fromImage(sub_image).scaled(
+            int(self.magnifying_glass_size),
+            int(self.magnifying_glass_size),
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation
+        )
+
+        # Update the magnifying glass
+        self.magnifying_glass.setPos(scene_pos)
+        self.magnifying_glass.update_size(self.magnifying_glass_size)
+        self.magnifying_glass.set_pixmap(magnified_pixmap)
+
+    # MOUSE EVENTS
     def wheelEvent(self, event):
-        print(self._zoom)
-        if self.has_photo():
+        if self.right_mouse_pressed:
+            if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+                if event.angleDelta().y() > 0:
+                    factor = 1.25
+                    self.magnifying_glass_size *= factor
+                    self.update_magnifier_wheel(event)
+
+                else:
+                    factor = 0.8
+                    self.magnifying_glass_size *= factor
+                    self.update_magnifier_wheel(event)
+
+            elif event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+                if event.angleDelta().y() > 0:
+                    factor = 1.25
+                    self.magnifying_factor *= factor
+                    self.update_magnifier_wheel(event)
+
+                else:
+                    factor = 0.8
+                    self.magnifying_factor *= factor
+                    self.update_magnifier_wheel(event)
+
+        elif self.has_photo():
             if event.angleDelta().y() > 0:
                 factor = 1.25
                 self._zoom += 1
@@ -775,35 +915,99 @@ class PhotoViewer(QGraphicsView):
                 self._zoom = 0
 
     def mousePressEvent(self, event):
-        if self.rect_meas:
-            self._current_rect_item = QGraphicsRectItem()
-            # self._current_rect_item.setFlag(QGraphicsItem.ItemIsSelectable)
-            self._current_rect_item.setPen(self.pen_meas)
+        if event.button() == Qt.MouseButton.LeftButton:
+            if self.rect_meas:
+                self._current_rect_item = QGraphicsRectItem()
+                # self._current_rect_item.setFlag(QGraphicsItem.ItemIsSelectable)
+                self._current_rect_item.setPen(self.pen_meas)
 
-            self._scene.addItem(self._current_rect_item)
-            self.origin = self.mapToScene(event.pos())
-            r = QRectF(self.origin, self.origin)
-            self._current_rect_item.setRect(r)
+                self._scene.addItem(self._current_rect_item)
+                self.origin = self.mapToScene(event.pos())
+                r = QRectF(self.origin, self.origin)
+                self._current_rect_item.setRect(r)
 
-        elif self.line_meas:
-            self._current_line_item = QGraphicsLineItem()
-            self._current_line_item.setPen(self.pen_meas)
+            elif self.line_meas:
+                self._current_line_item = QGraphicsLineItem()
+                self._current_line_item.setPen(self.pen_meas)
 
-            self._scene.addItem(self._current_line_item)
-            self.origin = self.mapToScene(event.pos())
+                self._scene.addItem(self._current_line_item)
+                self.origin = self.mapToScene(event.pos())
 
-            self._current_line_item.setLine(QLineF(self.origin, self.origin))
+                self._current_line_item.setLine(QLineF(self.origin, self.origin))
 
-        elif self.point_meas:
-            self.origin = self.mapToScene(event.pos())
+            elif self.point_meas:
+                self.origin = self.mapToScene(event.pos())
 
-        else:
-            if self._photo.isUnderMouse():
-                self.photoClicked.emit(self.mapToScene(event.pos()).toPoint())
+            else:
+                if self._photo.isUnderMouse():
+                    self.photoClicked.emit(self.mapToScene(event.pos()).toPoint())
+        elif event.button() == Qt.MouseButton.RightButton:
+            if self.has_photo():
+                self.right_mouse_pressed = True
+                # Hide the cursor when the magnifying glass is active
+                self.setCursor(Qt.CursorShape.BlankCursor)
+                # print('right click!')
+
+        elif event.button() == Qt.MouseButton.MiddleButton:
+            self.middle_mouse_pressed = True
+            self._lastMousePosition = event.pos()
+
         super(PhotoViewer, self).mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
-        if self.rect_meas:
+        if self.middle_mouse_pressed:
+            delta = event.pos() - self._lastMousePosition
+            self._lastMousePosition = event.pos()
+            self.horizontalScrollBar().setValue(self.horizontalScrollBar().value() - delta.x())
+            self.verticalScrollBar().setValue(self.verticalScrollBar().value() - delta.y())
+
+        elif self.right_mouse_pressed:
+            self.setCursor(Qt.CursorShape.BlankCursor)
+            scene_pos = self.mapToScene(event.pos())
+
+            # Adjust these values for desired magnification
+            magnify_factor = self.magnifying_factor
+
+            # Calculate the dimensions of the sub-pixmap to grab
+            grab_width = int(self.magnifying_glass_size // magnify_factor)
+            grab_height = int(self.magnifying_glass_size // magnify_factor)
+
+            # Calculate the top-left corner of the sub-pixmap to grab, such that the cursor is centered
+            grab_x = int(scene_pos.x() - grab_width / 2)
+            grab_y = int(scene_pos.y() - grab_height / 2)
+
+            # Extract the portion of the rendered scene around the cursor
+            sub_image = self.scene_image.copy(grab_x, grab_y, grab_width, grab_height)
+
+            # Convert QImage to QPixmap and scale it to achieve magnification
+            magnified_pixmap = QPixmap.fromImage(sub_image).scaled(int(self.magnifying_glass_size),
+                                                                   int(self.magnifying_glass_size),
+                                                                   Qt.AspectRatioMode.KeepAspectRatio,
+                                                                   Qt.TransformationMode.SmoothTransformation)
+
+            if hasattr(self, 'thermal_array') and isinstance(self.thermal_array,
+                                                             np.ndarray) and self.thermal_array.size > 0:
+                # Map scene_pos to image/thermal array coordinates
+                img_w, img_h = self.scene_image.width(), self.scene_image.height()
+                arr_h, arr_w = self.thermal_array.shape
+                x = int(scene_pos.x() * arr_w / img_w)
+                y = int(scene_pos.y() * arr_h / img_h)
+                if 0 <= x < arr_w and 0 <= y < arr_h:
+                    temp = self.thermal_array[y, x]
+                    self.magnifying_glass.center_temperature = temp
+                    print(temp)
+                else:
+                    self.magnifying_glass.center_temperature = None
+            else:
+                self.magnifying_glass.center_temperature = None
+
+            # Update the magnifying glass
+            self.magnifying_glass.setPos(scene_pos)
+            self.magnifying_glass.set_pixmap(magnified_pixmap)
+            self.magnifying_glass.setZValue(2)
+            self.magnifying_glass.show()
+
+        elif self.rect_meas:
             if self._current_rect_item is not None:
                 new_coord = self.mapToScene(event.pos())
                 r = QRectF(self.origin, new_coord)
@@ -857,4 +1061,74 @@ class PhotoViewer(QGraphicsView):
 
             self.point_meas = False
 
+        elif event.button() == Qt.MouseButton.RightButton:
+            # Reset the right mouse button state
+            self.right_mouse_pressed = False
+            # Hide the magnifying glass when right mouse button is released
+            if self.magnifying_glass:
+                self.magnifying_glass.hide()
+            # Restore the cursor when the magnifying glass is deactivated
+            self.setCursor(Qt.CursorShape.ArrowCursor)
+
+        elif event.button() == Qt.MouseButton.MiddleButton:
+            self.middle_mouse_pressed = False
+
         super(PhotoViewer, self).mouseReleaseEvent(event)
+
+    # MISC
+    def toggleDragMode(self):
+        if not self.rect_meas or self.point_meas or self.line_meas or self.painting:
+            if self.dragMode() == QGraphicsView.DragMode.ScrollHandDrag:
+                self.setDragMode(QGraphicsView.DragMode.NoDrag)
+            elif not self._photo.pixmap().isNull():
+                self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
+        else:
+            self.setDragMode(QGraphicsView.DragMode.NoDrag)
+
+    def showEvent(self, event):
+        self.fitInView()
+        super(PhotoViewer, self).showEvent(event)
+
+    def fitInView(self, scale=True):
+        rect = QRectF(self._photo.pixmap().rect())
+        print(rect)
+        if not rect.isNull():
+            self.setSceneRect(rect)
+            if self.has_photo():
+                unity = self.transform().mapRect(QRectF(0, 0, 1, 1))
+                print('unity: ', unity)
+                self.scale(1 / unity.width(), 1 / unity.height())
+                viewrect = self.viewport().rect()
+                print('view: ', viewrect)
+                scenerect = self.transform().mapRect(rect)
+                print('scene: ', viewrect)
+                factor = min(viewrect.width() / scenerect.width(),
+                             viewrect.height() / scenerect.height())
+                self.scale(factor, factor)
+            self._zoom = 0
+
+    def clean_scene(self):
+        for item in self._scene.items():
+            print(type(item))
+            # Skip the MagnifyingGlass object
+            if isinstance(item, MagnifyingGlass):
+                continue
+
+            if isinstance(item, QGraphicsPathItem):
+                self._scene.removeItem(item)
+            elif isinstance(item, QGraphicsRectItem):
+                self._scene.removeItem(item)
+            elif isinstance(item, QGraphicsEllipseItem):
+                self._scene.removeItem(item)
+            elif isinstance(item, QGraphicsTextItem):
+                self._scene.removeItem(item)
+            elif isinstance(item, QGraphicsLineItem):
+                self._scene.removeItem(item)
+
+    def clean_complete(self):
+        self.clean_scene()
+
+        self._scene = QGraphicsScene(self)
+        self._photo = QGraphicsPixmapItem()
+        self._scene.addItem(self._photo)
+        self.setScene(self._scene)

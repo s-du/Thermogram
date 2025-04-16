@@ -1757,8 +1757,13 @@ class DroneIrWindow(QMainWindow):
         tt.process_raw_data(img, dest_path_post, edges=self.edges, edge_params=self.edge_params)
         self.range_slider.setHandleColorsFromColormap(self.work_image.colormap)
 
+        # set photo
         self.viewer.setPhoto(QPixmap(dest_path_post))
         self.viewer.fitInView()
+
+        # pass thermal data to the viewer
+        self.viewer.set_thermal_data(img.raw_data_undis)
+
         # add legend
         idx = self.comboBox_legend_type.currentIndex()
         if idx == 0:
@@ -1784,6 +1789,7 @@ class DroneIrWindow(QMainWindow):
         self.work_image.update_temperature_histogram(self.hist_canvas)
 
     def update_img_preview(self, refresh_dual=False):
+        self.viewer.set_thermal_data([])
         if self.skip_update:  # allows to skip image update
             return
 
@@ -1798,7 +1804,7 @@ class DroneIrWindow(QMainWindow):
             # scale view
             self.viewer.fitInView()
 
-            self.viewer.clean_scene()
+            # self.viewer.clean_scene()
             if self.viewer.legendLabel.isVisible():
                 self.viewer.toggleLegendVisibility()
 
@@ -1811,6 +1817,7 @@ class DroneIrWindow(QMainWindow):
             original_th_img = copy.deepcopy(self.dest_path_post)
 
             tt.insert_th_in_rgb_fast(img, original_th_img, dest_path_post, img.drone_model, extension='JPG')
+            self.viewer.set_thermal_data([]) # avoid getting temperatures within the magnifier
 
             self.viewer.setPhoto(QPixmap(dest_path_post))
             self.viewer.fitInView()
