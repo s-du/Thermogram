@@ -162,5 +162,5 @@ Contributions to the Thermogram App are welcome! If you find any bugs, have sugg
 
 
 <p align="center">
-    <a href=""><img src="resources/img/splash2.png" alt="Thermogram" border="0" style="width: 100%;"></a>
+    <a href=""><img src="resources/img/splash4b.png" alt="Thermogram" border="0" style="width: 100%;"></a>
 </p>
