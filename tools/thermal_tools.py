@@ -23,7 +23,7 @@ from utils.exceptions import ThermogramError, FileOperationError
 # LISTS __________________________________________________
 OUT_LIM = ['continuous', 'black', 'white', 'red']
 OUT_LIM_MATPLOT = ['c', 'k', 'w', 'r']
-POST_PROCESS = ['none', 'denoise - light', 'denoise - medium', 'denoise - strong', 'smooth', 'sharpen', 'sharpen strong', 'sharpen + denoise', 'edge (simple)', 'contours', 'contours blended']
+POST_PROCESS = ['none', 'denoise - light', 'denoise - medium', 'denoise - strong', 'smooth', 'sharpen', 'sharpen strong', 'sharpen + denoise', 'edge (simple)', 'contours', 'contours blended', 'contours soft']
 
 # Add a mapping for common color names to BGR tuples used by OpenCV
 BGR_COLORS = {
@@ -841,7 +841,7 @@ def process_raw_data(img_object, dest_path, edges=False, edge_params=[], radio_p
             img_th_smooth.save(dest_path, exif=exif, quality=99)
         elif dest_path.endswith('PNG'):
             img_th_smooth.save(dest_path, exif=exif, compression_level=0)
-    elif post_process == 'contours' or post_process == 'contours blended':
+    elif post_process in ['contours', 'contours blended', 'contours soft']:
         print('go contours')
         thermal_normalized_clipped = np.clip(thermal_normalized, 0, 1)
 
@@ -857,17 +857,33 @@ def process_raw_data(img_object, dest_path, edges=False, edge_params=[], radio_p
         thermal_for_contours = np.uint8(255 * thermal_normalized_clipped)  # Use clipped version
 
         # Iterate over levels to draw contours for each level
-        for level in levels:
-            # Calculate the corresponding color from the colormap
-            color = custom_cmap(level)[:3]  # Get RGB components, ignore alpha if present
-            color = tuple(int(c * 255) for c in color)  # Convert to BGR for OpenCV, scale to 0-255
+        if not post_process == 'contours soft':
+            for level in levels:
+                # Calculate the corresponding color from the colormap
+                color = custom_cmap(level)[:3]  # Get RGB components, ignore alpha if present
+                color = tuple(int(c * 255) for c in color)  # Convert to BGR for OpenCV, scale to 0-255
 
-            # Threshold image at the current level
-            _, thresh = cv2.threshold(thermal_for_contours, int(level * 255), 255, cv2.THRESH_BINARY)
-            contours, _ = cv2.findContours(thresh, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+                # Threshold image at the current level
+                _, thresh = cv2.threshold(thermal_for_contours, int(level * 255), 255, cv2.THRESH_BINARY)
+                contours, _ = cv2.findContours(thresh, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
 
-            # Draw contours on the blank canvas
-            cv2.drawContours(contour_canvas, contours, -1, color, 2)  # Change thickness as needed
+                # Draw contours on the blank canvas
+                cv2.drawContours(contour_canvas, contours, -1, color, 2)  # Change thickness as needed
+        else:
+            for level in levels:
+                color = custom_cmap(level)[:3]
+                color = tuple(int(c * 255) for c in color)
+
+                _, thresh = cv2.threshold(thermal_for_contours, int(level * 255), 255, cv2.THRESH_BINARY)
+                contours, _ = cv2.findContours(thresh, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+
+                simplified_contours = []
+                for cnt in contours:
+                    epsilon = 0.01 * cv2.arcLength(cnt, True)  # Adjust 0.01 to control simplification
+                    approx = cv2.approxPolyDP(cnt, epsilon, True)
+                    simplified_contours.append(approx)
+
+                cv2.drawContours(contour_canvas, simplified_contours, -1, color, 2)
 
         # Blend the contour canvas with the original thermal image
         blended_img = cv2.addWeighted(np.array(img_thermal), 0.3, contour_canvas, 0.7, 0)
@@ -881,6 +897,7 @@ def process_raw_data(img_object, dest_path, edges=False, edge_params=[], radio_p
             img_with_contours.save(dest_path, exif=exif, quality=99)
         elif dest_path.endswith('PNG'):
             img_with_contours.save(dest_path, exif=exif, compression_level=0)
+
 
     # check if edges need to be added (parameter 'edge' is a boolean)
     if edges:

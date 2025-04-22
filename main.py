@@ -33,6 +33,7 @@ import resources as res
 import dialogs as dia
 
 from tools import thermal_tools as tt
+from tools.report_tools import create_word_report
 from utils.config import config, thermal_config
 from utils.logger import info, error, debug, warning
 from utils.exceptions import ThermogramError, FileOperationError
@@ -95,20 +96,26 @@ def add_icon(img_source, pushButton_object):
 
 # CLASSES
 class SplashScreen(QSplashScreen):
-    """A splash screen displayed during application startup.
-
-    Displays a splash image while the main application is loading.
-    """
+    """A splash screen displayed during application startup."""
 
     def __init__(self) -> None:
         """Initialize the splash screen with the application splash image."""
         try:
-            splash_path = res.find('img/splash2.png')
+            splash_path = res.find('img/splash4.png')
             if not os.path.exists(splash_path):
                 error("Splash image not found")
                 raise FileOperationError(f"Splash image not found at: {splash_path}")
 
-            super().__init__(QPixmap(splash_path))
+            pixmap = QPixmap(splash_path)
+
+            # Create splash screen first (super init)
+            super().__init__(pixmap)
+
+            # Now safe to access device pixel ratio
+            dpr = self.devicePixelRatioF()
+            self.setFixedSize(pixmap.size() / dpr)  # Scale the window size appropriately
+            self.setWindowFlag(Qt.WindowType.FramelessWindowHint)
+
             debug("Splash screen initialized successfully")
         except Exception as e:
             error(f"Failed to initialize splash screen: {str(e)}")
@@ -386,6 +393,7 @@ class DroneIrWindow(QMainWindow):
             self.actionSave_Image.triggered.connect(self.save_image)
             self.actionProcess_all.triggered.connect(self.batch_export)
             self.actionCreate_anim.triggered.connect(self.export_anim)
+            self.actionCreate_Report.triggered.connect(self.create_report)
 
             # Other actions
             self.actionInfo.triggered.connect(self.show_info)
@@ -952,6 +960,56 @@ class DroneIrWindow(QMainWindow):
         # show dialog:
 
     # LOAD AND SAVE ACTIONS ______________________________________________________________________________
+    def create_report(self):
+        # Check if there are images to include in the report
+        if not self.images:
+            QMessageBox.warning(self, "No Images", "There are no images to include in the report.")
+            return
+            
+        # Open the report configuration dialog
+        from dialogs import ReportConfigDialog
+        dialog = ReportConfigDialog(self)
+        
+        # If the dialog is accepted, create the report
+        if dialog.exec():
+            # Get the configuration from the dialog
+            config = dialog.get_report_config()
+            
+            # Create the report with the configured settings
+            from tools.report_tools import create_word_report
+            try:
+                create_word_report(
+                    output_path=config['output_path'],
+                    objectives_text=config['objectives_text'],
+                    site_conditions_text=config['site_conditions_text'],
+                    flight_details_text=config['flight_details_text'],
+                    processed_images=self.images,
+                    style_template=config['style_template'],
+                    include_summary=config['include_summary']
+                )
+                
+                # Show success message
+                QMessageBox.information(
+                    self, 
+                    "Report Created", 
+                    f"Report successfully created at:\n{config['output_path']}"
+                )
+                
+                # Open the folder containing the report
+                import os
+                import subprocess
+                folder_path = os.path.dirname(os.path.abspath(config['output_path']))
+                if os.path.exists(folder_path):
+                    subprocess.Popen(f'explorer "{folder_path}"')
+                    
+            except Exception as e:
+                # Show error message if report creation fails
+                QMessageBox.critical(
+                    self, 
+                    "Error Creating Report", 
+                    f"An error occurred while creating the report:\n{str(e)}"
+                )
+
     def export_anim(self):
         # select folder
         # Define the starting directory
@@ -2009,6 +2067,8 @@ class DroneIrWindow(QMainWindow):
             - Temperature analysis
             - Measurement tools
             - Batch processing
+            
+            Contact: sdu@bbri.be
             """
 
             QMessageBox.information(self, "About Thermogram", info_text)

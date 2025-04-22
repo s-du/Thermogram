@@ -952,7 +952,114 @@ class DialogEdgeOptions(QtWidgets.QDialog):
         else:
             self.comboBox_blur_size.setEnabled(False)
 
+# ReportConfigDialog
+class ReportConfigDialog(QtWidgets.QDialog):
+    """Dialog for configuring report generation settings."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle('Report Configuration')
+        self.setMinimumWidth(500)
+        
+        # Create layout
+        layout = QVBoxLayout(self)
+        
+        # Style selection
+        style_group = QGroupBox("Report Style")
+        style_layout = QVBoxLayout()
+        
+        self.style_combo = QComboBox()
+        self.style_combo.addItems(['modern_blue', 'classic_gray', 'dark_elegant'])
+        style_layout.addWidget(QLabel("Select a style template:"))
+        style_layout.addWidget(self.style_combo)
+        style_group.setLayout(style_layout)
+        layout.addWidget(style_group)
+        
+        # Report sections
+        sections_group = QGroupBox("Report Content")
+        sections_layout = QVBoxLayout()
+        
+        # Objectives
+        sections_layout.addWidget(QLabel("Objectives:"))
+        self.objectives_text = QTextEdit()
+        self.objectives_text.setPlaceholderText("Enter the objectives of the thermal survey...")
+        self.objectives_text.setMinimumHeight(80)
+        sections_layout.addWidget(self.objectives_text)
+        
+        # Site conditions
+        sections_layout.addWidget(QLabel("Site and Conditions:"))
+        self.site_conditions_text = QTextEdit()
+        self.site_conditions_text.setPlaceholderText("Enter details about the site and weather conditions...")
+        self.site_conditions_text.setMinimumHeight(80)
+        sections_layout.addWidget(self.site_conditions_text)
+        
+        # Flight details
+        sections_layout.addWidget(QLabel("Flight Details:"))
+        self.flight_details_text = QTextEdit()
+        self.flight_details_text.setPlaceholderText("Enter details about the drone and flight parameters...")
+        self.flight_details_text.setMinimumHeight(80)
+        sections_layout.addWidget(self.flight_details_text)
+        
+        sections_group.setLayout(sections_layout)
+        layout.addWidget(sections_group)
+        
+        # Output path
+        output_group = QGroupBox("Output Settings")
+        output_layout = QHBoxLayout()
+        
+        self.output_path = QLineEdit()
+        self.output_path.setText("my_report.docx")
+        output_layout.addWidget(QLabel("Output File:"))
+        output_layout.addWidget(self.output_path)
+        
+        self.browse_button = QPushButton("Browse...")
+        self.browse_button.clicked.connect(self.browse_output_path)
+        output_layout.addWidget(self.browse_button)
+        
+        output_group.setLayout(output_layout)
+        layout.addWidget(output_group)
+        
+        # Include summary checkbox
+        self.include_summary = QCheckBox("Include summary of findings")
+        self.include_summary.setChecked(True)
+        layout.addWidget(self.include_summary)
+        
+        # Buttons
+        button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        button_box.accepted.connect(self.accept)
+        button_box.rejected.connect(self.reject)
+        layout.addWidget(button_box)
+        
+        # Set default values
+        self.objectives_text.setText("Survey the site for heat loss and insulation issues.")
+        self.site_conditions_text.setText("Sunny, 15°C, no wind. Location: Brussels.")
+        self.flight_details_text.setText("Drone: DJI Mavic 2; Altitude: 50m; Duration: 20 min.")
+    
+    def browse_output_path(self):
+        """Open a file dialog to select the output path for the report."""
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save Report As",
+            self.output_path.text(),
+            "Word Documents (*.docx)"
+        )
+        if file_path:
+            # Add .docx extension if not present
+            if not file_path.lower().endswith('.docx'):
+                file_path += '.docx'
+            self.output_path.setText(file_path)
+    
+    def get_report_config(self):
+        """Return the report configuration as a dictionary."""
+        return {
+            'objectives_text': self.objectives_text.toPlainText(),
+            'site_conditions_text': self.site_conditions_text.toPlainText(),
+            'flight_details_text': self.flight_details_text.toPlainText(),
+            'style_template': self.style_combo.currentText(),
+            'output_path': self.output_path.text(),
+            'include_summary': self.include_summary.isChecked()
+        }
 
+# MeasLineDialog
 class MeasLineDialog(QtWidgets.QDialog):
     def __init__(self, data):
         QtWidgets.QDialog.__init__(self)

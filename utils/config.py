@@ -42,7 +42,7 @@ class ThermalConfig(BaseModel):
 
 class AppConfig(BaseModel):
     """Application configuration settings"""
-    APP_VERSION: str = '0.1.0'
+    APP_VERSION: str = '0.3.0'
     APP_FOLDER: str = 'ThermogramApp_'
     ORIGIN_THERMAL_IMAGES_NAME: str = 'Original Thermal Images'
     RGB_ORIGINAL_NAME: str = 'Original RGB Images'

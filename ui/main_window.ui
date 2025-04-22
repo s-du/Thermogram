@@ -242,7 +242,7 @@
      <x>0</x>
      <y>0</y>
      <width>1496</width>
-     <height>21</height>
+     <height>26</height>
     </rect>
    </property>
    <widget class="QMenu" name="menuFile">
@@ -311,6 +311,7 @@
    <addaction name="separator"/>
    <addaction name="actionSave_Image"/>
    <addaction name="actionProcess_all"/>
+   <addaction name="actionCreate_Report"/>
   </widget>
   <widget class="QDockWidget" name="dockWidget">
    <property name="enabled">
@@ -542,6 +543,16 @@
         </size>
        </property>
       </spacer>
+     </item>
+     <item>
+      <widget class="QPushButton" name="pushButton_heatflow">
+       <property name="enabled">
+        <bool>false</bool>
+       </property>
+       <property name="text">
+        <string>Visualize heat flow</string>
+       </property>
+      </widget>
      </item>
     </layout>
    </widget>
@@ -961,16 +972,6 @@
        </property>
       </widget>
      </item>
-     <item>
-      <widget class="QPushButton" name="pushButton_heatflow">
-       <property name="enabled">
-        <bool>false</bool>
-       </property>
-       <property name="text">
-        <string>Visualize heat flow</string>
-       </property>
-      </widget>
-     </item>
     </layout>
    </widget>
   </widget>
@@ -1249,6 +1250,19 @@
        </property>
       </widget>
      </item>
+     <item>
+      <spacer name="verticalSpacer_5">
+       <property name="orientation">
+        <enum>Qt::Vertical</enum>
+       </property>
+       <property name="sizeHint" stdset="0">
+        <size>
+         <width>20</width>
+         <height>40</height>
+        </size>
+       </property>
+      </spacer>
+     </item>
     </layout>
    </widget>
   </widget>
@@ -1457,6 +1471,11 @@
   <action name="actionToggle_stylesheet">
    <property name="text">
     <string>Change App Style</string>
+   </property>
+  </action>
+  <action name="actionCreate_Report">
+   <property name="text">
+    <string>Create Report</string>
    </property>
   </action>
  </widget>
