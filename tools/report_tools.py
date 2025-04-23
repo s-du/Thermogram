@@ -415,19 +415,24 @@ def create_word_report(
     cover_bg_color = tpl.get("cover_bg_color")
     cover_accent_color = tpl.get("cover_accent_color")
     
-    # Add a section break for the cover page
-    doc.add_section()
+    # Check if we have a cover image
+    has_cover_image = cover_image_path and os.path.exists(cover_image_path)
     
-    # Apply background color to cover page if specified
-    if cover_bg_color:
-        from docx.oxml import parse_xml
-        from docx.oxml.ns import nsdecls
-        section_props = doc.sections[0]._sectPr
-        bg_color_xml = parse_xml(f'<w:shd {nsdecls("w")} w:fill="{cover_bg_color[0]:02X}{cover_bg_color[1]:02X}{cover_bg_color[2]:02X}"/>')
-        section_props.append(bg_color_xml)
+    # Only create a separate cover page section if we have a cover image or background color
+    if has_cover_image or cover_bg_color:
+        # Add a section break for the cover page
+        doc.add_section()
+        
+        # Apply background color to cover page if specified
+        if cover_bg_color:
+            from docx.oxml import parse_xml
+            from docx.oxml.ns import nsdecls
+            section_props = doc.sections[0]._sectPr
+            bg_color_xml = parse_xml(f'<w:shd {nsdecls("w")} w:fill="{cover_bg_color[0]:02X}{cover_bg_color[1]:02X}{cover_bg_color[2]:02X}"/>')
+            section_props.append(bg_color_xml)
     
     # Add cover image if provided
-    if cover_image_path and os.path.exists(cover_image_path):
+    if has_cover_image:
         doc.add_picture(cover_image_path, width=Inches(6.0))
     elif tpl.get("cover_image"):
         # Use template default image if available
@@ -494,8 +499,9 @@ def create_word_report(
         if cover_accent_color:
             date_run.font.color.rgb = RGBColor(*cover_accent_color)
     
-    # Add page break after cover
-    doc.add_page_break()
+    # Add page break after cover only if we have a cover page
+    if has_cover_image or cover_bg_color or report_title or report_subtitle or tpl.get("cover_footer", True):
+        doc.add_page_break()
     
     # Contents
     doc.add_heading('Contents', level=1)
@@ -638,43 +644,100 @@ def create_word_report(
         row_cells[0].text = "Original File"
         row_cells[1].text = os.path.basename(pim.rgb_path_original) if pim.rgb_path_original else "N/A"
         
+        # Handle drone model - convert to string to avoid iteration issues
         row_cells = info_table.add_row().cells
         row_cells[0].text = "Drone Model"
-        row_cells[1].text = getattr(pim, "drone_model", "N/A")
+        drone_model = getattr(pim, "drone_model", "N/A")
+        try:
+            # Try to get the model name as a string
+            if hasattr(drone_model, "name"):
+                row_cells[1].text = str(drone_model.name)
+            elif hasattr(drone_model, "__str__"):
+                row_cells[1].text = str(drone_model)
+            else:
+                row_cells[1].text = "Unknown Model"
+        except Exception:
+            # Fallback if any error occurs
+            row_cells[1].text = "Unknown Model"
         
         # Add EXIF information if available
-        if hasattr(pim, 'exif') and pim.exif:
-            exif_data = pim.exif
-            
-            # Common EXIF tags and their IDs
-            exif_tags = {
-                271: "Camera Make",            # Camera manufacturer
-                272: "Camera Model",           # Camera model
-                306: "Date/Time",             # Date and time
-                36867: "Date/Time Original",  # Original date and time
-                37377: "Shutter Speed",       # Shutter speed
-                37378: "Aperture",            # Aperture
-                37379: "Brightness",          # Brightness
-                37380: "Exposure Comp.",      # Exposure bias
-                37383: "Metering Mode",       # Metering mode
-                37385: "Flash",               # Flash
-                37386: "Focal Length"         # Focal length
-            }
-            
-            for tag_id, tag_name in exif_tags.items():
-                if tag_id in exif_data:
-                    value = exif_data[tag_id]
-                    # Format certain values
-                    if tag_id == 37377 and value > 0:  # ShutterSpeed
-                        value = f"1/{int(2**value)}"
-                    elif tag_id == 37378:  # Aperture
-                        value = f"f/{round(2**(value/2), 1)}"
-                    elif tag_id == 37386:  # FocalLength
-                        value = f"{value}mm"
+        try:
+            if hasattr(pim, 'exif') and pim.exif:
+                # Get EXIF data safely
+                try:
+                    exif_data = pim.exif
+                    
+                    # We already added the drone model above, so we don't need to add it again here
+                    
+                    # Try to extract other EXIF data if it's a dictionary-like object
+                    if hasattr(exif_data, 'items'):
+                        # It's a dictionary-like object, we can iterate through items
+                        for tag_id, value in exif_data.items():
+                            # Skip if the value is None or empty
+                            if value is None or value == '':
+                                continue
+                                
+                            # Map tag IDs to human-readable names
+                            tag_name = None
+                            if tag_id == 271:
+                                tag_name = "Camera Make"
+                            elif tag_id == 272:
+                                tag_name = "Camera Model"
+                            elif tag_id == 306:
+                                tag_name = "Date/Time"
+                            elif tag_id == 36867:
+                                tag_name = "Date/Time Original"
+                            elif tag_id == 37377:
+                                tag_name = "Shutter Speed"
+                                if value > 0:
+                                    value = f"1/{int(2**value)}"
+                            elif tag_id == 37378:
+                                tag_name = "Aperture"
+                                value = f"f/{round(2**(value/2), 1)}"
+                            elif tag_id == 37379:
+                                tag_name = "Brightness"
+                            elif tag_id == 37380:
+                                tag_name = "Exposure Comp."
+                            elif tag_id == 37383:
+                                tag_name = "Metering Mode"
+                            elif tag_id == 37385:
+                                tag_name = "Flash"
+                            elif tag_id == 37386:
+                                tag_name = "Focal Length"
+                                value = f"{value}mm"
+                            
+                            # Add to table if we have a name for this tag
+                            if tag_name:
+                                row_cells = info_table.add_row().cells
+                                row_cells[0].text = tag_name
+                                row_cells[1].text = str(value)
+                    elif hasattr(exif_data, '__getitem__'):
+                        # It supports indexing but not iteration, try direct access to common tags
+                        common_tags = [
+                            (271, "Camera Make"),
+                            (272, "Camera Model"),
+                            (306, "Date/Time"),
+                            (36867, "Date/Time Original")
+                        ]
                         
+                        for tag_id, tag_name in common_tags:
+                            try:
+                                value = exif_data[tag_id]
+                                if value:
+                                    row_cells = info_table.add_row().cells
+                                    row_cells[0].text = tag_name
+                                    row_cells[1].text = str(value)
+                            except (KeyError, IndexError, TypeError):
+                                # Skip tags that don't exist or can't be accessed
+                                pass
+                except Exception as e:
+                    # If there's an error processing EXIF data, add an error note
                     row_cells = info_table.add_row().cells
-                    row_cells[0].text = tag_name
-                    row_cells[1].text = str(value)
+                    row_cells[0].text = "EXIF Data"
+                    row_cells[1].text = f"Error reading EXIF data: {str(e)}"
+        except Exception as e:
+            # If there's a general error with EXIF handling, log it but continue
+            print(f"Error handling EXIF data in report: {str(e)}")
         
         # Add thermal parameters
         if hasattr(pim, 'thermal_param'):

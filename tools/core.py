@@ -365,6 +365,12 @@ class ProcessedIm:
         # for custom images
         self.nb_custom_imgs = 0
         self.custom_images = []
+        
+        # for report inclusion
+        self.include_in_report = True
+        
+        # for user remarks
+        self.remarks = ""
 
     @property
     def exif(self):

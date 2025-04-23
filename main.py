@@ -1267,6 +1267,8 @@ class DroneIrWindow(QMainWindow):
 
         # Get list to main window
         self.update_img_list()
+        self.viewer.fitInView()
+
         # Activate buttons and options
 
         #   dock widgets
@@ -1430,14 +1432,32 @@ class DroneIrWindow(QMainWindow):
         """
         try:
             from PyQt6.QtCore import QRectF, QPoint, QSize
+            import math
 
-            # Get the viewer's scene rect to determine the content bounds
+            # Get the viewer's scene rect to determine the actual image content bounds
             scene_rect = self.viewer._scene.sceneRect()
             
-            # Create an image with the size of the content
-            image_width = max(self.viewer.width(), int(scene_rect.width()))
-            image_height = max(self.viewer.height(), int(scene_rect.height()))
-            image = QImage(QSize(image_width, image_height), QImage.Format.Format_ARGB32_Premultiplied)
+            # Get the legend if it exists and is visible
+            legend_label = self.viewer.legendLabel if hasattr(self.viewer, 'legendLabel') else None
+            legend_width = 0
+            legend_height = 0
+            legend_pixmap = None
+            
+            if legend_label and legend_label.isVisible() and legend_label.pixmap() is not None:
+                original_legend_pixmap = legend_label.pixmap()
+                legend_width = original_legend_pixmap.width()
+                legend_height = original_legend_pixmap.height()
+            
+            # Calculate the actual image content size (not the full viewer size)
+            content_width = int(scene_rect.width())
+            content_height = int(scene_rect.height())
+            
+            # Create an image with enough space for the content plus legend (with 20px gap)
+            # The +20 ensures there's exactly a 20px gap between the image and legend
+            total_width = content_width + (legend_width + 20 if legend_width > 0 else 0)
+            total_height = max(content_height, legend_height)
+            
+            image = QImage(QSize(total_width, total_height), QImage.Format.Format_ARGB32_Premultiplied)
             image.fill(Qt.GlobalColor.transparent)
 
             painter = QPainter(image)
@@ -1446,36 +1466,85 @@ class DroneIrWindow(QMainWindow):
             painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
 
             # First render the viewer's scene (this includes the image and annotations)
-            self.viewer._scene.render(painter)
-            
-            # Get the legend if it exists and is visible
-            legend_label = self.viewer.legendLabel if hasattr(self.viewer, 'legendLabel') else None
+            self.viewer._scene.render(painter, QRectF(0, 0, content_width, content_height), scene_rect)
             
             # If the legend exists and is visible, render it at a fixed position relative to the image
             if legend_label and legend_label.isVisible() and legend_label.pixmap() is not None:
-                # Position the legend at the right side of the image with a small margin
-                legend_pixmap = legend_label.pixmap()
-                legend_x = image_width - legend_pixmap.width() - 20  # 20px margin from right
-                legend_y = 0  # 20px margin from top
+                # Calculate appropriate legend size based on image dimensions
+                # For Picture-in-Picture or large images, scale the legend appropriately
                 
-                # Draw the legend at the calculated position
-                painter.drawPixmap(legend_x, legend_y, legend_pixmap)
+                # Detect if this is likely a Picture-in-Picture view (very large image)
+                is_pip_view = content_width > 3000 or content_height > 3000
                 
-                # Draw tick labels if they exist
-                for i, tick_label in enumerate(self.viewer.tickLabels):
-                    if tick_label and tick_label.isVisible():
-                        # Calculate position based on legend position and tick spacing
-                        tick_height = legend_pixmap.height() / len(self.viewer.tickLabels) if len(self.viewer.tickLabels) > 0 else 0
-                        tick_x = legend_x + legend_pixmap.width() + 5  # 5px margin from legend
-                        tick_y = legend_y + i * tick_height
-                        
-                        # Create a temporary pixmap from the tick label
-                        tick_pixmap = QPixmap(tick_label.size())
-                        tick_pixmap.fill(Qt.GlobalColor.transparent)
-                        tick_label.render(tick_pixmap)
-                        
-                        # Draw the tick label
-                        painter.drawPixmap(int(tick_x), int(tick_y), tick_pixmap)
+                # Initialize scale factor
+                scale_factor = 1.0
+                
+                # Calculate scaling based on image size
+                # Use a more aggressive scaling for very large images
+                if is_pip_view:
+                    # For Picture-in-Picture view, use a more substantial scaling
+                    # For extremely large images (8000×6000), this will create a much larger legend
+                    base_scale = max(content_width / 1000, content_height / 800)
+                    scale_factor = max(3.0, min(6.0, base_scale))
+                elif content_height > 600:
+                    # For moderately large images, use a gentler scaling
+                    image_height_ratio = content_height / 600
+                    scale_factor = min(2.5, math.sqrt(image_height_ratio) * 1.5)
+                
+                # Apply scaling if needed
+                if scale_factor > 1.1:  # Only scale if it's significantly larger than 1.0
+                    # Create a scaled version of the legend
+                    scaled_width = int(legend_width * scale_factor)
+                    scaled_height = int(legend_height * scale_factor)
+                    
+                    # Scale the legend pixmap
+                    scaled_legend_pixmap = original_legend_pixmap.scaled(
+                        scaled_width, scaled_height, 
+                        Qt.AspectRatioMode.KeepAspectRatio, 
+                        Qt.TransformationMode.SmoothTransformation
+                    )
+                else:
+                    # Use original size for normal images
+                    scaled_legend_pixmap = original_legend_pixmap
+                    scaled_width = legend_width
+                    scaled_height = legend_height
+                
+                # Position the legend at exactly 20px from the right edge of the content
+                legend_x = content_width + 20  # Exactly 20px margin from image
+                legend_y = 0  # Align with top of image
+                
+                # Draw the scaled legend at the calculated position
+                painter.drawPixmap(legend_x, legend_y, scaled_legend_pixmap)
+                
+                # Update the tick labels if they exist - scale them proportionally too
+                if hasattr(self.viewer, 'tickLabels') and self.viewer.tickLabels:
+                    for i, tick_label in enumerate(self.viewer.tickLabels):
+                        if tick_label and tick_label.isVisible():
+                            # Get the original text
+                            tick_text = tick_label.text()
+                            
+                            # Calculate position based on legend position and tick spacing
+                            tick_height = scaled_height / len(self.viewer.tickLabels) if len(self.viewer.tickLabels) > 0 else 0
+                            tick_x = legend_x + scaled_width + 5  # 5px margin from legend
+                            tick_y = legend_y + i * tick_height
+                            
+                            # Draw the tick text with scaled font size
+                            font = painter.font()
+                            original_font_size = font.pointSize() if font.pointSize() > 0 else 10
+                            font.setPointSize(int(original_font_size * scale_factor))
+                            painter.setFont(font)
+                            
+                            # Draw the text with a semi-transparent background
+                            text_rect = painter.fontMetrics().boundingRect(tick_text)
+                            bg_rect = QRectF(tick_x, tick_y, text_rect.width() + 6, text_rect.height() + 4)
+                            
+                            # Draw background
+                            painter.fillRect(bg_rect, QColor(255, 255, 255, 128))
+                            
+                            # Draw text
+                            painter.drawText(tick_x + 3, tick_y + text_rect.height(), tick_text)
+                
+                # Tick labels are now handled in the legend drawing code above
             
             painter.end()
 
@@ -2075,8 +2144,8 @@ class DroneIrWindow(QMainWindow):
             self.viewer.setPhoto(QPixmap(self.work_image.rgb_path))
             # scale view
             self.viewer.fitInView()
+            self.viewer.clean_scene()
 
-            # self.viewer.clean_scene()
             if self.viewer.legendLabel.isVisible():
                 self.viewer.toggleLegendVisibility()
 
@@ -2092,6 +2161,7 @@ class DroneIrWindow(QMainWindow):
             self.viewer.set_thermal_data([]) # avoid getting temperatures within the magnifier
 
             self.viewer.setPhoto(QPixmap(dest_path_post))
+            self.viewer.clean_scene()
             self.viewer.fitInView()
 
             self.toggle_thermal_actions(enable=False)
