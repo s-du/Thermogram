@@ -50,6 +50,7 @@ class AppConfig(BaseModel):
     ORIGIN_TH_FOLDER: str = 'img_th_original'
     RGB_CROPPED_FOLDER: str = 'img_rgb'
     PROC_TH_FOLDER: str = 'img_th_processed'
+    CUSTOM_IMAGES_FOLDER: str = 'img_custom'
 
     RECT_MEAS_NAME: str = 'Rectangle measurements'
     POINT_MEAS_NAME: str = 'Spot measurements'

@@ -823,6 +823,13 @@
    <widget class="QWidget" name="dockWidgetContents_3">
     <layout class="QVBoxLayout" name="verticalLayout">
      <item>
+      <widget class="QLabel" name="label_img_info">
+       <property name="text">
+        <string>Image infos:</string>
+       </property>
+      </widget>
+     </item>
+     <item>
       <layout class="QHBoxLayout" name="horizontalLayout_16">
        <property name="leftMargin">
         <number>30</number>
@@ -969,6 +976,23 @@
          <width>16777215</width>
          <height>16777215</height>
         </size>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLabel" name="label_11">
+       <property name="text">
+        <string>Remarks:</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPlainTextEdit" name="plainTextEdit_remarks"/>
+     </item>
+     <item>
+      <widget class="QCheckBox" name="checkBox_report">
+       <property name="text">
+        <string>Include this image in the report</string>
        </property>
       </widget>
      </item>

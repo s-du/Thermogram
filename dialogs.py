@@ -953,12 +953,47 @@ class DialogEdgeOptions(QtWidgets.QDialog):
             self.comboBox_blur_size.setEnabled(False)
 
 # ReportConfigDialog
+class TextInputDialog(QtWidgets.QDialog):
+    """Dialog for entering text content for report sections."""
+    def __init__(self, title, initial_text="", placeholder="", parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        self.setMinimumWidth(500)
+        self.setMinimumHeight(300)
+        
+        layout = QVBoxLayout(self)
+        
+        # Text editor
+        self.text_edit = QTextEdit()
+        self.text_edit.setText(initial_text)
+        self.text_edit.setPlaceholderText(placeholder)
+        layout.addWidget(self.text_edit)
+        
+        # Buttons
+        button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        button_box.accepted.connect(self.accept)
+        button_box.rejected.connect(self.reject)
+        layout.addWidget(button_box)
+    
+    def get_text(self):
+        return self.text_edit.toPlainText()
+
+
 class ReportConfigDialog(QtWidgets.QDialog):
     """Dialog for configuring report generation settings."""
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, images=None):
         super().__init__(parent)
         self.setWindowTitle('Report Configuration')
-        self.setMinimumWidth(500)
+        self.setMinimumWidth(600)
+        self.setMinimumHeight(600)  # Reduced height
+        
+        # Store the image list
+        self.images = images or []
+        
+        # Initialize text content
+        self.objectives_content = "Survey the site for heat loss and insulation issues."
+        self.site_conditions_content = "Sunny, 15°C, no wind. Location: Brussels."
+        self.flight_details_content = "Drone: DJI Mavic 2; Altitude: 50m; Duration: 20 min."
         
         # Create layout
         layout = QVBoxLayout(self)
@@ -968,39 +1003,91 @@ class ReportConfigDialog(QtWidgets.QDialog):
         style_layout = QVBoxLayout()
         
         self.style_combo = QComboBox()
-        self.style_combo.addItems(['modern_blue', 'classic_gray', 'dark_elegant'])
+        self.style_combo.addItems(['modern_blue', 'classic_gray', 'dark_elegant', 'vibrant_thermal'])
         style_layout.addWidget(QLabel("Select a style template:"))
         style_layout.addWidget(self.style_combo)
+        
+        # Add title and subtitle fields
+        style_layout.addWidget(QLabel("Report Title:"))
+        self.title_edit = QLineEdit("Infrared Survey Report")
+        style_layout.addWidget(self.title_edit)
+        
+        style_layout.addWidget(QLabel("Report Subtitle (optional):"))
+        self.subtitle_edit = QLineEdit()
+        style_layout.addWidget(self.subtitle_edit)
+        
         style_group.setLayout(style_layout)
         layout.addWidget(style_group)
         
-        # Report sections
+        # Report sections - now with buttons
         sections_group = QGroupBox("Report Content")
-        sections_layout = QVBoxLayout()
+        sections_layout = QGridLayout()
         
-        # Objectives
-        sections_layout.addWidget(QLabel("Objectives:"))
-        self.objectives_text = QTextEdit()
-        self.objectives_text.setPlaceholderText("Enter the objectives of the thermal survey...")
-        self.objectives_text.setMinimumHeight(80)
-        sections_layout.addWidget(self.objectives_text)
+        # Row 0: Objectives
+        sections_layout.addWidget(QLabel("Objectives:"), 0, 0)
+        self.objectives_preview = QLabel(self.get_preview_text(self.objectives_content))
+        self.objectives_preview.setWordWrap(True)
+        sections_layout.addWidget(self.objectives_preview, 0, 1)
+        self.objectives_button = QPushButton("Edit...")
+        self.objectives_button.clicked.connect(self.edit_objectives)
+        sections_layout.addWidget(self.objectives_button, 0, 2)
         
-        # Site conditions
-        sections_layout.addWidget(QLabel("Site and Conditions:"))
-        self.site_conditions_text = QTextEdit()
-        self.site_conditions_text.setPlaceholderText("Enter details about the site and weather conditions...")
-        self.site_conditions_text.setMinimumHeight(80)
-        sections_layout.addWidget(self.site_conditions_text)
+        # Row 1: Site conditions
+        sections_layout.addWidget(QLabel("Site and Conditions:"), 1, 0)
+        self.site_conditions_preview = QLabel(self.get_preview_text(self.site_conditions_content))
+        self.site_conditions_preview.setWordWrap(True)
+        sections_layout.addWidget(self.site_conditions_preview, 1, 1)
+        self.site_conditions_button = QPushButton("Edit...")
+        self.site_conditions_button.clicked.connect(self.edit_site_conditions)
+        sections_layout.addWidget(self.site_conditions_button, 1, 2)
         
-        # Flight details
-        sections_layout.addWidget(QLabel("Flight Details:"))
-        self.flight_details_text = QTextEdit()
-        self.flight_details_text.setPlaceholderText("Enter details about the drone and flight parameters...")
-        self.flight_details_text.setMinimumHeight(80)
-        sections_layout.addWidget(self.flight_details_text)
+        # Row 2: Flight details
+        sections_layout.addWidget(QLabel("Flight Details:"), 2, 0)
+        self.flight_details_preview = QLabel(self.get_preview_text(self.flight_details_content))
+        self.flight_details_preview.setWordWrap(True)
+        sections_layout.addWidget(self.flight_details_preview, 2, 1)
+        self.flight_details_button = QPushButton("Edit...")
+        self.flight_details_button.clicked.connect(self.edit_flight_details)
+        sections_layout.addWidget(self.flight_details_button, 2, 2)
+        
+        # Set column stretch
+        sections_layout.setColumnStretch(1, 1)  # Make the preview column expandable
         
         sections_group.setLayout(sections_layout)
         layout.addWidget(sections_group)
+        
+        # Image Selection
+        images_group = QGroupBox("Images to Include")
+        images_layout = QVBoxLayout()
+        
+        # Add description label
+        images_layout.addWidget(QLabel("Select images to include in the report:"))
+        
+        # Create list view for image selection
+        self.list_view = QtWidgets.QListView()
+        self.list_model = QtGui.QStandardItemModel()
+        self.list_view.setModel(self.list_model)
+        
+        # Enable multi-selection mode
+        self.list_view.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.ExtendedSelection)
+        
+        # Set a reasonable size for the list view
+        self.list_view.setMinimumHeight(150)
+        
+        # Add select all/none buttons
+        selection_buttons_layout = QHBoxLayout()
+        self.select_all_button = QPushButton("Select All")
+        self.select_none_button = QPushButton("Select None")
+        self.select_all_button.clicked.connect(self.list_view.selectAll)
+        self.select_none_button.clicked.connect(self.list_view.clearSelection)
+        selection_buttons_layout.addWidget(self.select_all_button)
+        selection_buttons_layout.addWidget(self.select_none_button)
+        
+        # Add to layout
+        images_layout.addWidget(self.list_view)
+        images_layout.addLayout(selection_buttons_layout)
+        images_group.setLayout(images_layout)
+        layout.addWidget(images_group)
         
         # Output path
         output_group = QGroupBox("Output Settings")
@@ -1023,16 +1110,20 @@ class ReportConfigDialog(QtWidgets.QDialog):
         self.include_summary.setChecked(True)
         layout.addWidget(self.include_summary)
         
+        # Populate the image list if images are provided
+        self.populate_image_list()
+        
         # Buttons
         button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         button_box.accepted.connect(self.accept)
         button_box.rejected.connect(self.reject)
         layout.addWidget(button_box)
         
-        # Set default values
-        self.objectives_text.setText("Survey the site for heat loss and insulation issues.")
-        self.site_conditions_text.setText("Sunny, 15°C, no wind. Location: Brussels.")
-        self.flight_details_text.setText("Drone: DJI Mavic 2; Altitude: 50m; Duration: 20 min.")
+        # Set window icon if available
+        try:
+            self.setWindowIcon(QIcon(res.find('img/app_icon.png')))
+        except:
+            pass
     
     def browse_output_path(self):
         """Open a file dialog to select the output path for the report."""
@@ -1048,15 +1139,92 @@ class ReportConfigDialog(QtWidgets.QDialog):
                 file_path += '.docx'
             self.output_path.setText(file_path)
     
+    def populate_image_list(self):
+        """Populate the list view with available images."""
+        # Clear the model first
+        self.list_model.clear()
+        
+        # Add each image to the list
+        for i, img in enumerate(self.images):
+            # Try to get a descriptive name for the image
+            if hasattr(img, 'path') and img.path:
+                _, filename = os.path.split(img.path)
+                display_name = f"Image {i}: {filename}"
+            else:
+                display_name = f"Image {i}"
+            
+            # Check if the image should be included in the report based on its property
+            include_in_report = getattr(img, 'include_in_report', True)
+                
+            item = QtGui.QStandardItem(display_name)
+            item.setCheckable(True)
+            item.setCheckState(Qt.CheckState.Checked if include_in_report else Qt.CheckState.Unchecked)
+            self.list_model.appendRow(item)
+    
+    def get_selected_image_indices(self):
+        """Get indices of selected images."""
+        selected_indices = []
+        for i in range(self.list_model.rowCount()):
+            item = self.list_model.item(i)
+            if item.checkState() == Qt.CheckState.Checked:
+                selected_indices.append(i)
+        return selected_indices
+    
+    def get_preview_text(self, text, max_length=50):
+        """Create a preview of the text content."""
+        if len(text) > max_length:
+            return text[:max_length] + "..."
+        return text
+    
+    def edit_objectives(self):
+        """Open dialog to edit objectives."""
+        dialog = TextInputDialog(
+            "Edit Objectives", 
+            self.objectives_content, 
+            "Enter the objectives of the thermal survey...",
+            self
+        )
+        if dialog.exec():
+            self.objectives_content = dialog.get_text()
+            self.objectives_preview.setText(self.get_preview_text(self.objectives_content))
+    
+    def edit_site_conditions(self):
+        """Open dialog to edit site conditions."""
+        dialog = TextInputDialog(
+            "Edit Site and Conditions", 
+            self.site_conditions_content, 
+            "Enter details about the site and weather conditions...",
+            self
+        )
+        if dialog.exec():
+            self.site_conditions_content = dialog.get_text()
+            self.site_conditions_preview.setText(self.get_preview_text(self.site_conditions_content))
+    
+    def edit_flight_details(self):
+        """Open dialog to edit flight details."""
+        dialog = TextInputDialog(
+            "Edit Flight Details", 
+            self.flight_details_content, 
+            "Enter details about the drone and flight parameters...",
+            self
+        )
+        if dialog.exec():
+            self.flight_details_content = dialog.get_text()
+            self.flight_details_preview.setText(self.get_preview_text(self.flight_details_content))
+    
     def get_report_config(self):
         """Return the report configuration as a dictionary."""
+        subtitle = self.subtitle_edit.text().strip()
         return {
-            'objectives_text': self.objectives_text.toPlainText(),
-            'site_conditions_text': self.site_conditions_text.toPlainText(),
-            'flight_details_text': self.flight_details_text.toPlainText(),
+            'objectives_text': self.objectives_content,
+            'site_conditions_text': self.site_conditions_content,
+            'flight_details_text': self.flight_details_content,
             'style_template': self.style_combo.currentText(),
             'output_path': self.output_path.text(),
-            'include_summary': self.include_summary.isChecked()
+            'include_summary': self.include_summary.isChecked(),
+            'images_to_include': self.get_selected_image_indices(),
+            'report_title': self.title_edit.text(),
+            'report_subtitle': subtitle if subtitle else None
         }
 
 # MeasLineDialog

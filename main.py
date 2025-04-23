@@ -50,6 +50,7 @@ RGB_CROPPED_NAME = config.RGB_CROPPED_NAME
 ORIGIN_TH_FOLDER = config.ORIGIN_TH_FOLDER
 RGB_CROPPED_FOLDER = config.RGB_CROPPED_FOLDER
 PROC_TH_FOLDER = config.PROC_TH_FOLDER
+CUSTOM_IMAGES_FOLDER = config.CUSTOM_IMAGES_FOLDER
 
 RECT_MEAS_NAME = config.RECT_MEAS_NAME
 POINT_MEAS_NAME = config.POINT_MEAS_NAME
@@ -445,6 +446,12 @@ class DroneIrWindow(QMainWindow):
             # Checkboxes
             self.checkBox_legend.stateChanged.connect(self.toggle_legend)
             self.checkBox_edges.stateChanged.connect(self.activate_edges)
+            if hasattr(self, 'checkBox_report'):
+                self.checkBox_report.stateChanged.connect(self.toggle_report_inclusion)
+                
+            # Remarks text edit
+            if hasattr(self, 'plainTextEdit_remarks'):
+                self.plainTextEdit_remarks.textChanged.connect(self.save_remarks)
 
             # tab widget
             self.tabWidget.currentChanged.connect(self.on_tab_change)
@@ -960,6 +967,74 @@ class DroneIrWindow(QMainWindow):
         # show dialog:
 
     # LOAD AND SAVE ACTIONS ______________________________________________________________________________
+    def toggle_report_inclusion(self, state):
+        """Update the current image's include_in_report property based on checkbox state"""
+        if hasattr(self, 'work_image'):
+            self.work_image.include_in_report = (state == Qt.CheckState.Checked)
+            
+    def save_remarks(self):
+        """Save the remarks text to the current image"""
+        if hasattr(self, 'work_image') and hasattr(self, 'plainTextEdit_remarks'):
+            self.work_image.remarks = self.plainTextEdit_remarks.toPlainText()
+            
+    def update_image_info_label(self):
+        """Update the image info label with EXIF data from the current image"""
+        if not hasattr(self, 'work_image') or not hasattr(self, 'label_img_info'):
+            return
+            
+        # Get EXIF data
+        exif_data = self.work_image.exif
+        
+        # Format the information to display
+        info_text = "<b>Image Information:</b><br>"
+        
+        # Add filename
+        if hasattr(self.work_image, 'path') and self.work_image.path:
+            _, filename = os.path.split(self.work_image.path)
+            info_text += f"<b>File:</b> {filename}<br>"
+        
+        # Try to extract common EXIF tags
+        try:
+            # Common EXIF tags and their IDs
+            tags_to_display = {
+                271: "Make",            # Camera manufacturer
+                272: "Model",           # Camera model
+                306: "DateTime",        # Date and time
+                36867: "DateTimeOriginal",  # Original date and time
+                37377: "ShutterSpeed",  # Shutter speed
+                37378: "Aperture",      # Aperture
+                37379: "BrightnessValue", # Brightness
+                37380: "ExposureCompensation", # Exposure bias
+                37383: "MeteringMode",  # Metering mode
+                37385: "Flash",         # Flash
+                37386: "FocalLength",   # Focal length
+                41728: "FileSource",    # File source
+                41729: "SceneType"      # Scene type
+            }
+            
+            for tag_id, tag_name in tags_to_display.items():
+                if tag_id in exif_data:
+                    value = exif_data[tag_id]
+                    # Format certain values
+                    if tag_id == 37377:  # ShutterSpeed
+                        if value > 0:
+                            value = f"1/{int(2**value)}"
+                    elif tag_id == 37378:  # Aperture
+                        value = f"f/{round(2**(value/2), 1)}"
+                    elif tag_id == 37386:  # FocalLength
+                        value = f"{value}mm"
+                        
+                    info_text += f"<b>{tag_name}:</b> {value}<br>"
+        except Exception as e:
+            info_text += f"<i>Error reading EXIF data: {str(e)}</i><br>"
+        
+        # Add thermal information
+        info_text += f"<b>Temperature Range:</b> {self.work_image.tmin:.1f}°C to {self.work_image.tmax:.1f}°C<br>"
+        
+        # Set the text to the label
+        self.label_img_info.setText(info_text)
+        self.label_img_info.setTextFormat(Qt.TextFormat.RichText)
+    
     def create_report(self):
         # Check if there are images to include in the report
         if not self.images:
@@ -968,24 +1043,67 @@ class DroneIrWindow(QMainWindow):
             
         # Open the report configuration dialog
         from dialogs import ReportConfigDialog
-        dialog = ReportConfigDialog(self)
+        dialog = ReportConfigDialog(self, images=self.images)
         
         # If the dialog is accepted, create the report
         if dialog.exec():
             # Get the configuration from the dialog
             config = dialog.get_report_config()
             
-            # Create the report with the configured settings
-            from tools.report_tools import create_word_report
+            # Create a folder for annotated images
+            import os
+            import tempfile
+            annotated_images_folder = os.path.join(self.custom_images_folder, "report_images")
+            if not os.path.exists(annotated_images_folder):
+                os.makedirs(annotated_images_folder)
+            
+            # Save the current state to restore later
+            current_image_index = self.active_image
+            
+            # Get the selected images
+            images_to_include = config.get('images_to_include', [])
+            if not images_to_include:
+                QMessageBox.warning(self, "No Images Selected", "Please select at least one image to include in the report.")
+                return
+                
             try:
+                # Dictionary to store annotated image paths
+                annotated_image_paths = [None] * len(self.images)
+                
+                # For each selected image, switch to it, save the annotated view, and store the path
+                for idx in images_to_include:
+                    # Switch to this image
+                    self.active_image = idx
+                    self.work_image = self.images[idx]
+                    self.update_img_preview(refresh_dual=True)
+                    
+                    # Save the current view with annotations
+                    annotated_filename = f"annotated_image_{idx}.png"
+                    annotated_path = os.path.join(annotated_images_folder, annotated_filename)
+                    self.save_image(folder=annotated_images_folder, filename=annotated_filename)
+                    
+                    # Store the path for the report
+                    annotated_image_paths[idx] = annotated_path
+                
+                # Restore the original image
+                self.active_image = current_image_index
+                self.work_image = self.images[current_image_index]
+                self.update_img_preview(refresh_dual=True)
+                
+                # Create the report with the configured settings and annotated images
+                from tools.report_tools import create_word_report
                 create_word_report(
                     output_path=config['output_path'],
                     objectives_text=config['objectives_text'],
                     site_conditions_text=config['site_conditions_text'],
                     flight_details_text=config['flight_details_text'],
                     processed_images=self.images,
+                    images_to_include=images_to_include,
                     style_template=config['style_template'],
-                    include_summary=config['include_summary']
+                    include_summary=config['include_summary'],
+                    annotated_image_paths=annotated_image_paths,
+                    report_title=config.get('report_title', 'Infrared Survey Report'),
+                    report_subtitle=config.get('report_subtitle')
                 )
                 
                 # Show success message
@@ -1084,12 +1202,18 @@ class DroneIrWindow(QMainWindow):
 
             # Create some sub folders for storing images
             self.original_th_img_folder = os.path.join(self.app_folder, ORIGIN_TH_FOLDER)
+            self.rgb_crop_img_folder = os.path.join(self.app_folder, RGB_CROPPED_FOLDER)
+            self.custom_images_folder = os.path.join(self.app_folder, CUSTOM_IMAGES_FOLDER)
 
             # If the sub folders do not exist, create them
             if not os.path.exists(self.app_folder):
                 os.mkdir(self.app_folder)
             if not os.path.exists(self.original_th_img_folder):
                 os.mkdir(self.original_th_img_folder)
+            if not os.path.exists(self.rgb_crop_img_folder):
+                os.mkdir(self.rgb_crop_img_folder)
+            if not os.path.exists(self.custom_images_folder):
+                os.mkdir(self.custom_images_folder)
 
             # Get drone model
             drone_name = tt.get_drone_model(self.list_ir_paths[0])
@@ -1121,10 +1245,6 @@ class DroneIrWindow(QMainWindow):
                 self.load_folder_phase2()
 
             else:
-                self.rgb_crop_img_folder = os.path.join(self.app_folder, RGB_CROPPED_FOLDER)
-                if not os.path.exists(self.rgb_crop_img_folder):
-                    os.mkdir(self.rgb_crop_img_folder)
-
                     text_status = 'creating rgb miniatures...'
                     self.update_progress(nb=20, text=text_status)
 
@@ -1301,13 +1421,23 @@ class DroneIrWindow(QMainWindow):
             error(f"Failed to update image list: {str(e)}")
             raise ThermogramError(f"Failed to update image list: {str(e)}") from e
 
-    def save_image(self):
-        """Save the current thermal image with measurements and legend (PyQt6 compatible)."""
+    def save_image(self, folder='', filename='current_view.jpg'):
+        """Save the current thermal image with measurements and legend (PyQt6 compatible).
+        
+        Args:
+            folder: Optional folder path to save the image directly without dialog
+            filename: Optional filename when saving to a specific folder
+        """
         try:
-            from PyQt6.QtCore import QRectF, QPoint
+            from PyQt6.QtCore import QRectF, QPoint, QSize
 
-            # Create an image the size of the full viewer
-            image = QImage(self.viewer.size(), QImage.Format.Format_ARGB32_Premultiplied)
+            # Get the viewer's scene rect to determine the content bounds
+            scene_rect = self.viewer._scene.sceneRect()
+            
+            # Create an image with the size of the content
+            image_width = max(self.viewer.width(), int(scene_rect.width()))
+            image_height = max(self.viewer.height(), int(scene_rect.height()))
+            image = QImage(QSize(image_width, image_height), QImage.Format.Format_ARGB32_Premultiplied)
             image.fill(Qt.GlobalColor.transparent)
 
             painter = QPainter(image)
@@ -1315,28 +1445,85 @@ class DroneIrWindow(QMainWindow):
             painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
             painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
 
-            # First render the viewer itself
-            self.viewer.render(painter, target=QRectF(0, 0, self.viewer.width(), self.viewer.height()))
-
-            # Then render all children (e.g., QLabel overlays like legendLabel and tickLabels)
-            for child in self.viewer.findChildren(QWidget):
-                if child.isVisible():
-                    # Map child widget geometry relative to viewer
-                    pos = child.mapTo(self.viewer, QPoint(0, 0))
-                    child.render(painter, targetOffset=pos)
-
+            # First render the viewer's scene (this includes the image and annotations)
+            self.viewer._scene.render(painter)
+            
+            # Get the legend if it exists and is visible
+            legend_label = self.viewer.legendLabel if hasattr(self.viewer, 'legendLabel') else None
+            
+            # If the legend exists and is visible, render it at a fixed position relative to the image
+            if legend_label and legend_label.isVisible() and legend_label.pixmap() is not None:
+                # Position the legend at the right side of the image with a small margin
+                legend_pixmap = legend_label.pixmap()
+                legend_x = image_width - legend_pixmap.width() - 20  # 20px margin from right
+                legend_y = 0  # 20px margin from top
+                
+                # Draw the legend at the calculated position
+                painter.drawPixmap(legend_x, legend_y, legend_pixmap)
+                
+                # Draw tick labels if they exist
+                for i, tick_label in enumerate(self.viewer.tickLabels):
+                    if tick_label and tick_label.isVisible():
+                        # Calculate position based on legend position and tick spacing
+                        tick_height = legend_pixmap.height() / len(self.viewer.tickLabels) if len(self.viewer.tickLabels) > 0 else 0
+                        tick_x = legend_x + legend_pixmap.width() + 5  # 5px margin from legend
+                        tick_y = legend_y + i * tick_height
+                        
+                        # Create a temporary pixmap from the tick label
+                        tick_pixmap = QPixmap(tick_label.size())
+                        tick_pixmap.fill(Qt.GlobalColor.transparent)
+                        tick_label.render(tick_pixmap)
+                        
+                        # Draw the tick label
+                        painter.drawPixmap(int(tick_x), int(tick_y), tick_pixmap)
+            
             painter.end()
 
             # Save dialog
-            file_path, _ = QFileDialog.getSaveFileName(
-                None, "Save Image", "", "PNG Image (*.png);;JPEG Image (*.jpg *.jpeg *.JPEG)"
-            )
+            if not folder:
+                file_path, _ = QFileDialog.getSaveFileName(
+                    None, "Save Image", "", "PNG Image (*.png);;JPEG Image (*.jpg *.jpeg *.JPEG)"
+                )
 
-            if file_path:
+                if file_path:
+                    # For JPEG format (which doesn't support transparency), use white background
+                    if file_path.lower().endswith(('.jpg', '.jpeg')):
+                        # Create a new image with white background
+                        bg_image = QImage(image.size(), QImage.Format.Format_ARGB32_Premultiplied)
+                        bg_image.fill(Qt.GlobalColor.white)
+                        
+                        # Paint the original image onto the white background
+                        bg_painter = QPainter(bg_image)
+                        bg_painter.drawImage(0, 0, image)
+                        bg_painter.end()
+                        
+                        # Save with white background
+                        bg_image.save(file_path, 'JPEG', 100)
+                    else:
+                        # For PNG, save with transparency
+                        image.save(file_path, 'PNG')
+            else:
+                file_path = os.path.join(folder, filename)
+                
+                # For batch processing, determine format based on filename
                 if file_path.lower().endswith(('.jpg', '.jpeg')):
-                    image.save(file_path, 'JPEG', 100)
+                    # Create a new image with white background
+                    bg_image = QImage(image.size(), QImage.Format.Format_ARGB32_Premultiplied)
+                    bg_image.fill(Qt.GlobalColor.white)
+                    
+                    # Paint the original image onto the white background
+                    bg_painter = QPainter(bg_image)
+                    bg_painter.drawImage(0, 0, image)
+                    bg_painter.end()
+                    
+                    # Save with white background
+                    bg_image.save(file_path, 'JPEG', 100)
                 else:
-                    image.save(file_path)
+                    # Default to PNG with transparency
+                    image.save(file_path, 'PNG')
+                    
+                return file_path
+                
 
         except Exception as e:
             error(f"Failed to save image: {str(e)}")
@@ -1499,8 +1686,8 @@ class DroneIrWindow(QMainWindow):
     def compose_pic(self):
         self.work_image.nb_custom_imgs += 1
         _, img_name = os.path.split(self.work_image.path)
+        
         dest_path_temp = self.dest_path_post[:-4] + img_name[:-4] + f'_custom{self.work_image.nb_custom_imgs}.PNG'
-        print(dest_path_temp)
         dialog = dia.ImageFusionDialog(self.work_image, self.dest_path_post, dest_path_temp)
         if dialog.exec():
             qm = QMessageBox
@@ -1770,6 +1957,22 @@ class DroneIrWindow(QMainWindow):
 
         # load custom views for the selected image
         self.update_combo_view()
+        
+        # Update report inclusion checkbox if it exists
+        if hasattr(self, 'checkBox_report'):
+            self.checkBox_report.blockSignals(True)
+            self.checkBox_report.setChecked(getattr(self.work_image, 'include_in_report', True))
+            self.checkBox_report.blockSignals(False)
+            
+        # Update remarks field if it exists
+        if hasattr(self, 'plainTextEdit_remarks'):
+            self.plainTextEdit_remarks.blockSignals(True)
+            self.plainTextEdit_remarks.setPlainText(getattr(self.work_image, 'remarks', ""))
+            self.plainTextEdit_remarks.blockSignals(False)
+            
+        # Update image info label if it exists
+        if hasattr(self, 'label_img_info'):
+            self.update_image_info_label()
 
         # clean measurements and annotations
         self.retrace_items()
@@ -1840,6 +2043,7 @@ class DroneIrWindow(QMainWindow):
                 # reset the dual viewer
                 self.dual_viewer.refresh()
             self.dual_viewer.load_images_from_path(self.work_image.rgb_path, dest_path_post)
+
         self.dest_path_post = dest_path_post
 
         # check if legend is needed
@@ -1848,6 +2052,8 @@ class DroneIrWindow(QMainWindow):
 
         # add histogram in label_summary
         self.work_image.update_temperature_histogram(self.hist_canvas)
+
+       
 
     def update_img_preview(self, refresh_dual=False):
         self.viewer.set_thermal_data([])
