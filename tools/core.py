@@ -13,6 +13,7 @@ from PIL import Image
 from PIL.ExifTags import TAGS, GPSTAGS
 from PyQt6.QtCore import QPointF, QRectF, Qt
 from PyQt6.QtWidgets import QGraphicsEllipseItem, QGraphicsTextItem
+from PyQt6.QtGui import QImage, QPainter, QPixmap
 import subprocess
 from tools import thermal_tools as tt
 
@@ -168,6 +169,14 @@ def get_coordinates(gps_info):
 
 
 # BASIC PROCESSING __________________________________
+def save_with_white_background(image, path):
+    bg_image = QImage(image.size(), QImage.Format.Format_ARGB32_Premultiplied)
+    bg_image.fill(Qt.GlobalColor.white)
+    painter = QPainter(bg_image)
+    painter.drawImage(0, 0, image)
+    painter.end()
+    bg_image.save(path, 'JPEG', 100)
+
 def read_dji_image(img_in, raw_out, param={'emissivity': 0.95, 'distance': 5, 'humidity': 50, 'reflection': 25}):
     dist = param['distance']
     rh = param['humidity']

@@ -1424,175 +1424,80 @@ class DroneIrWindow(QMainWindow):
             raise ThermogramError(f"Failed to update image list: {str(e)}") from e
 
     def save_image(self, folder='', filename='current_view.jpg'):
-        """Save the current thermal image with measurements and legend (PyQt6 compatible).
-        
-        Args:
-            folder: Optional folder path to save the image directly without dialog
-            filename: Optional filename when saving to a specific folder
-        """
+        """Save the current thermal image with measurements and legend (PyQt6 compatible)."""
         try:
-            from PyQt6.QtCore import QRectF, QPoint, QSize
-            import math
+            from PyQt6.QtCore import QRectF, QSize
+            from PyQt6.QtGui import QImage, QPainter
+            from PyQt6.QtWidgets import QFileDialog
+            from PyQt6.QtCore import Qt
+            import os
 
-            # Get the viewer's scene rect to determine the actual image content bounds
+            def save_with_white_background(image: QImage, path: str):
+                bg_image = QImage(image.size(), QImage.Format.Format_ARGB32_Premultiplied)
+                bg_image.fill(Qt.GlobalColor.white)
+                painter = QPainter(bg_image)
+                painter.drawImage(0, 0, image)
+                painter.end()
+                bg_image.save(path, 'JPEG', 100)
+
             scene_rect = self.viewer._scene.sceneRect()
-            
-            # Get the legend if it exists and is visible
-            legend_label = self.viewer.legendLabel if hasattr(self.viewer, 'legendLabel') else None
-            legend_width = 0
-            legend_height = 0
-            legend_pixmap = None
-            
-            if legend_label and legend_label.isVisible() and legend_label.pixmap() is not None:
-                original_legend_pixmap = legend_label.pixmap()
-                legend_width = original_legend_pixmap.width()
-                legend_height = original_legend_pixmap.height()
-            
-            # Calculate the actual image content size (not the full viewer size)
             content_width = int(scene_rect.width())
             content_height = int(scene_rect.height())
-            
-            # Create an image with enough space for the content plus legend (with 20px gap)
-            # The +20 ensures there's exactly a 20px gap between the image and legend
-            total_width = content_width + (legend_width + 20 if legend_width > 0 else 0)
-            total_height = max(content_height, legend_height)
-            
+
+            # Handle legend
+            legend_label = getattr(self.viewer, 'legendLabel', None)
+            legend_pixmap = None
+            legend_width = 0
+
+            if legend_label and legend_label.isVisible() and legend_label.pixmap() is not None:
+                original_pixmap = legend_label.pixmap()
+
+                # Scale legend to 2/3 of image height
+                target_height = int(content_height * (2 / 3))
+                scaled_pixmap = original_pixmap.scaledToHeight(
+                    target_height,
+                    Qt.TransformationMode.SmoothTransformation
+                )
+                legend_pixmap = scaled_pixmap
+                legend_width = scaled_pixmap.width()
+                legend_height = scaled_pixmap.height()
+
+            # Calculate total canvas size
+            margin = 20 if legend_pixmap else 0
+            total_width = content_width + legend_width + margin
+            total_height = content_height
+
             image = QImage(QSize(total_width, total_height), QImage.Format.Format_ARGB32_Premultiplied)
             image.fill(Qt.GlobalColor.transparent)
 
+            # Paint scene
             painter = QPainter(image)
             painter.setRenderHint(QPainter.RenderHint.Antialiasing)
             painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
             painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
 
-            # First render the viewer's scene (this includes the image and annotations)
             self.viewer._scene.render(painter, QRectF(0, 0, content_width, content_height), scene_rect)
-            
-            # If the legend exists and is visible, render it at a fixed position relative to the image
-            if legend_label and legend_label.isVisible() and legend_label.pixmap() is not None:
-                # Calculate appropriate legend size based on image dimensions
-                # For Picture-in-Picture or large images, scale the legend appropriately
-                
-                # Detect if this is likely a Picture-in-Picture view (very large image)
-                is_pip_view = content_width > 3000 or content_height > 3000
-                
-                # Initialize scale factor
-                scale_factor = 1.0
-                
-                # Calculate scaling based on image size
-                # Use a more aggressive scaling for very large images
-                if is_pip_view:
-                    # For Picture-in-Picture view, use a more substantial scaling
-                    # For extremely large images (8000×6000), this will create a much larger legend
-                    base_scale = max(content_width / 1000, content_height / 800)
-                    scale_factor = max(3.0, min(6.0, base_scale))
-                elif content_height > 600:
-                    # For moderately large images, use a gentler scaling
-                    image_height_ratio = content_height / 600
-                    scale_factor = min(2.5, math.sqrt(image_height_ratio) * 1.5)
-                
-                # Apply scaling if needed
-                if scale_factor > 1.1:  # Only scale if it's significantly larger than 1.0
-                    # Create a scaled version of the legend
-                    scaled_width = int(legend_width * scale_factor)
-                    scaled_height = int(legend_height * scale_factor)
-                    
-                    # Scale the legend pixmap
-                    scaled_legend_pixmap = original_legend_pixmap.scaled(
-                        scaled_width, scaled_height, 
-                        Qt.AspectRatioMode.KeepAspectRatio, 
-                        Qt.TransformationMode.SmoothTransformation
-                    )
-                else:
-                    # Use original size for normal images
-                    scaled_legend_pixmap = original_legend_pixmap
-                    scaled_width = legend_width
-                    scaled_height = legend_height
-                
-                # Position the legend at exactly 20px from the right edge of the content
-                legend_x = content_width + 20  # Exactly 20px margin from image
-                legend_y = 0  # Align with top of image
-                
-                # Draw the scaled legend at the calculated position
-                painter.drawPixmap(legend_x, legend_y, scaled_legend_pixmap)
-                
-                # Update the tick labels if they exist - scale them proportionally too
-                if hasattr(self.viewer, 'tickLabels') and self.viewer.tickLabels:
-                    for i, tick_label in enumerate(self.viewer.tickLabels):
-                        if tick_label and tick_label.isVisible():
-                            # Get the original text
-                            tick_text = tick_label.text()
-                            
-                            # Calculate position based on legend position and tick spacing
-                            tick_height = scaled_height / len(self.viewer.tickLabels) if len(self.viewer.tickLabels) > 0 else 0
-                            tick_x = legend_x + scaled_width + 5  # 5px margin from legend
-                            tick_y = legend_y + i * tick_height
-                            
-                            # Draw the tick text with scaled font size
-                            font = painter.font()
-                            original_font_size = font.pointSize() if font.pointSize() > 0 else 10
-                            font.setPointSize(int(original_font_size * scale_factor))
-                            painter.setFont(font)
-                            
-                            # Draw the text with a semi-transparent background
-                            text_rect = painter.fontMetrics().boundingRect(tick_text)
-                            bg_rect = QRectF(tick_x, tick_y, text_rect.width() + 6, text_rect.height() + 4)
-                            
-                            # Draw background
-                            painter.fillRect(bg_rect, QColor(255, 255, 255, 128))
-                            
-                            # Draw text
-                            painter.drawText(tick_x + 3, tick_y + text_rect.height(), tick_text)
-                
-                # Tick labels are now handled in the legend drawing code above
-            
+
+            if legend_pixmap:
+                painter.drawPixmap(content_width + margin, 0, legend_pixmap)
+
             painter.end()
 
-            # Save dialog
+            # Save
             if not folder:
                 file_path, _ = QFileDialog.getSaveFileName(
-                    None, "Save Image", "", "PNG Image (*.png);;JPEG Image (*.jpg *.jpeg *.JPEG)"
+                    None, "Save Image", "",
+                    "PNG Image (*.png);;JPEG Image (*.jpg *.jpeg *.JPEG)"
                 )
-
-                if file_path:
-                    # For JPEG format (which doesn't support transparency), use white background
-                    if file_path.lower().endswith(('.jpg', '.jpeg')):
-                        # Create a new image with white background
-                        bg_image = QImage(image.size(), QImage.Format.Format_ARGB32_Premultiplied)
-                        bg_image.fill(Qt.GlobalColor.white)
-                        
-                        # Paint the original image onto the white background
-                        bg_painter = QPainter(bg_image)
-                        bg_painter.drawImage(0, 0, image)
-                        bg_painter.end()
-                        
-                        # Save with white background
-                        bg_image.save(file_path, 'JPEG', 100)
-                    else:
-                        # For PNG, save with transparency
-                        image.save(file_path, 'PNG')
             else:
                 file_path = os.path.join(folder, filename)
-                
-                # For batch processing, determine format based on filename
+
+            if file_path:
                 if file_path.lower().endswith(('.jpg', '.jpeg')):
-                    # Create a new image with white background
-                    bg_image = QImage(image.size(), QImage.Format.Format_ARGB32_Premultiplied)
-                    bg_image.fill(Qt.GlobalColor.white)
-                    
-                    # Paint the original image onto the white background
-                    bg_painter = QPainter(bg_image)
-                    bg_painter.drawImage(0, 0, image)
-                    bg_painter.end()
-                    
-                    # Save with white background
-                    bg_image.save(file_path, 'JPEG', 100)
+                    save_with_white_background(image, file_path)
                 else:
-                    # Default to PNG with transparency
                     image.save(file_path, 'PNG')
-                    
                 return file_path
-                
 
         except Exception as e:
             error(f"Failed to save image: {str(e)}")
@@ -2102,8 +2007,6 @@ class DroneIrWindow(QMainWindow):
         if idx == 0:
             self.viewer.setupLegendLabel(self.work_image, legend_type='colorbar')
         elif idx == 1:
-            self.viewer.setupLegendLabel(self.work_image, legend_type='bar')
-        elif idx == 2:
             self.viewer.setupLegendLabel(self.work_image, legend_type='histo')
 
         # set left and right views (in dual viewer)
