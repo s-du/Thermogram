@@ -4,26 +4,23 @@ from typing import List, Dict, Optional
 import os
 
 # Get a writable directory
-log_dir = os.path.join(os.getenv("LOCALAPPDATA", os.path.expanduser("~")), "Thermogram")
+log_dir = os.path.join(os.getenv("LOCALAPPDATA", os.path.expanduser("~")), "IRLab")
 os.makedirs(log_dir, exist_ok=True)  # Ensure the directory exists
 
 class ThermalConfig(BaseModel):
     """Thermal processing configuration settings"""
     # Drone model paths
-    M2EA_RGB_XML: Path = Path('resources/calibration/m2ea_rgb.xml')
-    M2EA_IR_XML: Path = Path('resources/calibration/m2ea_ir.xml')
-    M2EA_SAMPLE_RGB: Path = Path('resources/samples/m2ea_rgb.jpg')
-    M2EA_SAMPLE_IR: Path = Path('resources/samples/m2ea_ir.jpg')
+    M2EA_RGB_XML: Path = Path('resources/other/rgb_cam_calib_m2t_opencv.xml')
+    M2EA_IR_XML: Path = Path('resources/other/cam_calib_m2t_opencv.xml')
 
-    M3T_RGB_XML: Path = Path('resources/calibration/m3t_rgb.xml')
-    M3T_IR_XML: Path = Path('resources/calibration/m3t_ir.xml')
-    M3T_SAMPLE_RGB: Path = Path('resources/samples/m3t_rgb.jpg')
-    M3T_SAMPLE_IR: Path = Path('resources/samples/m3t_ir.jpg')
+    M3T_RGB_XML: Path = Path('resources/other/rgb_cam_calib_m3t_opencv.xml')
+    M3T_IR_XML: Path = Path('resources/other/cam_calib_m3t_opencv.xml')
 
-    M30T_RGB_XML: Path = Path('resources/calibration/m30t_rgb.xml')
-    M30T_IR_XML: Path = Path('resources/calibration/m30t_ir.xml')
-    M30T_SAMPLE_RGB: Path = Path('resources/samples/m30t_rgb.jpg')
-    M30T_SAMPLE_IR: Path = Path('resources/samples/m30t_ir.jpg')
+    M30T_RGB_XML: Path = Path('resources/other/rgb_cam_calib_m30t_opencv.xml')
+    M30T_IR_XML: Path = Path('resources/other/cam_calib_m30t_opencv.xml')
+
+    M4T_RGB_XML: Path = Path('resources/other/rgb_cam_calib_m4t_opencv.xml')
+    M4T_IR_XML: Path = Path('resources/other/cam_calib_m4t_opencv.xml')
 
     # Default thermal parameters
     DEFAULT_EMISSIVITY: float = 0.95
@@ -43,7 +40,7 @@ class ThermalConfig(BaseModel):
 class AppConfig(BaseModel):
     """Application configuration settings"""
     APP_VERSION: str = '0.3.0'
-    APP_FOLDER: str = 'ThermogramApp_'
+    APP_FOLDER: str = 'IRLab_'
     ORIGIN_THERMAL_IMAGES_NAME: str = 'Original Thermal Images'
     RGB_ORIGINAL_NAME: str = 'Original RGB Images'
     RGB_CROPPED_NAME: str = 'Cropped RGB Images'
@@ -66,7 +63,7 @@ class AppConfig(BaseModel):
 
     # Logging configuration
     LOG_LEVEL: str = 'INFO'
-    LOG_FILE: Path = os.path.join(log_dir, "thermogram.log")
+    LOG_FILE: Path = os.path.join(log_dir, "IRLab.log")
 
 
 # Create global config instances

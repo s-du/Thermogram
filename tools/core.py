@@ -29,6 +29,9 @@ m3t_rgb_xml_path = res.find('other/rgb_cam_calib_m3t_opencv.xml')
 m30t_ir_xml_path = res.find('other/cam_calib_m30t_opencv.xml')
 m30t_rgb_xml_path = res.find('other/rgb_cam_calib_m30t_opencv.xml')
 
+m4t_ir_xml_path = res.find('other/cam_calib_m4t_opencv.xml')
+m4t_rgb_xml_path = res.find('other/rgb_cam_calib_m4t_opencv.xml')
+
 
 #  PATH FUNCTIONS __________________________________________________
 def cv_read_all_path(path):
@@ -254,6 +257,14 @@ class CameraUndistorter:
     def undis(self, cv_img):
         h, w = cv_img.shape[:2]
 
+        # Desired size
+        target_w, target_h = 640, 512
+
+        # If larger than target, resize to exactly 640x512
+        if w > target_w or h > target_h:
+            cv_img = cv2.resize(cv_img, (target_w, target_h), interpolation=cv2.INTER_AREA)
+            h, w = cv_img.shape[:2]
+
         # Compute new camera matrix only once if it hasn't been computed yet
         if self.newcam is None:
             self.newcam, self.roi = cv2.getOptimalNewCameraMatrix(self.K, self.d, (w, h), 1, (w, h))
@@ -326,6 +337,27 @@ class DroneModel:
             self.x_offset = 48
             self.y_offset = -6.9
             self.zoom = 1.53
+
+        elif name == 'M4T':
+            self.ir_xml_path = m4t_ir_xml_path
+            undistorder_ir = CameraUndistorter(self.ir_xml_path)
+            sample_ir_path = res.find('img/M4T_IR.JPG')
+            cv_ir = cv_read_all_path(sample_ir_path)
+
+            # add some control for upscaled IR images
+
+
+            _, self.dim_undis_ir = undistorder_ir.undis(cv_ir)
+            self.aspect_factor = (4000 / 3000) / (
+                    self.dim_undis_ir[0] / self.dim_undis_ir[1])
+            # read focal parameters
+            cv_file = cv2.FileStorage(m4t_ir_xml_path, cv2.FILE_STORAGE_READ)
+            self.K_ir = cv_file.getNode("Camera_Matrix").mat()
+            self.d_ir = cv_file.getNode("Distortion_Coefficients").mat()
+            self.extend = 0.3504
+            self.x_offset = 45
+            self.y_offset = 83
+            self.zoom = 1.12
 
 
 class ProcessedIm:

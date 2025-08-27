@@ -1,5 +1,5 @@
 """
-Thermogram - Thermal Image Processing Application
+IR-Lab - Thermal Image Processing Application
 
 A comprehensive application for processing and analyzing thermal images captured by DJI drones.
 Provides tools for visualization, measurement, and analysis of thermal data.
@@ -68,7 +68,7 @@ N_COLORS = thermal_config.N_COLORS
 
 # FUNCTIONS
 def get_next_available_folder(base_folder, app_folder_base_name=APP_FOLDER):
-    # Start with the initial folder name (i.e., 'ThermogramApp_1')
+    # Start with the initial folder name (i.e., 'IRLab_1')
     folder_number = 1
     while True:
         # Construct the folder name with the current number
@@ -102,7 +102,7 @@ class SplashScreen(QSplashScreen):
     def __init__(self) -> None:
         """Initialize the splash screen with the application splash image."""
         try:
-            splash_path = res.find('img/splash4.png')
+            splash_path = res.find('img/splash.png')
             if not os.path.exists(splash_path):
                 error("Splash image not found")
                 raise FileOperationError(f"Splash image not found at: {splash_path}")
@@ -124,7 +124,7 @@ class SplashScreen(QSplashScreen):
 
 
 class DroneIrWindow(QMainWindow):
-    """Main application window for the Thermogram application.
+    """Main application window for the IR Lab application.
 
     Handles the primary user interface and functionality for thermal image processing,
     including image loading, visualization, measurements, and analysis tools.
@@ -2236,7 +2236,7 @@ class DroneIrWindow(QMainWindow):
         """Show application information dialog."""
         try:
             info_text = f"""
-            Thermogram v{config.APP_VERSION}
+            IR-Lab v{config.APP_VERSION}
 
             A comprehensive thermal image processing application
             for DJI drone thermal imagery.
@@ -2250,7 +2250,7 @@ class DroneIrWindow(QMainWindow):
             Contact: sdu@bbri.be
             """
 
-            QMessageBox.information(self, "About Thermogram", info_text)
+            QMessageBox.information(self, "About IR-Lab", info_text)
 
         except Exception as e:
             error(f"Failed to show info dialog: {str(e)}")

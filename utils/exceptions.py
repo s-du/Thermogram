@@ -1,5 +1,5 @@
 class ThermogramError(Exception):
-    """Base exception class for Thermogram application"""
+    """Base exception class for IR-Lab application"""
     pass
 
 class ImageProcessingError(ThermogramError):

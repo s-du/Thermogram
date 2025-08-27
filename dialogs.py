@@ -97,7 +97,7 @@ class AboutDialog(QtWidgets.QDialog):
         self.layout = QtWidgets.QVBoxLayout()
 
         about_text = QtWidgets.QLabel(
-            'The Thermogram app was made to simplify the analysis of thermal images. Any question/remark: samuel.dubois@buildwise.be')
+            'The IR-Lab app was made to simplify the analysis of thermal images. Any question/remark: samuel.dubois@buildwise.be')
         about_text.setWordWrap(True)
 
         logos1 = QtWidgets.QLabel()
