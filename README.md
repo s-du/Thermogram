@@ -1,10 +1,10 @@
 <p align="center">
-    <a href=""><img src="resources/img/title.png" alt="Thermogram" border="0" style="width: 100%;"></a>
+    <a href=""><img src="resources/img/title_thermogram.png" alt="Thermogram" border="0" style="width: 100%;"></a>
 </p>
 
 
 ## Overview
-IR-Lab, or Infrared Laboratory, is an intuitive software designed for processing infrared (IR) images from drones. DJI Thermal Analysis tool on steroids! This application leverages the capabilities of multiple libraries, such as OpenCV and Pillow, and is compatible with DJI Drones. At the moment, the app includes support for Mavic 2 Enterprise, Mavic 3 series (M3T), Matrice 4 series (M4T), and Matrice 30 (M30T). The software features a user-friendly GUI, advanced visualization options, many processing options, and batch export possibilities. It includes some useful scripts such as converting DJI format to Tiff (useful for Agisoft or Pix4D processing).
+Thermogram, our Infrared Laboratory, is an intuitive software designed for processing infrared (IR) images from drones. DJI Thermal Analysis tool on steroids! This application leverages the capabilities of multiple libraries, such as OpenCV and Pillow, and is compatible with DJI Drones. At the moment, the app includes support for Mavic 2 Enterprise, Mavic 3 series (M3T), Matrice 4 series (M4T), and Matrice 30 (M30T). The software features a user-friendly GUI, advanced visualization options, many processing options, and batch export possibilities. It includes some useful scripts such as converting DJI format to Tiff (useful for Agisoft or Pix4D processing).
 
 **The project is still in pre-release, so do not hesitate to send your recommendations or the bugs you encountered!**
 
@@ -109,12 +109,12 @@ OR
 
 1. Clone the repository:
 ```
-git clone https://github.com/s-du/IR-Lab
+git clone https://github.com/s-du/Thermogram
 ```
 
 2. Navigate to the app directory:
 ```
-cd IR-Lab
+cd Thermogram
 ```
 3. (Optional) Install and activate a virtual environment
 
@@ -162,5 +162,5 @@ Contributions to the Thermogram App are welcome! If you find any bugs, have sugg
 
 
 <p align="center">
-    <a href=""><img src="resources/img/splash.png" alt="Thermogram" border="0" style="width: 100%;"></a>
+    <a href=""><img src="resources/img/splash_thermogram.png" alt="Thermogram" border="0" style="width: 100%;"></a>
 </p>
