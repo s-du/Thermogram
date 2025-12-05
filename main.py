@@ -1,5 +1,5 @@
 """
-IR-Lab - Thermal Image Processing Application
+Thermogram - Thermal Image Processing Application
 
 A comprehensive application for processing and analyzing thermal images captured by DJI drones.
 Provides tools for visualization, measurement, and analysis of thermal data.
@@ -102,7 +102,7 @@ class SplashScreen(QSplashScreen):
     def __init__(self) -> None:
         """Initialize the splash screen with the application splash image."""
         try:
-            splash_path = res.find('img/splash.png')
+            splash_path = res.find('img/splash_thermogram.png')
             if not os.path.exists(splash_path):
                 error("Splash image not found")
                 raise FileOperationError(f"Splash image not found at: {splash_path}")

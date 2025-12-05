@@ -17,7 +17,7 @@
    </sizepolicy>
   </property>
   <property name="windowTitle">
-   <string>IR-Lab</string>
+   <string>Thermogram (IR Lab)</string>
   </property>
   <property name="styleSheet">
    <string notr="true"/>

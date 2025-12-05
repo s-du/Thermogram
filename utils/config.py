@@ -4,7 +4,7 @@ from typing import List, Dict, Optional
 import os
 
 # Get a writable directory
-log_dir = os.path.join(os.getenv("LOCALAPPDATA", os.path.expanduser("~")), "IRLab")
+log_dir = os.path.join(os.getenv("LOCALAPPDATA", os.path.expanduser("~")), "Thermogram")
 os.makedirs(log_dir, exist_ok=True)  # Ensure the directory exists
 
 class ThermalConfig(BaseModel):
@@ -39,8 +39,8 @@ class ThermalConfig(BaseModel):
 
 class AppConfig(BaseModel):
     """Application configuration settings"""
-    APP_VERSION: str = '0.3.0'
-    APP_FOLDER: str = 'IRLab_'
+    APP_VERSION: str = '0.3.1'
+    APP_FOLDER: str = 'Thermogram_'
     ORIGIN_THERMAL_IMAGES_NAME: str = 'Original Thermal Images'
     RGB_ORIGINAL_NAME: str = 'Original RGB Images'
     RGB_CROPPED_NAME: str = 'Cropped RGB Images'
@@ -63,7 +63,7 @@ class AppConfig(BaseModel):
 
     # Logging configuration
     LOG_LEVEL: str = 'INFO'
-    LOG_FILE: Path = os.path.join(log_dir, "IRLab.log")
+    LOG_FILE: Path = os.path.join(log_dir, "thermogram.log")
 
 
 # Create global config instances
