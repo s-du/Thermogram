@@ -2,6 +2,12 @@
     <a href=""><img src="resources/img/title_thermogram.png" alt="Thermogram" border="0" style="width: 100%;"></a>
 </p>
 
+<!-- Tech badges -->
+![Latest Tag](https://img.shields.io/github/v/tag/s-du/Thermogram?label=version)
+![Python](https://img.shields.io/badge/Python-3.12-blue?logo=python)
+![Platform](https://img.shields.io/badge/Platform-DJI%20Thermal%20IR-orange)
+![Stars](https://img.shields.io/github/stars/s-du/Thermogram)
+
 
 ## Overview
 Thermogram, our Infrared Laboratory, is an intuitive software designed for processing infrared (IR) images from drones. DJI Thermal Analysis tool on steroids! This application leverages the capabilities of multiple libraries, such as OpenCV and Pillow, and is compatible with DJI Drones. At the moment, the app includes support for Mavic 2 Enterprise, Mavic 3 series (M3T), Matrice 4 series (M4T), and Matrice 30 (M30T). The software features a user-friendly GUI, advanced visualization options, many processing options, and batch export possibilities. It includes some useful scripts such as converting DJI format to Tiff (useful for Agisoft or Pix4D processing).
