@@ -32,6 +32,9 @@ m30t_rgb_xml_path = res.find('other/rgb_cam_calib_m30t_opencv.xml')
 m4t_ir_xml_path = res.find('other/cam_calib_m4t_opencv.xml')
 m4t_rgb_xml_path = res.find('other/rgb_cam_calib_m4t_opencv.xml')
 
+h30t_ir_xml_path = res.find('other/cam_calib_h30t_opencv.xml')
+h30t_rgb_xml_path = res.find('other/rgb_cam_calib_h30t_opencv.xml')
+
 
 #  PATH FUNCTIONS __________________________________________________
 def cv_read_all_path(path):
@@ -216,35 +219,75 @@ def read_dji_image(img_in, raw_out, param={'emissivity': 0.95, 'distance': 5, 'h
 
 
 def extract_raw_data(param, ir_img_path, undistorder_ir):
+    def infer_dimensions_from_raw_file(raw_path: Path) -> tuple[int, int]:
+        size_bytes = os.path.getsize(raw_path)
+        if size_bytes % 4 != 0:
+            raise ValueError(f"Unexpected RAW byte size (not float32-aligned): {size_bytes} bytes")
+
+        n_pixels = size_bytes // 4
+
+        known = [
+            (512, 640),
+            (1024, 1280),
+        ]
+        for r, c in known:
+            if r * c == n_pixels:
+                return r, c
+
+        root = int(np.sqrt(n_pixels))
+        candidates = []
+        for r in range(max(1, root), 0, -1):
+            if n_pixels % r != 0:
+                continue
+            c = n_pixels // r
+            candidates.append((r, c))
+
+        if not candidates:
+            raise ValueError(f"Could not infer RAW dimensions from pixel count: {n_pixels}")
+
+        def score(pair: tuple[int, int]) -> float:
+            r, c = pair
+            if r <= 0 or c <= 0:
+                return float('inf')
+            aspect = c / r
+            aspect_penalty = abs(aspect - 1.25)
+            mult_penalty = ((r % 16) != 0) + ((c % 16) != 0)
+            orientation_penalty = 1 if c < r else 0
+            return aspect_penalty * 10 + mult_penalty + orientation_penalty
+
+        best_r, best_c = min(candidates, key=score)
+        return int(best_r), int(best_c)
+
     # Step 1: Create raw file
     _, filename = os.path.split(str(ir_img_path))
     new_raw_path = Path(str(ir_img_path)[:-4] + '.raw')
     _ = read_dji_image(str(ir_img_path), str(new_raw_path), param=param)
 
-    # Step 2: Read raw DJI output
-    fd = open(new_raw_path, 'rb')
-    rows = 512
-    cols = 640
-    f = np.fromfile(fd, dtype='<f4', count=rows * cols)
-    im = f.reshape((rows, cols))  # notice row, column format
-    # create_vector_plot(im)
-    fd.close()
+    try:
+        rows, cols = infer_dimensions_from_raw_file(new_raw_path)
 
-    # Step 3: Create an undistorted version of the temperature map
-    undis_im, _ = undistorder_ir.undis(im)
+        with open(new_raw_path, 'rb') as fd:
+            f = np.fromfile(fd, dtype='<f4', count=rows * cols)
+        if f.size != rows * cols:
+            raise ValueError(
+                f"RAW read truncated for {filename}: expected {rows * cols} float32 values, got {f.size}"
+            )
+        im = f.reshape((rows, cols))
 
-    # Step 4: Remove raw file
-    os.remove(new_raw_path)
-
-    return im, undis_im
+        undis_im, _ = undistorder_ir.undis(im)
+        return im, undis_im
+    finally:
+        try:
+            os.remove(new_raw_path)
+        except OSError:
+            pass
 
 
 # CORE CLASSES _____________________________________
 class CameraUndistorter:
     def __init__(self, xml_path):
         self.K, self.d = self.read_matrices(xml_path)
-        self.newcam = None
-        self.roi = None
+        self._cache = {}
 
     def read_matrices(self, xml_path):
         cv_file = cv2.FileStorage(xml_path, cv2.FILE_STORAGE_READ)
@@ -257,24 +300,18 @@ class CameraUndistorter:
     def undis(self, cv_img):
         h, w = cv_img.shape[:2]
 
-        # Desired size
-        target_w, target_h = 640, 512
-
-        # If larger than target, resize to exactly 640x512
-        if w > target_w or h > target_h:
-            cv_img = cv2.resize(cv_img, (target_w, target_h), interpolation=cv2.INTER_AREA)
-            h, w = cv_img.shape[:2]
-
-        # Compute new camera matrix only once if it hasn't been computed yet
-        if self.newcam is None:
-            self.newcam, self.roi = cv2.getOptimalNewCameraMatrix(self.K, self.d, (w, h), 1, (w, h))
+        cache_key = (w, h)
+        if cache_key not in self._cache:
+            newcam, roi = cv2.getOptimalNewCameraMatrix(self.K, self.d, (w, h), 1, (w, h))
+            self._cache[cache_key] = (newcam, roi)
+        newcam, roi = self._cache[cache_key]
 
         # Undistort image
-        dest = cv2.undistort(cv_img, self.K, self.d, None, self.newcam)
+        dest = cv2.undistort(cv_img, self.K, self.d, None, newcam)
 
         # Crop the image based on the region of interest (ROI)
-        x, y, w, h = self.roi
-        dest = dest[y:y + h, x:x + w]
+        x, y, w_roi, h_roi = roi
+        dest = dest[y:y + h_roi, x:x + w_roi]
 
         # Get dimensions
         height, width = dest.shape[:2]
@@ -342,6 +379,27 @@ class DroneModel:
             self.ir_xml_path = m4t_ir_xml_path
             undistorder_ir = CameraUndistorter(self.ir_xml_path)
             sample_ir_path = res.find('img/M4T_IR.JPG')
+            cv_ir = cv_read_all_path(sample_ir_path)
+
+            # add some control for upscaled IR images
+
+
+            _, self.dim_undis_ir = undistorder_ir.undis(cv_ir)
+            self.aspect_factor = (4000 / 3000) / (
+                    self.dim_undis_ir[0] / self.dim_undis_ir[1])
+            # read focal parameters
+            cv_file = cv2.FileStorage(m4t_ir_xml_path, cv2.FILE_STORAGE_READ)
+            self.K_ir = cv_file.getNode("Camera_Matrix").mat()
+            self.d_ir = cv_file.getNode("Distortion_Coefficients").mat()
+            self.extend = 0.3504
+            self.x_offset = 45
+            self.y_offset = 83
+            self.zoom = 1.12
+
+        elif name == 'H30T':
+            self.ir_xml_path = h30t_ir_xml_path
+            undistorder_ir = CameraUndistorter(self.ir_xml_path)
+            sample_ir_path = res.find('img/H30T_IR.JPG')
             cv_ir = cv_read_all_path(sample_ir_path)
 
             # add some control for upscaled IR images

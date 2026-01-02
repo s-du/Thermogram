@@ -733,26 +733,81 @@ class AlignmentDialog(QDialog):
         # Sliders and Labels for parameters
         self.sliders = []
         self.labels = []
-        param_names = ["zoom", "y-offset", "x-offset"]
-        param_ranges = [(0.5, 2), (-100, 100), (-100, 100)]
+        self._sync_guard = False
+        self._param_specs = [
+            {"name": "zoom", "min": 0.5, "max": 2.0, "scale": 500, "decimals": 3},
+            {"name": "y-offset", "min": -100.0, "max": 100.0, "scale": 10, "decimals": 1},
+            {"name": "x-offset", "min": -100.0, "max": 100.0, "scale": 10, "decimals": 1},
+        ]
+        self._min_edits = []
+        self._value_edits = []
+        self._max_edits = []
 
-        for i, (param_name, param_range) in enumerate(zip(param_names, param_ranges)):
-            label = QLabel(f"{param_name}: {self.theta[i]}")
-            layout.addWidget(label)
+        def make_float_edit(decimals: int):
+            le = QLineEdit()
+            le.setFixedWidth(90)
+            validator = QtGui.QDoubleValidator()
+            validator.setDecimals(decimals)
+            validator.setNotation(QtGui.QDoubleValidator.Notation.StandardNotation)
+            le.setValidator(validator)
+            return le
+
+        for i, spec in enumerate(self._param_specs):
+            label = QLabel(f"{spec['name']}: {self.theta[i]}")
             self.labels.append(label)
 
             slider = QSlider(Qt.Orientation.Horizontal)
-            if i != 0:
-                slider.setMinimum(int(param_range[0] * 10))
-                slider.setMaximum(int(param_range[1] * 10))
-                slider.setValue(int(self.theta[i] * 10))
-            else:
-                slider.setMinimum(int(param_range[0] * 500))
-                slider.setMaximum(int(param_range[1] * 500))
-                slider.setValue(int(self.theta[i] * 500))
-            slider.valueChanged.connect(lambda value, x=i: self.update_parameter(x, value))
+            slider.setMinimum(int(round(spec["min"] * spec["scale"])))
+            slider.setMaximum(int(round(spec["max"] * spec["scale"])))
+            slider.setValue(int(round(self.theta[i] * spec["scale"])))
+            slider.valueChanged.connect(lambda value, x=i: self._on_slider_changed(x, value))
             self.sliders.append(slider)
-            layout.addWidget(slider)
+
+            min_edit = make_float_edit(spec["decimals"])
+            value_edit = make_float_edit(spec["decimals"])
+            max_edit = make_float_edit(spec["decimals"])
+
+            min_edit.editingFinished.connect(lambda x=i: self._on_limit_edit_finished(x))
+            max_edit.editingFinished.connect(lambda x=i: self._on_limit_edit_finished(x))
+            value_edit.editingFinished.connect(lambda x=i: self._on_value_edit_finished(x))
+
+            self._min_edits.append(min_edit)
+            self._value_edits.append(value_edit)
+            self._max_edits.append(max_edit)
+
+            row = QGridLayout()
+            row.setColumnStretch(1, 1)
+            row.addWidget(label, 0, 0)
+            row.addWidget(slider, 0, 1, 1, 5)
+            row.addWidget(QLabel("Min"), 1, 0)
+            row.addWidget(min_edit, 1, 1)
+            row.addWidget(QLabel("Value"), 1, 2)
+            row.addWidget(value_edit, 1, 3)
+            row.addWidget(QLabel("Max"), 1, 4)
+            row.addWidget(max_edit, 1, 5)
+            layout.addLayout(row)
+
+            self._sync_param_widgets(i, update_slider=True)
+
+        controls_layout = QHBoxLayout()
+        self.preview_mode = QComboBox()
+        self.preview_mode.addItems([
+            "Lines",
+            "Blend (Screen)",
+            "Both lines",
+        ])
+        self.preview_mode.setCurrentText("Blend (Screen)")
+        self.preview_mode.currentIndexChanged.connect(lambda _=None: self.update_preview())
+        self.live_checkbox = QCheckBox("Live processing")
+        self.live_checkbox.setChecked(False)
+        self.align_button = QPushButton("Align")
+        self.align_button.clicked.connect(self.process_images)
+        controls_layout.addWidget(QLabel("Preview"))
+        controls_layout.addWidget(self.preview_mode)
+        controls_layout.addWidget(self.live_checkbox)
+        controls_layout.addStretch(1)
+        controls_layout.addWidget(self.align_button)
+        layout.addLayout(controls_layout)
 
         # Optimize button
         self.optimize_button = QPushButton('Optimize')
@@ -774,14 +829,90 @@ class AlignmentDialog(QDialog):
         # Load and process initial images
         self.process_images()
 
-    def update_parameter(self, index, value):
-        if index != 0:
-            self.theta[index] = value / 10
-            self.labels[index].setText(f"{self.labels[index].text().split(':')[0]}: {value / 10}")
-        else:
-            self.theta[index] = value / 500
-            self.labels[index].setText(f"{self.labels[index].text().split(':')[0]}: {value / 500}")
-        self.process_images()
+    def _float_to_slider(self, index, value):
+        spec = self._param_specs[index]
+        return int(round(float(value) * spec["scale"]))
+
+    def _slider_to_float(self, index, value):
+        spec = self._param_specs[index]
+        return float(value) / spec["scale"]
+
+    def _sync_param_widgets(self, index, update_slider=False):
+        if self._sync_guard:
+            return
+        self._sync_guard = True
+        try:
+            spec = self._param_specs[index]
+            v = float(self.theta[index])
+            self.labels[index].setText(f"{spec['name']}: {v}")
+
+            with QtCore.QSignalBlocker(self._min_edits[index]):
+                self._min_edits[index].setText(f"{self._slider_to_float(index, self.sliders[index].minimum()):.{spec['decimals']}f}")
+            with QtCore.QSignalBlocker(self._max_edits[index]):
+                self._max_edits[index].setText(f"{self._slider_to_float(index, self.sliders[index].maximum()):.{spec['decimals']}f}")
+            with QtCore.QSignalBlocker(self._value_edits[index]):
+                self._value_edits[index].setText(f"{v:.{spec['decimals']}f}")
+
+            if update_slider:
+                with QtCore.QSignalBlocker(self.sliders[index]):
+                    self.sliders[index].setValue(self._float_to_slider(index, v))
+        finally:
+            self._sync_guard = False
+
+    def _on_slider_changed(self, index, value):
+        self.theta[index] = self._slider_to_float(index, value)
+        self._sync_param_widgets(index, update_slider=False)
+        if self.live_checkbox.isChecked():
+            self.process_images()
+
+    def _on_limit_edit_finished(self, index):
+        if self._sync_guard:
+            return
+        spec = self._param_specs[index]
+        min_text = self._min_edits[index].text().strip()
+        max_text = self._max_edits[index].text().strip()
+        try:
+            min_v = float(min_text)
+            max_v = float(max_text)
+        except ValueError:
+            self._sync_param_widgets(index, update_slider=False)
+            return
+        if min_v >= max_v:
+            self._sync_param_widgets(index, update_slider=False)
+            return
+
+        min_i = self._float_to_slider(index, min_v)
+        max_i = self._float_to_slider(index, max_v)
+
+        with QtCore.QSignalBlocker(self.sliders[index]):
+            self.sliders[index].setMinimum(min_i)
+            self.sliders[index].setMaximum(max_i)
+
+            cur_i = self._float_to_slider(index, self.theta[index])
+            cur_i = max(min_i, min(max_i, cur_i))
+            self.sliders[index].setValue(cur_i)
+            self.theta[index] = self._slider_to_float(index, cur_i)
+
+        self._sync_param_widgets(index, update_slider=False)
+
+    def _on_value_edit_finished(self, index):
+        if self._sync_guard:
+            return
+        txt = self._value_edits[index].text().strip()
+        try:
+            v = float(txt)
+        except ValueError:
+            self._sync_param_widgets(index, update_slider=False)
+            return
+
+        min_v = self._slider_to_float(index, self.sliders[index].minimum())
+        max_v = self._slider_to_float(index, self.sliders[index].maximum())
+        v = max(min_v, min(max_v, v))
+
+        self.theta[index] = v
+        self._sync_param_widgets(index, update_slider=True)
+        if self.live_checkbox.isChecked():
+            self.process_images()
 
     def optimize(self):
         # Placeholder for optimize function
@@ -804,30 +935,95 @@ class AlignmentDialog(QDialog):
         # This should call your actual image processing code
         tt.process_th_image_with_zoom(self.img_object, self.temp_folder, self.theta)
 
-        # Read the original RGB image
-        rgb_image = cv2.imread(os.path.join(self.temp_folder, 'rescale.JPG'))
+        self.update_preview()
 
-        # Convert RGB image to grayscale for background
-        grayscale_rgb_image = cv2.cvtColor(rgb_image, cv2.COLOR_BGR2GRAY)
+    def update_preview(self):
+        """Update the display using existing temp folder artifacts (no heavy processing)."""
+        rgb_path = os.path.join(self.temp_folder, 'rescale.JPG')
+        ir_path = os.path.join(self.temp_folder, 'IR.JPG')
+        lines_rgb_path = os.path.join(self.temp_folder, 'rgb_lines.JPG')
+        lines_ir_path = os.path.join(self.temp_folder, 'ir_lines.JPG')
 
-        # Read or process the IR lines image
-        # Assuming 'lines_ir' is a binary image with lines as white (255) and background as black (0)
-        # For demonstration, replace this with an actual call to your image processing function
-        lines_ir = cv2.imread(os.path.join(self.temp_folder, 'ir_lines.JPG'), cv2.IMREAD_GRAYSCALE)  # Placeholder
+        if not os.path.exists(rgb_path):
+            return
 
-        # Convert the grayscale image to a 3-channel image to overlay colors
-        grayscale_rgb_image_colored = cv2.cvtColor(grayscale_rgb_image, cv2.COLOR_GRAY2BGR)
+        mode = self.preview_mode.currentText() if hasattr(self, "preview_mode") else "Lines"
 
-        # Overlay IR lines: Set them to blue (or any color you choose) on the grayscale image
-        grayscale_rgb_image_colored[lines_ir >= 100] = [255, 0, 0]  # Blue: [B, G, R] - Change this color if needed
+        if mode in ["Lines", "Both lines"]:
+            rgb_image = cv2.imread(rgb_path)
+            if rgb_image is None:
+                return
+            grayscale_rgb_image = cv2.cvtColor(rgb_image, cv2.COLOR_BGR2GRAY)
 
-        # Convert the overlay image to QImage for display
-        qimage = self.convert_np_img_to_qimage(grayscale_rgb_image_colored)
+            lines_ir = cv2.imread(lines_ir_path, cv2.IMREAD_GRAYSCALE) if os.path.exists(lines_ir_path) else None
+            if lines_ir is None:
+                lines_ir = np.zeros_like(grayscale_rgb_image)
 
-        # Update QGraphicsScene
+            if mode == "Both lines":
+                lines_rgb = cv2.imread(lines_rgb_path, cv2.IMREAD_GRAYSCALE) if os.path.exists(lines_rgb_path) else None
+                if lines_rgb is None:
+                    lines_rgb = np.zeros_like(grayscale_rgb_image)
+
+            grayscale_rgb_image_colored = np.dstack([
+                np.zeros_like(grayscale_rgb_image),
+                grayscale_rgb_image,
+                grayscale_rgb_image,
+            ])
+
+            if mode == "Both lines":
+                grayscale_rgb_image_colored[lines_rgb >= 100] = [0, 255, 255]
+
+            grayscale_rgb_image_colored[lines_ir >= 100] = [255, 0, 0]
+
+            qimage = self.convert_np_img_to_qimage(grayscale_rgb_image_colored)
+            self.scene.clear()
+            self.scene.addItem(QGraphicsPixmapItem(QPixmap.fromImage(qimage)))
+            return
+
+        base_gray = QImage(rgb_path)
+        if base_gray.isNull():
+            return
+        base_gray = base_gray.convertToFormat(QImage.Format.Format_Grayscale8)
+        base_gray = base_gray.convertToFormat(QImage.Format.Format_ARGB32)
+
+        base = QImage(base_gray.size(), QImage.Format.Format_ARGB32)
+        base.fill(QColor(0, 255, 255))
+        painter_base = QPainter(base)
+        painter_base.setCompositionMode(QPainter.CompositionMode.CompositionMode_Multiply)
+        painter_base.drawImage(0, 0, base_gray)
+        painter_base.end()
+
+        overlay = QImage(ir_path) if os.path.exists(ir_path) else QImage()
+        if overlay.isNull():
+            self.scene.clear()
+            self.scene.addItem(QGraphicsPixmapItem(QPixmap.fromImage(base)))
+            return
+        overlay = overlay.convertToFormat(QImage.Format.Format_Grayscale8)
+        overlay = overlay.convertToFormat(QImage.Format.Format_ARGB32)
+
+        if overlay.size() != base.size():
+            overlay = overlay.scaled(base.size(), Qt.AspectRatioMode.IgnoreAspectRatio,
+                                     Qt.TransformationMode.SmoothTransformation)
+
+        overlay_tinted = QImage(base.size(), QImage.Format.Format_ARGB32)
+        overlay_tinted.fill(QColor(255, 0, 0))
+        painter_overlay = QPainter(overlay_tinted)
+        painter_overlay.setCompositionMode(QPainter.CompositionMode.CompositionMode_Multiply)
+        painter_overlay.drawImage(0, 0, overlay)
+        painter_overlay.end()
+
+        composed = QImage(base)
+        painter = QPainter(composed)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+
+        painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Screen)
+        painter.setOpacity(0.65)
+
+        painter.drawImage(0, 0, overlay_tinted)
+        painter.end()
+
         self.scene.clear()
-        pixmap_item = QGraphicsPixmapItem(QPixmap.fromImage(qimage))
-        self.scene.addItem(pixmap_item)
+        self.scene.addItem(QGraphicsPixmapItem(QPixmap.fromImage(composed)))
 
 
 class DialogBatchExport(QtWidgets.QDialog):

@@ -1,0 +1,55 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# Packaging / build
+build/
+dist/
+*.egg-info/
+*.spec
+
+# Test / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# IDEs
+.vscode/
+.idea/
+
+# OS files
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Logs
+*.log
+
+# App / generated outputs (common for this repo)
+# (keep your templates/resources in version control; ignore generated exports)
+*.raw
+*.tmp
+
+# Common generated artifacts in this repo
+*.docx
+my_report*.docx
+thermogram.log
+
+# Common export folders (if created by app)
+export/
+exports/
+out/
+output/
+
+# Tests
+tests/

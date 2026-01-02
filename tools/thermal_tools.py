@@ -691,9 +691,14 @@ def compute_delta(img_path, thermal_param):
 
 
 def process_raw_data(img_object, dest_path, edges=False, edge_params=[], radio_param=None, undis=True,
-                     custom_params=None, export_tif=False, zoom=1, change_shown=True):
+                     custom_params=None, custom_data=None, export_tif=False, zoom=1, change_shown=True):
     if custom_params is None:
         custom_params = {}
+    if custom_data is not None:
+        if custom_params:
+            custom_params = {**custom_params, **custom_data}
+        else:
+            custom_params = dict(custom_data)
 
     if radio_param:
         img_object.update_data_from_param(radio_param, reset_shown_values=change_shown)
@@ -710,22 +715,33 @@ def process_raw_data(img_object, dest_path, edges=False, edge_params=[], radio_p
         im = img_object.raw_data
     exif = img_object.exif
 
+    defaults = {
+        "tmin": img_object.tmin_shown,
+        "tmax": img_object.tmax_shown,
+        "colormap": img_object.colormap,
+        "n_colors": img_object.n_colors,
+        "col_high": img_object.user_lim_col_high,
+        "col_low": img_object.user_lim_col_low,
+        "post_process": img_object.post_process,
+    }
+
     if custom_params:
-        tmin = custom_params["tmin"]
-        tmax = custom_params["tmax"]
-        colormap = custom_params["colormap"]
-        n_colors = custom_params["n_colors"]
-        col_high = custom_params["col_high"]
-        col_low = custom_params["col_low"]
-        post_process = custom_params["post_process"]
+        merged = {**defaults, **custom_params}
+        tmin = merged["tmin"]
+        tmax = merged["tmax"]
+        colormap = merged["colormap"]
+        n_colors = merged["n_colors"]
+        col_high = merged["col_high"]
+        col_low = merged["col_low"]
+        post_process = merged["post_process"]
     else:
-        tmin = img_object.tmin_shown
-        tmax = img_object.tmax_shown
-        colormap = img_object.colormap
-        n_colors = img_object.n_colors
-        col_high = img_object.user_lim_col_high
-        col_low = img_object.user_lim_col_low
-        post_process = img_object.post_process
+        tmin = defaults["tmin"]
+        tmax = defaults["tmax"]
+        colormap = defaults["colormap"]
+        n_colors = defaults["n_colors"]
+        col_high = defaults["col_high"]
+        col_low = defaults["col_low"]
+        post_process = defaults["post_process"]
 
     # compute new normalized temperature
     thermal_normalized = (im - tmin) / (tmax - tmin)
@@ -950,7 +966,17 @@ def process_th_image_with_zoom(img_obj, out_folder, theta, replace_rgb_with_th=F
     # read images
     cv_rgb = cv_read_all_path(img_obj.rgb_path_original)  # read rgb image
     h_rgb, w_rgb = cv_rgb.shape[:2]
-    process_raw_data(img_obj, os.path.join(out_folder, 'IR.JPG'), edges=False)  # read infrared image (undistorded)
+    temp_flat = img_obj.raw_data.flatten()
+    # compute optimal temp values
+    tmin_opt = np.percentile(temp_flat, 2.5)
+    tmax_opt = np.percentile(temp_flat, 97.5)
+    custom_data = {
+        'tmin': tmin_opt,
+        'tmax': tmax_opt,
+        'colormap': 'Greys_r'
+    }
+    # process raw data with custom temperature range and custom color map
+    process_raw_data(img_obj, os.path.join(out_folder, 'IR.JPG'), edges=False, custom_data=custom_data)  # read infrared image (undistorded)
     cv_ir = cv_read_all_path(os.path.join(out_folder, 'IR.JPG'))
 
     h_ir, w_ir = cv_ir.shape[:2]  # get resulting dimension of thermal image

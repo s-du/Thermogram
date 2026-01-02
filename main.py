@@ -7,9 +7,9 @@ Provides tools for visualization, measurement, and analysis of thermal data.
 Author: sdu@bbri.be
 
 TODO:
+- Allow the user to define a custom folder - OK
 - Allow to import only thermal pictures - OK
 - Implement 'context' dialog --> Drone info + location
-- Allow the user to define a custom folder - OK
 - Implement save/load project folder
 
 """
