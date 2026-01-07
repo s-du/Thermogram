@@ -724,9 +724,13 @@ class AlignmentDialog(QDialog):
         # Main layout
         layout = QVBoxLayout(self)
 
+        top_layout = QHBoxLayout()
+        layout.addLayout(top_layout)
+
         # Graphics view
         self.graphics_view = QGraphicsView()
-        layout.addWidget(self.graphics_view)
+        self.graphics_view.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        top_layout.addWidget(self.graphics_view, 1)
         self.scene = QGraphicsScene()
         self.graphics_view.setScene(self.scene)
 
@@ -746,9 +750,9 @@ class AlignmentDialog(QDialog):
         def make_float_edit(decimals: int):
             le = QLineEdit()
             le.setFixedWidth(90)
-            validator = QtGui.QDoubleValidator()
-            validator.setDecimals(decimals)
+            validator = QtGui.QDoubleValidator(-1e9, 1e9, decimals)
             validator.setNotation(QtGui.QDoubleValidator.Notation.StandardNotation)
+            validator.setLocale(QtCore.QLocale.c())
             le.setValidator(validator)
             return le
 
@@ -789,21 +793,64 @@ class AlignmentDialog(QDialog):
 
             self._sync_param_widgets(i, update_slider=True)
 
+        layers_group = QGroupBox("Layers")
+        layers_layout = QVBoxLayout(layers_group)
+        layers_group.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
+        layers_group.setMinimumWidth(260)
+        layers_group.setMaximumWidth(340)
+        self.layers_table = QTableWidget(2, 3)
+        self.layers_table.setHorizontalHeaderLabels(["Visible", "Layer", "Style"])
+        self.layers_table.verticalHeader().setVisible(False)
+        self.layers_table.horizontalHeader().setStretchLastSection(True)
+        self.layers_table.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        self.layers_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.layers_table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+
+        self._layer_rows = {
+            "RGB": 0,
+            "Thermal": 1,
+        }
+
+        def _make_visible_checkbox(checked: bool):
+            cb = QCheckBox()
+            cb.setChecked(checked)
+            cb.stateChanged.connect(lambda _=None: self.update_preview())
+            w = QWidget()
+            l = QHBoxLayout(w)
+            l.setContentsMargins(0, 0, 0, 0)
+            l.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            l.addWidget(cb)
+            return w, cb
+
+        def _make_style_combo(default_text: str):
+            combo = QComboBox()
+            combo.addItems(["Lines", "Black & white", "Tint"])
+            combo.setCurrentText(default_text)
+            combo.currentIndexChanged.connect(lambda _=None: self.update_preview())
+            return combo
+
+        rgb_vis_w, self.rgb_visible_cb = _make_visible_checkbox(True)
+        th_vis_w, self.th_visible_cb = _make_visible_checkbox(True)
+
+        self.layers_table.setCellWidget(self._layer_rows["RGB"], 0, rgb_vis_w)
+        self.layers_table.setItem(self._layer_rows["RGB"], 1, QTableWidgetItem("RGB"))
+        self.rgb_style_combo = _make_style_combo("Tint")
+        self.layers_table.setCellWidget(self._layer_rows["RGB"], 2, self.rgb_style_combo)
+
+        self.layers_table.setCellWidget(self._layer_rows["Thermal"], 0, th_vis_w)
+        self.layers_table.setItem(self._layer_rows["Thermal"], 1, QTableWidgetItem("Thermal"))
+        self.th_style_combo = _make_style_combo("Tint")
+        self.layers_table.setCellWidget(self._layer_rows["Thermal"], 2, self.th_style_combo)
+
+        self.layers_table.resizeColumnsToContents()
+        layers_layout.addWidget(self.layers_table)
+        top_layout.addWidget(layers_group, 0)
+
         controls_layout = QHBoxLayout()
-        self.preview_mode = QComboBox()
-        self.preview_mode.addItems([
-            "Lines",
-            "Blend (Screen)",
-            "Both lines",
-        ])
-        self.preview_mode.setCurrentText("Blend (Screen)")
-        self.preview_mode.currentIndexChanged.connect(lambda _=None: self.update_preview())
         self.live_checkbox = QCheckBox("Live processing")
         self.live_checkbox.setChecked(False)
         self.align_button = QPushButton("Align")
         self.align_button.clicked.connect(self.process_images)
-        controls_layout.addWidget(QLabel("Preview"))
-        controls_layout.addWidget(self.preview_mode)
         controls_layout.addWidget(self.live_checkbox)
         controls_layout.addStretch(1)
         controls_layout.addWidget(self.align_button)
@@ -947,83 +994,89 @@ class AlignmentDialog(QDialog):
         if not os.path.exists(rgb_path):
             return
 
-        mode = self.preview_mode.currentText() if hasattr(self, "preview_mode") else "Lines"
+        rgb_visible = self.rgb_visible_cb.isChecked() if hasattr(self, "rgb_visible_cb") else True
+        th_visible = self.th_visible_cb.isChecked() if hasattr(self, "th_visible_cb") else True
+        rgb_style = self.rgb_style_combo.currentText() if hasattr(self, "rgb_style_combo") else "Tint"
+        th_style = self.th_style_combo.currentText() if hasattr(self, "th_style_combo") else "Tint"
 
-        if mode in ["Lines", "Both lines"]:
-            rgb_image = cv2.imread(rgb_path)
-            if rgb_image is None:
-                return
-            grayscale_rgb_image = cv2.cvtColor(rgb_image, cv2.COLOR_BGR2GRAY)
+        rgb_img = cv2.imread(rgb_path)
+        if rgb_img is None:
+            return
+        h, w = rgb_img.shape[:2]
+        rgb_gray = cv2.cvtColor(rgb_img, cv2.COLOR_BGR2GRAY)
 
-            lines_ir = cv2.imread(lines_ir_path, cv2.IMREAD_GRAYSCALE) if os.path.exists(lines_ir_path) else None
-            if lines_ir is None:
-                lines_ir = np.zeros_like(grayscale_rgb_image)
+        canvas = np.zeros((h, w, 3), dtype=np.uint8)
 
-            if mode == "Both lines":
+        def _apply_screen(dst_rgb: np.ndarray, src_rgb: np.ndarray) -> np.ndarray:
+            dst = dst_rgb.astype(np.uint16)
+            src = src_rgb.astype(np.uint16)
+            out = 255 - ((255 - dst) * (255 - src) // 255)
+            return out.astype(np.uint8)
+
+        def _ensure_size_gray(gray: np.ndarray) -> np.ndarray:
+            if gray.shape[0] != h or gray.shape[1] != w:
+                return cv2.resize(gray, (w, h), interpolation=cv2.INTER_AREA)
+            return gray
+
+        def _ensure_size_rgb(rgb: np.ndarray) -> np.ndarray:
+            if rgb.shape[0] != h or rgb.shape[1] != w:
+                return cv2.resize(rgb, (w, h), interpolation=cv2.INTER_AREA)
+            return rgb
+
+        if rgb_visible:
+            if rgb_style == "Lines":
                 lines_rgb = cv2.imread(lines_rgb_path, cv2.IMREAD_GRAYSCALE) if os.path.exists(lines_rgb_path) else None
                 if lines_rgb is None:
-                    lines_rgb = np.zeros_like(grayscale_rgb_image)
+                    lines_rgb = np.zeros_like(rgb_gray)
+                else:
+                    lines_rgb = _ensure_size_gray(lines_rgb)
+                mask = lines_rgb >= 100
+                canvas[mask] = [0, 255, 255]
+            elif rgb_style == "Black & white":
+                canvas = np.dstack([rgb_gray, rgb_gray, rgb_gray])
+            else:  # Tint
+                canvas = np.dstack([
+                    np.zeros_like(rgb_gray),
+                    rgb_gray,
+                    rgb_gray,
+                ])
 
-            grayscale_rgb_image_colored = np.dstack([
-                np.zeros_like(grayscale_rgb_image),
-                grayscale_rgb_image,
-                grayscale_rgb_image,
-            ])
+        if th_visible:
+            if th_style == "Lines":
+                lines_ir = cv2.imread(lines_ir_path, cv2.IMREAD_GRAYSCALE) if os.path.exists(lines_ir_path) else None
+                if lines_ir is None:
+                    lines_ir = np.zeros((h, w), dtype=np.uint8)
+                else:
+                    lines_ir = _ensure_size_gray(lines_ir)
+                mask = lines_ir >= 100
+                if not rgb_visible:
+                    canvas = np.zeros((h, w, 3), dtype=np.uint8)
+                canvas[mask] = [255, 0, 0]
+            else:
+                ir_img = cv2.imread(ir_path)
+                if ir_img is None:
+                    ir_gray = np.zeros((h, w), dtype=np.uint8)
+                else:
+                    ir_img = _ensure_size_rgb(ir_img)
+                    ir_gray = cv2.cvtColor(ir_img, cv2.COLOR_BGR2GRAY)
 
-            if mode == "Both lines":
-                grayscale_rgb_image_colored[lines_rgb >= 100] = [0, 255, 255]
+                if th_style == "Black & white":
+                    th_rgb = np.dstack([ir_gray, ir_gray, ir_gray])
+                else:  # Tint
+                    th_rgb = np.dstack([
+                        ir_gray,
+                        np.zeros_like(ir_gray),
+                        np.zeros_like(ir_gray),
+                    ])
 
-            grayscale_rgb_image_colored[lines_ir >= 100] = [255, 0, 0]
+                if rgb_visible:
+                    canvas = _apply_screen(canvas, th_rgb)
+                else:
+                    canvas = th_rgb
 
-            qimage = self.convert_np_img_to_qimage(grayscale_rgb_image_colored)
-            self.scene.clear()
-            self.scene.addItem(QGraphicsPixmapItem(QPixmap.fromImage(qimage)))
-            return
-
-        base_gray = QImage(rgb_path)
-        if base_gray.isNull():
-            return
-        base_gray = base_gray.convertToFormat(QImage.Format.Format_Grayscale8)
-        base_gray = base_gray.convertToFormat(QImage.Format.Format_ARGB32)
-
-        base = QImage(base_gray.size(), QImage.Format.Format_ARGB32)
-        base.fill(QColor(0, 255, 255))
-        painter_base = QPainter(base)
-        painter_base.setCompositionMode(QPainter.CompositionMode.CompositionMode_Multiply)
-        painter_base.drawImage(0, 0, base_gray)
-        painter_base.end()
-
-        overlay = QImage(ir_path) if os.path.exists(ir_path) else QImage()
-        if overlay.isNull():
-            self.scene.clear()
-            self.scene.addItem(QGraphicsPixmapItem(QPixmap.fromImage(base)))
-            return
-        overlay = overlay.convertToFormat(QImage.Format.Format_Grayscale8)
-        overlay = overlay.convertToFormat(QImage.Format.Format_ARGB32)
-
-        if overlay.size() != base.size():
-            overlay = overlay.scaled(base.size(), Qt.AspectRatioMode.IgnoreAspectRatio,
-                                     Qt.TransformationMode.SmoothTransformation)
-
-        overlay_tinted = QImage(base.size(), QImage.Format.Format_ARGB32)
-        overlay_tinted.fill(QColor(255, 0, 0))
-        painter_overlay = QPainter(overlay_tinted)
-        painter_overlay.setCompositionMode(QPainter.CompositionMode.CompositionMode_Multiply)
-        painter_overlay.drawImage(0, 0, overlay)
-        painter_overlay.end()
-
-        composed = QImage(base)
-        painter = QPainter(composed)
-        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
-
-        painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Screen)
-        painter.setOpacity(0.65)
-
-        painter.drawImage(0, 0, overlay_tinted)
-        painter.end()
-
+        qimage = self.convert_np_img_to_qimage(canvas)
         self.scene.clear()
-        self.scene.addItem(QGraphicsPixmapItem(QPixmap.fromImage(composed)))
+        self.scene.addItem(QGraphicsPixmapItem(QPixmap.fromImage(qimage)))
 
 
 class DialogBatchExport(QtWidgets.QDialog):
