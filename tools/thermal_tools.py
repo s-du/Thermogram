@@ -293,7 +293,7 @@ class RunnerDJI(QtCore.QRunnable):
             # Export Pic-in-Pic if needed
             if picpic_subfolder:
                 picpic_path = os.path.join(picpic_subfolder, name)
-                insert_th_in_rgb(img, dest_path, picpic_path, img.drone_model, self.file_format)
+                insert_th_in_rgb(img, dest_path, picpic_path, img, self.file_format)
 
             # Export RGB Image if needed
             if rgb_subfolder:
@@ -324,7 +324,7 @@ class RunnerDJI(QtCore.QRunnable):
 
 
 class RunnerMiniature(QtCore.QRunnable):
-    def __init__(self, list_rgb_paths, drone_model, scale_percent, dest_crop_folder, start, stop):
+    def __init__(self, list_rgb_paths, drone_model, scale_percent, dest_crop_folder, start, stop, img_objects=None):
         super().__init__()
         self.signals = RunnerSignals()
         self.list_rgb_paths = list_rgb_paths
@@ -333,11 +333,17 @@ class RunnerMiniature(QtCore.QRunnable):
         self.start = start
         self.stop = stop
         self.drone_model = drone_model
+        self.img_objects = img_objects
 
     def run(self):
-        nb_im = len(self.list_rgb_paths)
+        if self.img_objects is not None:
+            items = list(self.img_objects)
+        else:
+            items = list(self.list_rgb_paths)
 
-        def process_image(i, rgb_path):
+        nb_im = len(items)
+
+        def process_image(i, item):
             iter_start_time = time.time()  # Track time for each iteration
             iter = i * (self.stop - self.start) / nb_im
 
@@ -346,10 +352,17 @@ class RunnerMiniature(QtCore.QRunnable):
             self.signals.messaged.emit(f'Pre-processing image {i}/{nb_im}')
 
             # Step 1: Reading the image
+            if self.img_objects is not None:
+                rgb_path = item.rgb_path_original
+                params = item
+            else:
+                rgb_path = item
+                params = self.drone_model
+
             cv_rgb_img = cv_read_all_path(rgb_path)
 
             # Step 3: Crop based on custom parameters
-            crop = match_rgb_custom_parameters_zoom(cv_rgb_img, self.drone_model)
+            crop = match_rgb_custom_parameters_zoom(cv_rgb_img, params)
 
             # Step 4: Resize the image
             width = int(crop.shape[1] * self.scale_percent / 100)
@@ -366,8 +379,8 @@ class RunnerMiniature(QtCore.QRunnable):
             # print(f"Iteration {i} - Total iteration time: {time.time() - iter_start_time} seconds")
 
         with ThreadPoolExecutor() as executor:
-            for i, rgb_path in enumerate(self.list_rgb_paths):
-                executor.submit(process_image, i, rgb_path)
+            for i, item in enumerate(items):
+                executor.submit(process_image, i, item)
 
         self.signals.finished.emit()
 
@@ -393,7 +406,17 @@ def create_video(images, video_name, fps):
 # LENS RELATED METHODS (DRONE SPECIFIC) __________________________________________________
 def match_rgb_custom_parameters_zoom(cv_img, drone_model):
     h2, w2 = cv_img.shape[:2]
-    w_ir, h_ir = drone_model.dim_undis_ir
+
+    if hasattr(drone_model, 'dim_undis_ir'):
+        w_ir, h_ir = drone_model.dim_undis_ir
+    elif hasattr(drone_model, 'drone_model') and hasattr(drone_model.drone_model, 'dim_undis_ir'):
+        w_ir, h_ir = drone_model.drone_model.dim_undis_ir
+    else:
+        raise AttributeError("No dim_undis_ir available for RGB matching")
+
+    zoom = drone_model.zoom
+    x_offset = drone_model.x_offset
+    y_offset = drone_model.y_offset
 
     aspect_factor = (w2 / h2) / (
             w_ir / h_ir)  # Aspect ratio adjustment to fit RGB image to IR
@@ -401,14 +424,14 @@ def match_rgb_custom_parameters_zoom(cv_img, drone_model):
     new_h = h2 * aspect_factor
 
     # Adjust crop size based on zoom factor
-    ret_x = int((w2 / drone_model.zoom) / 2)
-    ret_y = int((new_h / drone_model.zoom) / 2)
+    ret_x = int((w2 / zoom) / 2)
+    ret_y = int((new_h / zoom) / 2)
 
     # Calculate crop bounds
-    x1 = int(w2 / 2 + drone_model.x_offset) - ret_x
-    x2 = int(w2 / 2 + drone_model.x_offset) + ret_x
-    y1 = int(h2 / 2 + drone_model.y_offset) - ret_y
-    y2 = int(h2 / 2 + drone_model.y_offset) + ret_y
+    x1 = int(w2 / 2 + x_offset) - ret_x
+    x2 = int(w2 / 2 + x_offset) + ret_x
+    y1 = int(h2 / 2 + y_offset) - ret_y
+    y2 = int(h2 / 2 + y_offset) + ret_y
 
     # Check if crop bounds go beyond the image dimensions
     pad_top = max(0, -y1)
@@ -434,12 +457,12 @@ def match_rgb_custom_parameters_zoom(cv_img, drone_model):
     rgb_dest = cv_img[y1:y2, x1:x2]
 
     # Handle zoom < 1: padding is needed to match the final size to the infrared image size
-    if drone_model.zoom < 1:
+    if zoom < 1:
         new_h = int(new_h)
 
         # Calculate the new dimensions for the frame (hosting image) based on the zoom
-        frame_w = int(w2 / drone_model.zoom)
-        frame_h = int(new_h / drone_model.zoom)
+        frame_w = int(w2 / zoom)
+        frame_h = int(new_h / zoom)
 
         # Calculate the padding to center the original image within the new frame
         pad_x = int((frame_w - w2) // 2)
@@ -610,14 +633,14 @@ def create_lines(cv_img, bil=True, mode=1): # Added mode parameter
     # Apply bilateral filter for noise reduction while keeping edges sharp
     if bil:
         # Parameters might need tuning based on image characteristics
-        gray = cv2.bilateralFilter(gray, d=9, sigmaColor=75, sigmaSpace=75)
+        gray = cv2.bilateralFilter(gray, d=3, sigmaColor=75, sigmaSpace=75)
 
     # Edge detection method
     if mode == 0: # Canny Edges
         # Canny thresholds might need adjustment. Lower thresholds detect more edges.
         edges = cv2.Canny(gray, threshold1=100, threshold2=200) # Returns binary image (0 or 255)
     elif mode == 1: # Canny with gradient
-        edges = cv2.Canny(gray, 100, 200, L2gradient=True)
+        edges = cv2.Canny(gray, 50, 100, L2gradient=True)
     elif mode == 2: # Laplacian Method
         # Using CV_16S to avoid overflow, then convert back
         laplacian = cv2.Laplacian(gray, cv2.CV_16S, ksize=3)
@@ -962,22 +985,54 @@ def resize_and_pad(img, target_size):
     return padded_img
 
 
-def process_th_image_with_zoom(img_obj, out_folder, theta, replace_rgb_with_th=False):
+def prepare_alignment_ir(img_obj, out_folder, custom_data=None):
+    if custom_data is None:
+        temp_flat = img_obj.raw_data.flatten()
+        tmin_opt = np.percentile(temp_flat, 2.5)
+        tmax_opt = np.percentile(temp_flat, 97.5)
+        custom_data = {
+            'tmin': tmin_opt,
+            'tmax': tmax_opt,
+            'colormap': 'Greys_r'
+        }
+
+    ir_out_path = os.path.join(out_folder, 'IR.JPG')
+    process_raw_data(img_obj, ir_out_path, edges=False, custom_data=custom_data)
+    return ir_out_path
+
+
+def process_th_image_with_zoom(
+        img_obj,
+        out_folder,
+        theta,
+        replace_rgb_with_th=False,
+        prepare_ir=True,
+        profile=False,
+        cv_rgb=None,
+        cv_ir=None,
+        cached_lines_ir=None,
+        write_files=True,
+        return_arrays=False,
+):
+    t0 = time.perf_counter()
+    def _stamp(label):
+        if profile:
+            print(f"[align profile] {label}: {(time.perf_counter() - t0) * 1000:.1f} ms")
+
     # read images
-    cv_rgb = cv_read_all_path(img_obj.rgb_path_original)  # read rgb image
+    if cv_rgb is None:
+        cv_rgb = cv_read_all_path(img_obj.rgb_path_original)  # read rgb image
+    _stamp("read rgb")
     h_rgb, w_rgb = cv_rgb.shape[:2]
-    temp_flat = img_obj.raw_data.flatten()
-    # compute optimal temp values
-    tmin_opt = np.percentile(temp_flat, 2.5)
-    tmax_opt = np.percentile(temp_flat, 97.5)
-    custom_data = {
-        'tmin': tmin_opt,
-        'tmax': tmax_opt,
-        'colormap': 'Greys_r'
-    }
-    # process raw data with custom temperature range and custom color map
-    process_raw_data(img_obj, os.path.join(out_folder, 'IR.JPG'), edges=False, custom_data=custom_data)  # read infrared image (undistorded)
-    cv_ir = cv_read_all_path(os.path.join(out_folder, 'IR.JPG'))
+
+    if prepare_ir:
+        prepare_alignment_ir(img_obj, out_folder)
+        _stamp("prepare IR")
+        cv_ir = None
+
+    if cv_ir is None:
+        cv_ir = cv_read_all_path(os.path.join(out_folder, 'IR.JPG'))
+    _stamp("read IR")
 
     h_ir, w_ir = cv_ir.shape[:2]  # get resulting dimension of thermal image
     dim_undis_ir = (w_ir, h_ir)  # The size we need to match
@@ -1026,6 +1081,7 @@ def process_th_image_with_zoom(img_obj, out_folder, theta, replace_rgb_with_th=F
     y2 += pad_top
 
     rgb_crop = cv_rgb[y1:y2, x1:x2]
+    _stamp("crop")
 
     if replace_rgb_with_th:
         cv_rgb_copy = copy.deepcopy(cv_rgb)
@@ -1057,24 +1113,49 @@ def process_th_image_with_zoom(img_obj, out_folder, theta, replace_rgb_with_th=F
     else:
         # Resize the cropped image directly to the IR dimensions if zoom >= 1 (no padding needed)
         rgb_dest = cv2.resize(rgb_crop, dim_undis_ir, interpolation=cv2.INTER_AREA)
+    _stamp("resize/pad")
 
     # Save resized or padded image
-    cv_write_all_path(rgb_dest, os.path.join(out_folder, 'rescale.JPG'))
+    if write_files:
+        cv_write_all_path(rgb_dest, os.path.join(out_folder, 'rescale.JPG'))
+        _stamp("write rescale")
+    else:
+        _stamp("skip write rescale")
 
     # Create lines and save both the RGB and IR versions
-    lines_rgb = create_lines(rgb_dest)
-    cv_write_all_path(lines_rgb, os.path.join(out_folder, 'rgb_lines.JPG'))
+    lines_rgb = create_lines(rgb_dest, mode=3)
+    _stamp("create lines rgb")
+    if write_files:
+        cv_write_all_path(lines_rgb, os.path.join(out_folder, 'rgb_lines.JPG'))
+        _stamp("write rgb lines")
+    else:
+        _stamp("skip write rgb lines")
 
-    lines_ir = create_lines(cv_ir, bil=False)
-    cv_write_all_path(lines_ir, os.path.join(out_folder, 'ir_lines.JPG'))
+    if cached_lines_ir is None:
+        lines_ir = create_lines(cv_ir, mode=3)
+        _stamp("create lines ir")
+    else:
+        lines_ir = cached_lines_ir
+        _stamp("reuse lines ir")
+    if write_files:
+        cv_write_all_path(lines_ir, os.path.join(out_folder, 'ir_lines.JPG'))
+        _stamp("write ir lines")
+    else:
+        _stamp("skip write ir lines")
 
     # Compute difference
     diff = cv2.subtract(lines_ir, lines_rgb)
     err = np.sum(diff ** 2)
     mse = err / (float(h_ir * w_ir))
+    _stamp("mse")
 
     print(f'mse is {mse}')
 
+    if profile:
+        print(f"[align profile] total: {(time.perf_counter() - t0) * 1000:.1f} ms")
+
+    if return_arrays:
+        return mse, rgb_dest, lines_rgb, lines_ir
     return mse
 
 def insert_th_in_rgb_fast(img_obj, ir_path, dest_path, drone_model, extension):
@@ -1139,6 +1220,7 @@ def insert_th_in_rgb_fast(img_obj, ir_path, dest_path, drone_model, extension):
     cv_write_all_path(cv_rgb, dest_path)
     mask_path = os.path.splitext(dest_path)[0] + "_mask." + extension
     cv_write_all_path(mask, mask_path)
+    
 def insert_th_in_rgb(img_obj, ir_path, dest_path, drone_model, extension):
     # read images
     cv_rgb = cv_read_all_path(img_obj.rgb_path_original)  # read rgb image

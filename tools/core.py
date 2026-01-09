@@ -412,14 +412,26 @@ class DroneModel:
             cv_file = cv2.FileStorage(m4t_ir_xml_path, cv2.FILE_STORAGE_READ)
             self.K_ir = cv_file.getNode("Camera_Matrix").mat()
             self.d_ir = cv_file.getNode("Distortion_Coefficients").mat()
-            self.extend = 0.3504
-            self.x_offset = 45
-            self.y_offset = 83
-            self.zoom = 1.12
+            self.extend = 2.23
+            self.x_offset = 7.1
+            self.y_offset = -50.3
+            self.zoom = 2.23
 
 
 class ProcessedIm:
-    def __init__(self, path, rgb_path, original_path, undistorder_ir, drone_model, delayed_compute=False):
+    def __init__(
+            self,
+            path,
+            rgb_path,
+            original_path,
+            undistorder_ir,
+            drone_model,
+            delayed_compute=False,
+            zoom=None,
+            x_offset=None,
+            y_offset=None,
+            extend=None,
+    ):
         # General infos
         self.path = path
         self.rgb_path = rgb_path
@@ -435,6 +447,12 @@ class ProcessedIm:
         self._exif = None
         self.has_data = False
         self.drone_model = drone_model
+
+        # Alignment / RGB matching parameters (per-image)
+        self.zoom = drone_model.zoom if zoom is None else zoom
+        self.x_offset = drone_model.x_offset if x_offset is None else x_offset
+        self.y_offset = drone_model.y_offset if y_offset is None else y_offset
+        self.extend = getattr(drone_model, "extend", None) if extend is None else extend
 
         # IR infos
         self.thermal_param = {'emissivity': 0.95, 'distance': 5, 'humidity': 50, 'reflection': 25}

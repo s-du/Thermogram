@@ -1604,54 +1604,55 @@ class DroneIrWindow(QMainWindow):
         rgb_path = self.work_image.rgb_path_original
         ir_path = self.work_image.path
 
-        # get initial distortion parameters from the drone model (stored in the image)
-        # [k1, extend, y - offset, x - offset]
-        F = self.drone_model.K_ir[0][0]
-        d_mat = self.drone_model.d_ir
-
-        zoom = self.drone_model.zoom
-        y_off = self.drone_model.y_offset
-        x_off = self.drone_model.x_offset
+        zoom = self.work_image.zoom
+        y_off = self.work_image.y_offset
+        x_off = self.work_image.x_offset
 
         print(f'Here are the work values! zoom:{zoom}, y offset:{y_off}, x offset: {x_off}')
 
         dialog = dia.AlignmentDialog(self.work_image, temp_folder, theta=[zoom, y_off, x_off])
         if dialog.exec():
+            zoom, y_off, x_off = dialog.theta
 
-            # ask options
-            # Create a QMessageBox
-            qm = QMessageBox
-            reply = qm.question(self, '', "Do you want to process all pictures with those new parameters",
-                                qm.StandardButton.Yes | qm.StandardButton.No)
+            img_names = []
+            for im in self.images:
+                try:
+                    img_names.append(os.path.basename(im.path))
+                except Exception:
+                    img_names.append(str(im.path))
 
-            if reply == qm.StandardButton.Yes:
-                print('Good choice')
-                # update values
-                zoom, y_off, x_off = dialog.theta
-                self.drone_model.zoom = zoom
-                self.drone_model.y_offset = y_off
-                self.drone_model.x_offset = x_off
-
-                print(f'Re-creating RGB crop with zoom {zoom}')
-
-                # re-run all miniatures
-                text_status = 'creating rgb miniatures...'
-                self.update_progress(nb=20, text=text_status)
-
-                worker_1 = tt.RunnerMiniature(self.list_rgb_paths, self.drone_model, 60,
-                                              self.rgb_crop_img_folder, 20,
-                                              100)
-                worker_1.signals.progressed.connect(lambda value: self.update_progress(value))
-                worker_1.signals.messaged.connect(lambda string: self.update_progress(text=string))
-
-                self.__pool.start(worker_1)
-                worker_1.signals.finished.connect(self.miniat_finish)
-
-            else:
-                pass
-
-                # re-print-image
+            selector = dia.DialogSelectImages(img_names, preselect_indices=[self.active_image], parent=self)
+            if not selector.exec():
                 self.update_img_preview(refresh_dual=True)
+                return
+
+            selected = selector.get_selected_indices()
+            if not selected:
+                self.update_img_preview(refresh_dual=True)
+                return
+
+            for idx in selected:
+                if idx < 0 or idx >= len(self.images):
+                    continue
+                self.images[idx].zoom = zoom
+                self.images[idx].y_offset = y_off
+                self.images[idx].x_offset = x_off
+
+            print(f'Re-creating RGB crop with zoom {zoom} on {len(selected)} selected images')
+
+            text_status = 'creating rgb miniatures...'
+            self.update_progress(nb=20, text=text_status)
+
+            img_objects = [self.images[i] for i in selected if 0 <= i < len(self.images)]
+            worker_1 = tt.RunnerMiniature(self.list_rgb_paths, self.drone_model, 60,
+                                          self.rgb_crop_img_folder, 20,
+                                          100,
+                                          img_objects=img_objects)
+            worker_1.signals.progressed.connect(lambda value: self.update_progress(value))
+            worker_1.signals.messaged.connect(lambda string: self.update_progress(text=string))
+
+            self.__pool.start(worker_1)
+            worker_1.signals.finished.connect(self.miniat_finish)
 
     def miniat_finish(self):
         self.update_progress(nb=100, text='Ready...')

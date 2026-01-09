@@ -705,6 +705,17 @@ class AlignmentDialog(QDialog):
         copyfile(img_object.path, self.ir_path)
         copyfile(img_object.rgb_path_original, self.rgb_path)
 
+        tt.prepare_alignment_ir(self.img_object, self.temp_folder)
+
+        self._align_cv_rgb = tt.cv_read_all_path(self.img_object.rgb_path_original)
+        self._align_cv_ir = tt.cv_read_all_path(self.ir_path)
+        # Cache IR edges once (IR image does not change during slider moves)
+        self._align_lines_ir = tt.create_lines(self._align_cv_ir, mode=3)
+        self._align_lines_ir_canny = tt.create_lines(self._align_cv_ir, mode=1)
+        self._align_rgb_dest = None
+        self._align_lines_rgb = None
+        self._align_lines_rgb_canny = None
+
         # get focal and center points
         """
         self.F = F
@@ -739,7 +750,7 @@ class AlignmentDialog(QDialog):
         self.labels = []
         self._sync_guard = False
         self._param_specs = [
-            {"name": "zoom", "min": 0.5, "max": 2.0, "scale": 500, "decimals": 3},
+            {"name": "zoom", "min": 0.5, "max": 3.0, "scale": 500, "decimals": 3},
             {"name": "y-offset", "min": -100.0, "max": 100.0, "scale": 10, "decimals": 1},
             {"name": "x-offset", "min": -100.0, "max": 100.0, "scale": 10, "decimals": 1},
         ]
@@ -824,7 +835,7 @@ class AlignmentDialog(QDialog):
 
         def _make_style_combo(default_text: str):
             combo = QComboBox()
-            combo.addItems(["Lines", "Black & white", "Tint"])
+            combo.addItems(["Lines (Sobel)", "Lines (Canny)", "Black & white", "Tint"])
             combo.setCurrentText(default_text)
             combo.currentIndexChanged.connect(lambda _=None: self.update_preview())
             return combo
@@ -850,7 +861,7 @@ class AlignmentDialog(QDialog):
         self.live_checkbox = QCheckBox("Live processing")
         self.live_checkbox.setChecked(False)
         self.align_button = QPushButton("Align")
-        self.align_button.clicked.connect(self.process_images)
+        self.align_button.clicked.connect(self._on_align_clicked)
         controls_layout.addWidget(self.live_checkbox)
         controls_layout.addStretch(1)
         controls_layout.addWidget(self.align_button)
@@ -874,7 +885,10 @@ class AlignmentDialog(QDialog):
         self.cancel_button.clicked.connect(self.reject)
 
         # Load and process initial images
-        self.process_images()
+        self.process_images(write_files=False)
+
+    def _on_align_clicked(self):
+        self.process_images(write_files=True)
 
     def _float_to_slider(self, index, value):
         spec = self._param_specs[index]
@@ -976,22 +990,38 @@ class AlignmentDialog(QDialog):
             qimage = QImage(img.data, w, h, QImage.Format.Format_Grayscale8)
         return qimage
 
-    def process_images(self):
+    def process_images(self, write_files=False):
         # Image processing placeholder
         print(f"Processing with theta: {self.theta}")
         # This should call your actual image processing code
-        tt.process_th_image_with_zoom(self.img_object, self.temp_folder, self.theta)
+        mse, rgb_dest, lines_rgb, lines_ir = tt.process_th_image_with_zoom(
+            self.img_object,
+            self.temp_folder,
+            self.theta,
+            prepare_ir=False,
+            profile=False,
+            cv_rgb=self._align_cv_rgb,
+            cv_ir=self._align_cv_ir,
+            cached_lines_ir=self._align_lines_ir,
+            write_files=write_files,
+            return_arrays=True,
+        )
+
+        self._align_rgb_dest = rgb_dest
+        self._align_lines_rgb = lines_rgb
+        self._align_lines_ir = lines_ir
+        # RGB Canny edges depend on the current transform; compute only when needed.
+        rgb_style = self.rgb_style_combo.currentText() if hasattr(self, "rgb_style_combo") else "Tint"
+        if rgb_style in ("Lines (Canny)",):
+            self._align_lines_rgb_canny = tt.create_lines(rgb_dest, mode=1)
+        else:
+            self._align_lines_rgb_canny = None
 
         self.update_preview()
 
     def update_preview(self):
         """Update the display using existing temp folder artifacts (no heavy processing)."""
-        rgb_path = os.path.join(self.temp_folder, 'rescale.JPG')
-        ir_path = os.path.join(self.temp_folder, 'IR.JPG')
-        lines_rgb_path = os.path.join(self.temp_folder, 'rgb_lines.JPG')
-        lines_ir_path = os.path.join(self.temp_folder, 'ir_lines.JPG')
-
-        if not os.path.exists(rgb_path):
+        if self._align_rgb_dest is None:
             return
 
         rgb_visible = self.rgb_visible_cb.isChecked() if hasattr(self, "rgb_visible_cb") else True
@@ -999,9 +1029,7 @@ class AlignmentDialog(QDialog):
         rgb_style = self.rgb_style_combo.currentText() if hasattr(self, "rgb_style_combo") else "Tint"
         th_style = self.th_style_combo.currentText() if hasattr(self, "th_style_combo") else "Tint"
 
-        rgb_img = cv2.imread(rgb_path)
-        if rgb_img is None:
-            return
+        rgb_img = self._align_rgb_dest
         h, w = rgb_img.shape[:2]
         rgb_gray = cv2.cvtColor(rgb_img, cv2.COLOR_BGR2GRAY)
 
@@ -1023,15 +1051,48 @@ class AlignmentDialog(QDialog):
                 return cv2.resize(rgb, (w, h), interpolation=cv2.INTER_AREA)
             return rgb
 
+        def _ensure_uint8_gray(gray: np.ndarray) -> np.ndarray:
+            gray = _ensure_size_gray(gray)
+            if gray.dtype == np.uint8:
+                return gray
+            g = gray.astype(np.float32)
+            g_min = float(np.nanmin(g)) if g.size else 0.0
+            g_max = float(np.nanmax(g)) if g.size else 0.0
+            if not np.isfinite(g_min) or not np.isfinite(g_max) or g_max <= g_min:
+                return np.zeros((h, w), dtype=np.uint8)
+            g = (g - g_min) * (255.0 / (g_max - g_min))
+            return np.clip(g, 0, 255).astype(np.uint8)
+
+        def _is_lines_sobel(style: str) -> bool:
+            return style in ("Lines", "Lines (Sobel)")
+
+        def _is_lines_canny(style: str) -> bool:
+            return style == "Lines (Canny)"
+
         if rgb_visible:
-            if rgb_style == "Lines":
-                lines_rgb = cv2.imread(lines_rgb_path, cv2.IMREAD_GRAYSCALE) if os.path.exists(lines_rgb_path) else None
+            if _is_lines_sobel(rgb_style) or _is_lines_canny(rgb_style):
+                if _is_lines_canny(rgb_style):
+                    lines_rgb = self._align_lines_rgb_canny
+                    if lines_rgb is None:
+                        # Style might have been changed without re-processing. Compute edges from current rgb_dest.
+                        lines_rgb = tt.create_lines(rgb_img, mode=1)
+                        self._align_lines_rgb_canny = lines_rgb
+                else:
+                    lines_rgb = self._align_lines_rgb
+
                 if lines_rgb is None:
                     lines_rgb = np.zeros_like(rgb_gray)
                 else:
-                    lines_rgb = _ensure_size_gray(lines_rgb)
-                mask = lines_rgb >= 100
-                canvas[mask] = [0, 255, 255]
+                    lines_rgb = _ensure_uint8_gray(lines_rgb)
+
+                overlay = np.zeros((h, w, 3), dtype=np.uint8)
+                overlay[..., 1] = lines_rgb
+                overlay[..., 2] = lines_rgb
+                canvas = np.clip(
+                    canvas.astype(np.uint16) + overlay.astype(np.uint16),
+                    0,
+                    255,
+                ).astype(np.uint8)
             elif rgb_style == "Black & white":
                 canvas = np.dstack([rgb_gray, rgb_gray, rgb_gray])
             else:  # Tint
@@ -1042,18 +1103,29 @@ class AlignmentDialog(QDialog):
                 ])
 
         if th_visible:
-            if th_style == "Lines":
-                lines_ir = cv2.imread(lines_ir_path, cv2.IMREAD_GRAYSCALE) if os.path.exists(lines_ir_path) else None
+            if _is_lines_sobel(th_style) or _is_lines_canny(th_style):
+                if _is_lines_canny(th_style):
+                    lines_ir = getattr(self, "_align_lines_ir_canny", None)
+                else:
+                    lines_ir = self._align_lines_ir
+
                 if lines_ir is None:
                     lines_ir = np.zeros((h, w), dtype=np.uint8)
                 else:
-                    lines_ir = _ensure_size_gray(lines_ir)
-                mask = lines_ir >= 100
+                    lines_ir = _ensure_uint8_gray(lines_ir)
+
                 if not rgb_visible:
                     canvas = np.zeros((h, w, 3), dtype=np.uint8)
-                canvas[mask] = [255, 0, 0]
+
+                overlay = np.zeros((h, w, 3), dtype=np.uint8)
+                overlay[..., 0] = lines_ir
+                canvas = np.clip(
+                    canvas.astype(np.uint16) + overlay.astype(np.uint16),
+                    0,
+                    255,
+                ).astype(np.uint8)
             else:
-                ir_img = cv2.imread(ir_path)
+                ir_img = self._align_cv_ir
                 if ir_img is None:
                     ir_gray = np.zeros((h, w), dtype=np.uint8)
                 else:
@@ -1077,6 +1149,47 @@ class AlignmentDialog(QDialog):
         qimage = self.convert_np_img_to_qimage(canvas)
         self.scene.clear()
         self.scene.addItem(QGraphicsPixmapItem(QPixmap.fromImage(qimage)))
+
+
+class DialogSelectImages(QtWidgets.QDialog):
+    def __init__(self, img_list, preselect_indices=None, parent=None):
+        super().__init__(parent)
+
+        self.img_list = list(img_list)
+        self.list_model = QtGui.QStandardItemModel()
+
+        self.setWindowTitle("Select images")
+        layout = QVBoxLayout(self)
+
+        self.listView = QtWidgets.QListView()
+        self.listView.setModel(self.list_model)
+        self.listView.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.ExtendedSelection)
+        layout.addWidget(self.listView)
+
+        self.buttonBox = QtWidgets.QDialogButtonBox(
+            QtWidgets.QDialogButtonBox.StandardButton.Ok | QtWidgets.QDialogButtonBox.StandardButton.Cancel
+        )
+        self.buttonBox.accepted.connect(self.accept)
+        self.buttonBox.rejected.connect(self.reject)
+        layout.addWidget(self.buttonBox)
+
+        for img_name in self.img_list:
+            item = QtGui.QStandardItem(str(img_name))
+            self.list_model.appendRow(item)
+
+        if preselect_indices is None:
+            return
+
+        selection_model = self.listView.selectionModel()
+        for idx in preselect_indices:
+            if idx < 0 or idx >= len(self.img_list):
+                continue
+            model_index = self.list_model.index(idx, 0)
+            selection_model.select(model_index, QtCore.QItemSelectionModel.SelectionFlag.Select)
+
+    def get_selected_indices(self):
+        selected_indexes = self.listView.selectedIndexes()
+        return sorted({index.row() for index in selected_indexes})
 
 
 class DialogBatchExport(QtWidgets.QDialog):
