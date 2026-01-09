@@ -1,6 +1,7 @@
 """Image processing and colormap management for thermal images."""
 # Imports
 # Standard library imports
+import csv
 import copy
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -16,13 +17,13 @@ from tools.core import *
 from PyQt6 import QtCore
 
 # Custom libraries
-from tools.core import *
+import resources as res
 from utils.config import config, thermal_config
 from utils.logger import info, error, debug, warning
 from utils.exceptions import ThermogramError, FileOperationError
 
 
-def _cv_read_all_path_reduced(path, reduction=4):
+def _cv_read_all_path_reduced(path, reduction=2):
     """Fast RGB decode for miniature generation.
 
     Uses OpenCV's reduced-resolution JPEG decoder when available.
@@ -69,8 +70,9 @@ BGR_COLORS = {
 EDGE_METHODS = ['Canny', 'Canny-L2', 'SOBEL', 'Laplacian','Cross']
 # Predefined Edge Styles
 PREDEFINED_EDGE_STYLES = {
-    "Subtle White 1": {"method": 3, "color": "white", "bil": True, "blur": False, "blur_size": 3, "opacity": 0.7},
-    "Subtle White 2": {"method": 1, "color": "white", "bil": True, "blur": True, "blur_size": 3, "opacity": 0.6},
+    "Subtle White 1": {"method": 4, "color": "white", "bil": False, "blur": False, "blur_size": 3, "opacity": 1},
+    "Thick Line White 1": {"method": 3, "color": "white", "bil": True, "blur": False, "blur_size": 3, "opacity": 0.7},
+    "Blurry White 2": {"method": 1, "color": "white", "bil": True, "blur": True, "blur_size": 3, "opacity": 0.6},
     "Crystal Clear White":  {"method": 0, "color": "white", "bil": False, "blur": False, "blur_size": 3, "opacity": 0.4},
     "Subtle Black 1": {"method": 3, "color": "black", "bil": True, "blur": False, "blur_size": 3, "opacity": 0.7},
     "Subtle Black 2": {"method": 1, "color": "black", "bil": True, "blur": True, "blur_size": 3, "opacity": 0.6},
@@ -90,6 +92,10 @@ def register_custom_cmap(name, colors):
     - name: str
     - colors: list of RGB tuples (0–255)
     """
+    for i, (existing_name, _) in enumerate(CUSTOM_CMAP_REGISTRY):
+        if existing_name == name:
+            CUSTOM_CMAP_REGISTRY[i] = (name, colors)
+            return
     CUSTOM_CMAP_REGISTRY.append((name, colors))
 
 def get_all_custom_cmaps(n_colors=256):
@@ -105,35 +111,69 @@ def get_all_custom_cmaps(n_colors=256):
         colormaps[name] = cmap
     return colormaps
 
+
+def _load_csv_palette(csv_path):
+    colors = []
+    with open(csv_path, newline='', encoding='utf-8') as f:
+        reader = csv.DictReader(f)
+        rows = []
+        for row in reader:
+            try:
+                rows.append((int(row['index']), int(row['r']), int(row['g']), int(row['b'])))
+            except Exception:
+                continue
+    rows.sort(key=lambda t: t[0])
+    for _, r, g, b in rows:
+        colors.append((r, g, b))
+    return colors
+
+
+def _register_dji_csv_palettes():
+    palette_map = {
+        'Fulgurite': ('dji/csv_palettes/fulgurite.csv', [(77, 0, 0), (204, 0, 0), (255, 153, 0), (255, 255, 0), (255, 255, 255)]),
+        'Iron Red': ('dji/csv_palettes/iron_red.csv', [(0, 0, 0), (30, 0, 90), (100, 0, 130), (175, 0, 175),
+                                              (255, 70, 0), (255, 130, 0), (255, 200, 0),
+                                              (255, 255, 0), (255, 255, 200)]),
+        'Hot Iron': ('dji/csv_palettes/hot_iron.csv', [(0, 0, 0), (0, 51, 51), (25, 100, 100), (50, 130, 130),
+                                              (120, 175, 80), (190, 215, 40), (255, 255, 0),
+                                              (255, 102, 0), (255, 0, 0)]),
+        'Medical': ('dji/csv_palettes/medical.csv', [(60, 26, 30), (224, 64, 224), (32, 42, 255), (20, 229, 241),
+                                            (8, 192, 95), (0, 160, 0), (255, 255, 0),
+                                            (255, 0, 0), (255, 255, 255)]),
+        'Arctic2': ('dji/csv_palettes/arctic.csv', [(0, 33, 70), (0, 0, 255), (0, 174, 53), (0, 255, 255),
+                                           (255, 255, 0), (255, 136, 0), (255, 0, 0),
+                                           (255, 25, 255), (255, 25, 255)]),
+        'Rainbow1': ('dji/csv_palettes/rainbow1.csv', [(133, 10, 10), (255, 0, 200), (108, 0, 255), (0, 0, 255),
+                                              (0, 255, 255), (0, 255, 65), (255, 255, 0),
+                                              (255, 160, 0), (255, 0, 0)]),
+        'Rainbow2': ('dji/csv_palettes/rainbow2.csv', [(0, 0, 130), (0, 0, 255), (0, 130, 255), (0, 255, 255),
+                                              (130, 255, 130), (255, 255, 0), (255, 130, 0),
+                                              (255, 0, 0), (130, 0, 0)]),
+        'Tint': ('dji/csv_palettes/tint.csv', [(0, 0, 0), (128, 128, 128), (255, 255, 255), (255, 0, 0)]),
+    }
+
+    for name, (rel_path, fallback) in palette_map.items():
+        try:
+            csv_path = res.find(rel_path)
+            colors = _load_csv_palette(csv_path)
+            if colors:
+                register_custom_cmap(name, colors)
+            else:
+                register_custom_cmap(name, fallback)
+        except Exception:
+            register_custom_cmap(name, fallback)
+
 register_custom_cmap('Arctic', [(25, 0, 150), (94, 243, 247), (100, 100, 100), (243, 116, 27), (251, 250, 208)])
 register_custom_cmap('Iron', [(0, 0, 0), (144, 15, 170), (230, 88, 65), (248, 205, 35), (255, 255, 255)])
 register_custom_cmap('Rainbow', [(8, 0, 75), (43, 80, 203), (119, 185, 31), (240, 205, 35), (245, 121, 47),
-                                  (236, 64, 100), (240, 222, 203)])
+                                 (236, 64, 100), (240, 222, 203)])
 register_custom_cmap('FIJI_Temp', [(70, 0, 115), (70, 0, 151), (70, 0, 217), (57, 27, 255),
                                    (14, 136, 251), (0, 245, 235), (76, 255, 247), (206, 255, 254),
                                    (251, 254, 243), (178, 255, 163), (57, 255, 51), (37, 255, 1),
                                    (162, 255, 21), (242, 241, 43), (255, 175, 37), (255, 70, 16), (255, 0, 0)])
 register_custom_cmap('BlueWhiteRed', [(0, 0, 255), (255, 255, 255), (255, 0, 0)])
-register_custom_cmap('Fulgurite', [(77, 0, 0), (204, 0, 0), (255, 153, 0), (255, 255, 0), (255, 255, 255)])
-register_custom_cmap('Iron Red', [(0, 0, 0), (30, 0, 90), (100, 0, 130), (175, 0, 175),
-                                  (255, 70, 0), (255, 130, 0), (255, 200, 0),
-                                  (255, 255, 0), (255, 255, 200)])
-register_custom_cmap('Hot Iron', [(0, 0, 0), (0, 51, 51), (25, 100, 100), (50, 130, 130),
-                                  (120, 175, 80), (190, 215, 40), (255, 255, 0),
-                                  (255, 102, 0), (255, 0, 0)])
-register_custom_cmap('Medical', [(60, 26, 30), (224, 64, 224), (32, 42, 255), (20, 229, 241),
-                                 (8, 192, 95), (0, 160, 0), (255, 255, 0),
-                                 (255, 0, 0), (255, 255, 255)])
-register_custom_cmap('Arctic2', [(0, 33, 70), (0, 0, 255), (0, 174, 53), (0, 255, 255),
-                                 (255, 255, 0), (255, 136, 0), (255, 0, 0),
-                                 (255, 25, 255), (255, 25, 255)])
-register_custom_cmap('Rainbow1', [(133, 10, 10), (255, 0, 200), (108, 0, 255), (0, 0, 255),
-                                  (0, 255, 255), (0, 255, 65), (255, 255, 0),
-                                  (255, 160, 0), (255, 0, 0)])
-register_custom_cmap('Rainbow2', [(0, 0, 130), (0, 0, 255), (0, 130, 255), (0, 255, 255),
-                                  (130, 255, 130), (255, 255, 0), (255, 130, 0),
-                                  (255, 0, 0), (130, 0, 0)])
-register_custom_cmap('Tint', [(0, 0, 0), (128, 128, 128), (255, 255, 255), (255, 0, 0)])
+
+_register_dji_csv_palettes()
 
 LIST_CUSTOM_NAMES = ['Arctic',
                      'Iron',
@@ -395,7 +435,7 @@ class RunnerMiniature(QtCore.QRunnable):
             if os.path.exists(dest_path):
                 return
 
-            reduction = 4
+            reduction = 2
             cv_rgb_img = _cv_read_all_path_reduced(rgb_path, reduction=reduction)
 
             if reduction in (2, 4, 8) and cv_rgb_img is not None:

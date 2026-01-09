@@ -1480,7 +1480,12 @@ class DroneIrWindow(QMainWindow):
                 painter.end()
                 bg_image.save(path, 'JPEG', 100)
 
-            scene_rect = self.viewer._scene.sceneRect()
+            photo_pixmap = self.viewer._photo.pixmap() if hasattr(self.viewer, "_photo") else None
+            if photo_pixmap is not None and not photo_pixmap.isNull():
+                scene_rect = QRectF(photo_pixmap.rect())
+                self.viewer._scene.setSceneRect(scene_rect)
+            else:
+                scene_rect = self.viewer._scene.sceneRect()
             content_width = int(scene_rect.width())
             content_height = int(scene_rect.height())
 
@@ -2248,6 +2253,7 @@ class DroneIrWindow(QMainWindow):
         add_icon(res.find('img/robot.png'), self.actionDetect_object)
         add_icon(res.find('img/layers.png'), self.actionProcess_all)
         add_icon(res.find('img/save_image.png'), self.actionSave_Image)
+        add_icon(res.find('img/report.png'), self.actionCreate_Report)
 
         add_icon(res.find('img/reset_range.png'), self.pushButton_reset_range)
         add_icon(res.find('img/from_img.png'), self.pushButton_estimate)
