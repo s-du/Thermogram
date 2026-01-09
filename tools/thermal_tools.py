@@ -4,6 +4,7 @@
 import copy
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from types import SimpleNamespace
 from PIL import Image, ImageOps, ImageFilter
 from matplotlib import cm, pyplot as plt
 import matplotlib.colors as mcol
@@ -19,6 +20,34 @@ from tools.core import *
 from utils.config import config, thermal_config
 from utils.logger import info, error, debug, warning
 from utils.exceptions import ThermogramError, FileOperationError
+
+
+def _cv_read_all_path_reduced(path, reduction=4):
+    """Fast RGB decode for miniature generation.
+
+    Uses OpenCV's reduced-resolution JPEG decoder when available.
+    Falls back to full-resolution decode.
+    """
+    if reduction == 2:
+        flag = getattr(cv2, "IMREAD_REDUCED_COLOR_2", None)
+    elif reduction == 4:
+        flag = getattr(cv2, "IMREAD_REDUCED_COLOR_4", None)
+    elif reduction == 8:
+        flag = getattr(cv2, "IMREAD_REDUCED_COLOR_8", None)
+    else:
+        flag = None
+
+    if flag is None:
+        return cv_read_all_path(path)
+
+    try:
+        arr = np.fromfile(path, dtype=np.uint8)
+        img = cv2.imdecode(arr, flag)
+        if img is None:
+            return cv_read_all_path(path)
+        return img
+    except Exception:
+        return cv_read_all_path(path)
 
 # LISTS __________________________________________________
 OUT_LIM = ['continuous', 'black', 'white', 'red']
@@ -359,10 +388,36 @@ class RunnerMiniature(QtCore.QRunnable):
                 rgb_path = item
                 params = self.drone_model
 
-            cv_rgb_img = cv_read_all_path(rgb_path)
+            _, file = os.path.split(rgb_path)
+            stem, _ = os.path.splitext(file)
+            new_name = stem + 'crop.JPG'
+            dest_path = os.path.join(self.dest_crop_folder, new_name)
+            if os.path.exists(dest_path):
+                return
+
+            reduction = 4
+            cv_rgb_img = _cv_read_all_path_reduced(rgb_path, reduction=reduction)
+
+            if reduction in (2, 4, 8) and cv_rgb_img is not None:
+                scale = 1.0 / float(reduction)
+                dim_undis_ir = getattr(params, 'dim_undis_ir', None)
+                if dim_undis_ir is None and hasattr(params, 'drone_model'):
+                    dim_undis_ir = getattr(params.drone_model, 'dim_undis_ir', None)
+
+                if dim_undis_ir is not None:
+                    params_for_crop = SimpleNamespace(
+                        dim_undis_ir=dim_undis_ir,
+                        zoom=getattr(params, 'zoom', 1.0),
+                        x_offset=getattr(params, 'x_offset', 0.0) * scale,
+                        y_offset=getattr(params, 'y_offset', 0.0) * scale,
+                    )
+                else:
+                    params_for_crop = params
+            else:
+                params_for_crop = params
 
             # Step 3: Crop based on custom parameters
-            crop = match_rgb_custom_parameters_zoom(cv_rgb_img, params)
+            crop = match_rgb_custom_parameters_zoom(cv_rgb_img, params_for_crop)
 
             # Step 4: Resize the image
             width = int(crop.shape[1] * self.scale_percent / 100)
@@ -371,10 +426,7 @@ class RunnerMiniature(QtCore.QRunnable):
             crop = cv2.resize(crop, dim, interpolation=cv2.INTER_AREA)
 
             # Step 5: Save the new cropped image
-            _, file = os.path.split(rgb_path)
-            new_name = file[:-4] + 'crop.JPG'
-            dest_path = os.path.join(self.dest_crop_folder, new_name)
-            cv_write_all_path(crop, dest_path)
+            cv_write_all_path(crop, dest_path, extension='JPG')
 
             # print(f"Iteration {i} - Total iteration time: {time.time() - iter_start_time} seconds")
 

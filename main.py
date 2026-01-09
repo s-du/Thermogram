@@ -24,6 +24,7 @@ from PyQt6 import uic
 import os
 import json
 import copy
+import time
 from pathlib import Path
 from multiprocessing import freeze_support
 
@@ -37,6 +38,27 @@ from tools.report_tools import create_word_report
 from utils.config import config, thermal_config
 from utils.logger import info, error, debug, warning
 from utils.exceptions import ThermogramError, FileOperationError
+
+
+_TIMING_ENABLED = str(os.environ.get("THERMOGRAM_TIMING", "")).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _tlog(message: str):
+    if _TIMING_ENABLED:
+        print(f"[timing] {message}")
+
+
+class _PerfTimer:
+    def __init__(self, label: str):
+        self.label = label
+        self.t0 = time.perf_counter()
+
+    def stop(self, extra: str = ""):
+        dt_ms = (time.perf_counter() - self.t0) * 1000
+        if extra:
+            _tlog(f"{self.label}: {dt_ms:.1f} ms ({extra})")
+        else:
+            _tlog(f"{self.label}: {dt_ms:.1f} ms")
 
 # PARAMETERS
 # Application constants
@@ -1186,6 +1208,7 @@ class DroneIrWindow(QMainWindow):
 
         # Detect and organize images
         if not folder == '':  # if user cancel selection, stop function
+            t_total = _PerfTimer("load_folder_phase1")
             self.main_folder = folder
             self.app_folder = get_next_available_folder(self.main_folder)
 
@@ -1197,8 +1220,9 @@ class DroneIrWindow(QMainWindow):
             self.update_progress(nb=0, text=text_status)
 
             # Identify content of the folder
-            self.list_rgb_paths, self.list_ir_paths, self.list_z_paths = tt.list_th_rgb_images_from_res(
-                self.main_folder)
+            t_scan = _PerfTimer("scan folder")
+            self.list_rgb_paths, self.list_ir_paths, self.list_z_paths = tt.list_th_rgb_images_from_res(self.main_folder)
+            t_scan.stop(extra=f"ir={len(self.list_ir_paths)} rgb={len(self.list_rgb_paths)}")
 
             # Create some sub folders for storing images
             self.original_th_img_folder = os.path.join(self.app_folder, ORIGIN_TH_FOLDER)
@@ -1216,11 +1240,15 @@ class DroneIrWindow(QMainWindow):
                 os.mkdir(self.custom_images_folder)
 
             # Get drone model
+            t_model = _PerfTimer("init drone model")
             drone_name = tt.get_drone_model(self.list_ir_paths[0])
             self.drone_model = tt.DroneModel(drone_name)
+            t_model.stop(extra=str(drone_name))
 
             # Create 'undistorder' based on drone model
+            t_undis = _PerfTimer("init undistorter")
             self.ir_undistorder = tt.CameraUndistorter(self.drone_model.ir_xml_path)
+            t_undis.stop()
 
             # Create dictionary with main information
             dictionary = {
@@ -1232,21 +1260,21 @@ class DroneIrWindow(QMainWindow):
             }
             self.write_json(dictionary)  # store original images paths in a JSON
 
-            text_status = 'copying thermal images...'
+            text_status = 'preparing project...'
             self.update_progress(nb=10, text=text_status)
-
-            # duplicate thermal images
-            tt.copy_list_dest(self.list_ir_paths, self.original_th_img_folder)
 
             # does it have RGB?
             if not self.list_rgb_paths:
                 print('No RGB here!')
                 self.has_rgb = False
                 self.load_folder_phase2()
+                t_total.stop(extra="no rgb")
 
             else:
                     text_status = 'creating rgb miniatures...'
                     self.update_progress(nb=20, text=text_status)
+
+                    self._timing_rgb_mini_start = time.perf_counter()
 
                     worker_1 = tt.RunnerMiniature(self.list_rgb_paths, self.drone_model, 60, self.rgb_crop_img_folder,
                                                   20,
@@ -1255,7 +1283,14 @@ class DroneIrWindow(QMainWindow):
                     worker_1.signals.messaged.connect(lambda string: self.update_progress(text=string))
 
                     self.__pool.start(worker_1)
-                    worker_1.signals.finished.connect(self.load_folder_phase2)
+                    def _on_mini_done():
+                        if hasattr(self, "_timing_rgb_mini_start"):
+                            dt_ms = (time.perf_counter() - self._timing_rgb_mini_start) * 1000
+                            _tlog(f"rgb miniatures: {dt_ms:.1f} ms")
+                        self.load_folder_phase2()
+                        t_total.stop(extra="with rgb")
+
+                    worker_1.signals.finished.connect(_on_mini_done)
 
     def load_folder_phase2(self):
         """Execute phase 2 of folder loading process for thermal images.
@@ -1265,9 +1300,13 @@ class DroneIrWindow(QMainWindow):
         controls.
         """
 
+        t_phase2 = _PerfTimer("load_folder_phase2")
         # Get list to main window
+        t_list = _PerfTimer("update_img_list")
         self.update_img_list()
+        t_list.stop()
         self.viewer.fitInView()
+        t_phase2.stop()
 
         # Activate buttons and options
 
@@ -1354,15 +1393,16 @@ class DroneIrWindow(QMainWindow):
             FileOperationError: If required image files are not found
         """
         try:
-            self.ir_folder = self.original_th_img_folder
+            self.ir_folder = self.main_folder
             if self.has_rgb:
                 self.rgb_folder = self.rgb_crop_img_folder
-                rgb_imgs = os.listdir(self.rgb_folder)
-                self.rgb_imgs = sorted(rgb_imgs)
+                self.rgb_imgs = []
+                for p in self.list_rgb_paths:
+                    base = os.path.basename(p)
+                    self.rgb_imgs.append(base[:-4] + 'crop.JPG')
 
-            # list thermal images
-            ir_imgs = os.listdir(self.ir_folder)
-            self.ir_imgs = sorted(ir_imgs)
+            # list thermal images (no physical copies; keep original files)
+            self.ir_imgs = [os.path.basename(p) for p in self.list_ir_paths]
             self.n_imgs = len(self.ir_imgs)
 
             if self.n_imgs > 1:
@@ -1381,12 +1421,13 @@ class DroneIrWindow(QMainWindow):
 
                 if self.has_rgb:
                     print(f'image {i}: Has rgb!')
-                    image = tt.ProcessedIm(os.path.join(self.ir_folder, im),
+                    image = tt.ProcessedIm(self.list_ir_paths[i],
                                            os.path.join(self.rgb_folder, self.rgb_imgs[i]),
-                                           self.list_rgb_paths[i], self.ir_undistorder, self.drone_model)
+                                           self.list_rgb_paths[i], self.ir_undistorder, self.drone_model,
+                                           delayed_compute=True)
                 else:
-                    image = tt.ProcessedIm(os.path.join(self.ir_folder, im), '', '', self.ir_undistorder,
-                                           self.drone_model)
+                    image = tt.ProcessedIm(self.list_ir_paths[i], '', '', self.ir_undistorder,
+                                           self.drone_model, delayed_compute=True)
                 self.images.append(image)
 
             self.update_progress(nb=100, text=f'finalizing')
@@ -1401,16 +1442,15 @@ class DroneIrWindow(QMainWindow):
                 self.layout_histo.addWidget(self.hist_canvas)
 
             # Create temporary folder
-            self.preview_folder = os.path.join(self.ir_folder, 'preview')
+            self.preview_folder = os.path.join(self.app_folder, 'preview')
             if not os.path.exists(self.preview_folder):
                 os.mkdir(self.preview_folder)
 
             # Quickly compute temperature delta on first image
-            tmin = copy.deepcopy(self.work_image.tmin)
-            tmax = copy.deepcopy(self.work_image.tmax)
+            tmin, tmax, tmin_shown, tmax_shown = self.work_image.get_temp_data()
 
-            self.lineEdit_min_temp.setText(str(round(tmin, 2)))
-            self.lineEdit_max_temp.setText(str(round(tmax, 2)))
+            self.lineEdit_min_temp.setText(str(round(tmin_shown, 2)))
+            self.lineEdit_max_temp.setText(str(round(tmax_shown, 2)))
 
             self.update_img_preview()
             self.comboBox_img.clear()
@@ -1847,6 +1887,9 @@ class DroneIrWindow(QMainWindow):
         # load stored data
         self.work_image = self.images[self.active_image]
 
+        # Lazy thermal data loading: only load when the image is visited/used
+        self.work_image.ensure_data_loaded(reset_shown_values=True)
+
         if not self.checkBox_keep_radiometric.isChecked():
             # load radiometric parameters from image and set the lineedit texts
             self.thermal_param = copy.deepcopy(self.work_image.get_thermal_param())
@@ -2061,7 +2104,7 @@ class DroneIrWindow(QMainWindow):
             img = self.work_image
             original_th_img = copy.deepcopy(self.dest_path_post)
 
-            tt.insert_th_in_rgb_fast(img, original_th_img, dest_path_post, img.drone_model, extension='JPG')
+            tt.insert_th_in_rgb_fast(img, original_th_img, dest_path_post, img, extension='JPG')
             self.viewer.set_thermal_data([]) # avoid getting temperatures within the magnifier
 
             self.viewer.setPhoto(QPixmap(dest_path_post))

@@ -5,6 +5,7 @@ Path processing, raw data extraction, measurements
 # Imports
 import cv2
 import os
+import time
 import resources as res
 from pathlib import Path
 import numpy as np
@@ -58,20 +59,20 @@ def list_th_rgb_images_from_res(img_folder):
         path = os.path.join(img_folder, file)
 
         if file.endswith('.jpg') or file.endswith('.JPG'):
-            im = Image.open(path)
-            w, h = im.size
+            with Image.open(path) as im:
+                w, h = im.size
 
             if w == 640 or w == 1280:
                 list_ir_paths.append(path)
             else:
-                if '_W' or '_V' in file:
+                if ('_W' in file) or ('_V' in file):
                     list_rgb_paths.append(path)
                 elif '_Z' in file:
                     list_z_paths.append(path)
 
-        list_ir_paths.sort()
-        list_rgb_paths.sort()
-        list_z_paths.sort()
+    list_ir_paths.sort()
+    list_rgb_paths.sort()
+    list_z_paths.sort()
 
     return list_rgb_paths, list_ir_paths, list_z_paths
 
@@ -95,6 +96,14 @@ def copy_list_dest(list_paths, dest_folder):
     for path in list_paths:
         _, file = os.path.split(path)
         copyfile(path, os.path.join(dest_folder, file))
+
+
+_TIMING_ENABLED = str(os.environ.get("THERMOGRAM_TIMING", "")).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _tlog(message: str):
+    if _TIMING_ENABLED:
+        print(f"[timing] {message}")
 
 
 # EXIF FUNCTIONS _____________________________________
@@ -190,6 +199,7 @@ def read_dji_image(img_in, raw_out, param={'emissivity': 0.95, 'distance': 5, 'h
     em = param['emissivity']
 
     try:
+        t0 = time.perf_counter()
         result = subprocess.run(
             [str(sdk_tool_path), "-s", f"{img_in}", "-a", "measure", "-o", f"{raw_out}", "--measurefmt",
              "float32", "--distance", f"{dist}", "--humidity", f"{rh}", "--reflection", f"{refl_temp}",
@@ -199,6 +209,8 @@ def read_dji_image(img_in, raw_out, param={'emissivity': 0.95, 'distance': 5, 'h
             stderr=subprocess.PIPE,  # Capture standard error
             shell=True
         )
+
+        _tlog(f"dji_irp.exe: {(time.perf_counter() - t0) * 1000:.1f} ms ({os.path.basename(str(img_in))})")
 
         # Always print stdout and stderr for debugging
         """print("STDOUT:")
@@ -264,17 +276,23 @@ def extract_raw_data(param, ir_img_path, undistorder_ir):
     _ = read_dji_image(str(ir_img_path), str(new_raw_path), param=param)
 
     try:
+        t0 = time.perf_counter()
         rows, cols = infer_dimensions_from_raw_file(new_raw_path)
+        _tlog(f"infer raw dims: {(time.perf_counter() - t0) * 1000:.1f} ms ({filename})")
 
+        t1 = time.perf_counter()
         with open(new_raw_path, 'rb') as fd:
             f = np.fromfile(fd, dtype='<f4', count=rows * cols)
+        _tlog(f"read raw file: {(time.perf_counter() - t1) * 1000:.1f} ms ({filename})")
         if f.size != rows * cols:
             raise ValueError(
                 f"RAW read truncated for {filename}: expected {rows * cols} float32 values, got {f.size}"
             )
         im = f.reshape((rows, cols))
 
+        t2 = time.perf_counter()
         undis_im, _ = undistorder_ir.undis(im)
+        _tlog(f"undistort raw: {(time.perf_counter() - t2) * 1000:.1f} ms ({filename})")
         return im, undis_im
     finally:
         try:
@@ -456,12 +474,15 @@ class ProcessedIm:
 
         # IR infos
         self.thermal_param = {'emissivity': 0.95, 'distance': 5, 'humidity': 50, 'reflection': 25}
+        self.raw_data = None
+        self.raw_data_undis = None
+        self.tmin = None
+        self.tmax = None
+        self.tmin_shown = None
+        self.tmax_shown = None
+
         if not delayed_compute:
-            self.raw_data, self.raw_data_undis = extract_raw_data(self.thermal_param, self.path, self.undistorder_ir)
-        self.tmin = np.amin(self.raw_data)
-        self.tmax = np.amax(self.raw_data)
-        self.tmin_shown = self.tmin
-        self.tmax_shown = self.tmax
+            self.update_data_from_param(self.thermal_param, reset_shown_values=True)
 
         self.user_lim_col_low = 'c'
         self.user_lim_col_high = 'c'
@@ -496,6 +517,10 @@ class ProcessedIm:
             self._exif = extract_exif(self.path)
         return self._exif
 
+    def ensure_data_loaded(self, reset_shown_values=True):
+        if not self.has_data:
+            self.update_data_from_param(self.thermal_param, reset_shown_values=reset_shown_values)
+
     def update_data_from_param(self, new_params, reset_shown_values=True):
         # print(new_params)
         self.thermal_param = new_params
@@ -525,6 +550,7 @@ class ProcessedIm:
                 self.post_process)
 
     def get_temp_data(self):
+        self.ensure_data_loaded(reset_shown_values=True)
         return (self.tmin,
                 self.tmax,
                 self.tmin_shown,
@@ -534,6 +560,7 @@ class ProcessedIm:
         return self.thermal_param
 
     def compute_optimal_temp_range(self, lower_percentile=2.5, upper_percentile=97.5):
+        self.ensure_data_loaded(reset_shown_values=True)
         temp_flat = self.raw_data.flatten()
         tmin_opt = np.percentile(temp_flat, lower_percentile)
         tmax_opt = np.percentile(temp_flat, upper_percentile)
@@ -562,6 +589,8 @@ class ProcessedIm:
         if canvas is None or not hasattr(canvas, 'ax'):
             print("Warning: Tried to update histogram, but canvas is None or incomplete.")
             return
+
+        self.ensure_data_loaded(reset_shown_values=True)
 
         import numpy as np
         from matplotlib import cm
