@@ -25,6 +25,7 @@ import os
 import json
 import copy
 import time
+import hashlib
 from pathlib import Path
 from multiprocessing import freeze_support
 
@@ -215,6 +216,9 @@ class DroneIrWindow(QMainWindow):
         # Add icons to buttons
         self.add_all_icons()
 
+        if hasattr(self, "actionFlight_map"):
+            self.actionFlight_map.setEnabled(False)
+
     # BASIC SETUP _________________________________________________________________
     def _setup_combo_boxes(self) -> None:
         """Initialize and populate combo boxes with their respective items."""
@@ -337,6 +341,9 @@ class DroneIrWindow(QMainWindow):
             self.n_imgs = len(self.ir_imgs)
             self.nb_sets = 0
 
+            # Cache for generated preview files (thermal render) to speed up switching
+            self._preview_cache_files = []
+
             # list images classes (where to store all measurements and annotations)
             self.images = []
             self.work_image = None
@@ -417,6 +424,9 @@ class DroneIrWindow(QMainWindow):
             self.actionProcess_all.triggered.connect(self.batch_export)
             self.actionCreate_anim.triggered.connect(self.export_anim)
             self.actionCreate_Report.triggered.connect(self.create_report)
+
+            if hasattr(self, "actionFlight_map"):
+                self.actionFlight_map.triggered.connect(self.show_flight_map)
 
             # Other actions
             self.actionInfo.triggered.connect(self.show_info)
@@ -1352,6 +1362,9 @@ class DroneIrWindow(QMainWindow):
         self.actionCreate_anim.setEnabled(True)
         self.actionSave_Image.setEnabled(True)
 
+        if hasattr(self, "actionFlight_map"):
+            self.actionFlight_map.setEnabled(True)
+
         # RGB condition
         if self.has_rgb:
             self.checkBox_edges.setEnabled(True)
@@ -1362,6 +1375,39 @@ class DroneIrWindow(QMainWindow):
             self.actionDetect_object.setEnabled(True)
 
         print('all action enabled!')
+
+    def show_flight_map(self):
+        if not self.images:
+            QMessageBox.warning(self, "No Images", "Load images before opening the flight map.")
+            return
+
+        points = []
+        missing = 0
+        for idx, im in enumerate(self.images):
+            latlon = getattr(im, "gps_latlon", None)
+            if not latlon:
+                missing += 1
+                continue
+            lat, lon = latlon
+            points.append({
+                "idx": idx,
+                "lat": float(lat),
+                "lon": float(lon),
+                "name": os.path.basename(str(getattr(im, "path", idx)))
+            })
+
+        if missing == len(self.images):
+            QMessageBox.warning(self, "No GPS data", "No GPS coordinates were found in the loaded images.")
+            return
+
+        try:
+            from dialogs import MapDialog
+        except Exception as e:
+            QMessageBox.critical(self, "Map dialog error", f"Could not load MapDialog: {str(e)}")
+            return
+
+        dlg = MapDialog(self, points=points)
+        dlg.exec()
 
     def toggle_thermal_actions(self, enable=True):
         if not enable:
@@ -1789,6 +1835,8 @@ class DroneIrWindow(QMainWindow):
             self.pushButton_edge_options.setEnabled(True)
             # Optional: Maybe revert to last custom settings if needed, or do nothing
             # until the user clicks the options button. For now, we do nothing.
+            if self.checkBox_edges.isChecked():
+                self.update_img_preview()
         else:
             self.pushButton_edge_options.setEnabled(False)
             if selected_style in tt.PREDEFINED_EDGE_STYLES:
@@ -2033,14 +2081,53 @@ class DroneIrWindow(QMainWindow):
 
     def create_th_img_preview(self, refresh_dual=False):
         self.compile_user_values()  # store combobox choices in img data
-        dest_path_post = os.path.join(self.preview_folder, 'preview_post.PNG')
         img = self.work_image
 
-        # get edge detection parameters
-        self.edge_params = [self.edge_method, self.edge_color, self.edge_bil, self.edge_blur, self.edge_blur_size,
-                            self.edge_opacity]
+        # get edge detection parameters (compute before cache key so switching styles is consistent)
+        edge_params = [
+            self.edge_method,
+            self.edge_color,
+            self.edge_bil,
+            self.edge_blur,
+            self.edge_blur_size,
+            self.edge_opacity,
+        ]
+        self.edge_params = edge_params
 
-        tt.process_raw_data(img, dest_path_post, edges=self.edges, edge_params=self.edge_params)
+        # Cache previews per image/settings to avoid recomputing when switching back/forth
+        settings = {
+            "img_path": getattr(img, "path", ""),
+            "rgb_path": getattr(img, "rgb_path", ""),
+            "tmin": getattr(img, "tmin_shown", None),
+            "tmax": getattr(img, "tmax_shown", None),
+            "colormap": getattr(img, "colormap", None),
+            "n_colors": getattr(img, "n_colors", None),
+            "col_high": getattr(img, "user_lim_col_high", None),
+            "col_low": getattr(img, "user_lim_col_low", None),
+            "post_process": getattr(img, "post_process", None),
+            "edges": bool(self.edges),
+            "edge_style": self.comboBox_edge_overlay_selection.currentText(),
+            "edge_params": list(edge_params),
+            "thermal_param": getattr(img, "thermal_param", None),
+        }
+        key_src = json.dumps(settings, sort_keys=True, default=str).encode("utf-8")
+        key = hashlib.md5(key_src).hexdigest()[:12]
+        dest_path_post = os.path.join(self.preview_folder, f'preview_post_{self.active_image}_{key}.PNG')
+
+        if not os.path.exists(dest_path_post):
+            tt.process_raw_data(img, dest_path_post, edges=self.edges, edge_params=edge_params)
+            self._preview_cache_files.append(dest_path_post)
+
+            # Keep preview cache bounded to avoid filling disk
+            max_cached = 40
+            while len(self._preview_cache_files) > max_cached:
+                old = self._preview_cache_files.pop(0)
+                try:
+                    if old.startswith(self.preview_folder) and os.path.exists(old):
+                        os.remove(old)
+                except Exception:
+                    pass
+
         self.range_slider.setHandleColorsFromColormap(self.work_image.colormap)
 
         # set photo
@@ -2254,6 +2341,7 @@ class DroneIrWindow(QMainWindow):
         add_icon(res.find('img/layers.png'), self.actionProcess_all)
         add_icon(res.find('img/save_image.png'), self.actionSave_Image)
         add_icon(res.find('img/report.png'), self.actionCreate_Report)
+        add_icon(res.find('img/anim.png'), self.actionCreate_anim)
 
         add_icon(res.find('img/reset_range.png'), self.pushButton_reset_range)
         add_icon(res.find('img/from_img.png'), self.pushButton_estimate)
@@ -2286,7 +2374,7 @@ class DroneIrWindow(QMainWindow):
         """Show application information dialog."""
         try:
             info_text = f"""
-            IR-Lab v{config.APP_VERSION}
+            Thermogram v{config.APP_VERSION}
 
             A comprehensive thermal image processing application
             for DJI drone thermal imagery.
@@ -2297,7 +2385,7 @@ class DroneIrWindow(QMainWindow):
             - Measurement tools
             - Batch processing
             
-            Contact: sdu@bbri.be
+            Contact: samuel.dubois@buildwise.be
             """
 
             QMessageBox.information(self, "About IR-Lab", info_text)

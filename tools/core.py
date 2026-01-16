@@ -166,21 +166,77 @@ def get_gps_data(image):
 
 def get_coordinates(gps_info):
     """Convert GPS information from EXIF data to latitude and longitude."""
+    def _to_float(v):
+        if v is None:
+            return None
+        if hasattr(v, "numerator") and hasattr(v, "denominator"):
+            try:
+                return float(v.numerator) / float(v.denominator)
+            except Exception:
+                return float(v)
+        if isinstance(v, tuple) and len(v) == 2:
+            try:
+                return float(v[0]) / float(v[1])
+            except Exception:
+                return float(v[0])
+        return float(v)
+
     def convert_to_degrees(value):
         d, m, s = value
+        d = _to_float(d)
+        m = _to_float(m)
+        s = _to_float(s)
+        if d is None or m is None or s is None:
+            return None
         return d + (m / 60.0) + (s / 3600.0)
+
+    if not gps_info:
+        return None
 
     if "GPSLatitude" in gps_info and "GPSLongitude" in gps_info:
         lat = convert_to_degrees(gps_info["GPSLatitude"])
         lon = convert_to_degrees(gps_info["GPSLongitude"])
+        if lat is None or lon is None:
+            return None
 
-        if gps_info["GPSLatitudeRef"] == "S":
+        if gps_info.get("GPSLatitudeRef") == "S":
             lat = -lat
-        if gps_info["GPSLongitudeRef"] == "W":
+        if gps_info.get("GPSLongitudeRef") == "W":
             lon = -lon
 
         return lat, lon
     return None
+
+
+def extract_gps_latlon_from_exif(exif):
+    if exif is None:
+        return None
+
+    gps_raw = None
+    try:
+        if hasattr(exif, "get_ifd"):
+            gps_raw = exif.get_ifd(34853)
+    except Exception:
+        gps_raw = None
+
+    if gps_raw is None:
+        try:
+            gps_raw = exif.get(34853)
+        except Exception:
+            gps_raw = None
+
+    if not gps_raw:
+        return None
+
+    gps_info = {}
+    try:
+        for t, value in gps_raw.items():
+            sub_tag = GPSTAGS.get(t, t)
+            gps_info[sub_tag] = value
+    except Exception:
+        return None
+
+    return get_coordinates(gps_info)
 
 
 # BASIC PROCESSING __________________________________
@@ -463,6 +519,7 @@ class ProcessedIm:
 
         # Data
         self._exif = None
+        self._gps_latlon = None
         self.has_data = False
         self.drone_model = drone_model
 
@@ -516,6 +573,12 @@ class ProcessedIm:
         if self._exif is None:
             self._exif = extract_exif(self.path)
         return self._exif
+
+    @property
+    def gps_latlon(self):
+        if self._gps_latlon is None:
+            self._gps_latlon = extract_gps_latlon_from_exif(self.exif)
+        return self._gps_latlon
 
     def ensure_data_loaded(self, reset_shown_values=True):
         if not self.has_data:

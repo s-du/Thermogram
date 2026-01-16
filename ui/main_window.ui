@@ -274,9 +274,16 @@
     <addaction name="actionRadiometric_parameters"/>
     <addaction name="actionEdge_Mix"/>
    </widget>
+   <widget class="QMenu" name="menuFlight_Data">
+    <property name="title">
+     <string>Flight Data</string>
+    </property>
+    <addaction name="actionFlight_map"/>
+   </widget>
    <addaction name="menuFile"/>
    <addaction name="menuSettings"/>
    <addaction name="menuview"/>
+   <addaction name="menuFlight_Data"/>
    <addaction name="menuAbout"/>
   </widget>
   <widget class="QStatusBar" name="statusbar"/>
@@ -1498,8 +1505,22 @@
    </property>
   </action>
   <action name="actionCreate_Report">
+   <property name="enabled">
+    <bool>true</bool>
+   </property>
    <property name="text">
     <string>Create Report</string>
+   </property>
+  </action>
+  <action name="actionFlight_map">
+   <property name="enabled">
+    <bool>false</bool>
+   </property>
+   <property name="text">
+    <string>Flight on map</string>
+   </property>
+   <property name="toolTip">
+    <string>Show geographic context of the flight</string>
    </property>
   </action>
  </widget>

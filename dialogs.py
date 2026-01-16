@@ -1,4 +1,5 @@
 # Standard library imports
+import json
 import logging
 import os
 import sys
@@ -27,6 +28,16 @@ import resources as res
 from tools import thermal_tools as tt
 from tools import ai_tools as ai
 from scipy.ndimage import maximum_filter, minimum_filter, zoom
+
+try:
+    from PyQt6.QtWebEngineWidgets import QWebEngineView
+except Exception:
+    QWebEngineView = None
+
+try:
+    import folium
+except Exception:
+    folium = None
 
 # basic logger functionality
 log = logging.getLogger(__name__)
@@ -97,7 +108,7 @@ class AboutDialog(QtWidgets.QDialog):
         self.layout = QtWidgets.QVBoxLayout()
 
         about_text = QtWidgets.QLabel(
-            'The IR-Lab app was made to simplify the analysis of thermal images. Any question/remark: samuel.dubois@buildwise.be')
+            'The Thermogram app was made to simplify the analysis of thermal images. Any question/remark: samuel.dubois@buildwise.be')
         about_text.setWordWrap(True)
 
         logos1 = QtWidgets.QLabel()
@@ -110,6 +121,76 @@ class AboutDialog(QtWidgets.QDialog):
         self.layout.addWidget(logos1, alignment=QtCore.Qt.AlignmentFlag.AlignCenter)
 
         self.setLayout(self.layout)
+
+
+class MapDialog(QDialog):
+    def __init__(self, parent=None, points=None):
+        super().__init__(parent)
+        self.setWindowTitle("Flight Map")
+        self.setMinimumSize(900, 600)
+
+        self.points = list(points or [])
+
+        layout = QVBoxLayout(self)
+
+        if QWebEngineView is None:
+            layout.addWidget(QLabel(
+                "PyQt6-WebEngine is not available.\n\n"
+                "Install it to enable the Cesium map view:\n"
+                "pip install PyQt6-WebEngine\n"
+            ))
+            return
+
+        if folium is None:
+            layout.addWidget(QLabel(
+                "Folium is not available.\n\n"
+                "Install it to enable the map view:\n"
+                "pip install folium\n"
+            ))
+            return
+
+        self.web = QWebEngineView(self)
+        layout.addWidget(self.web)
+
+        html = self._build_html(self.points)
+        self.web.setHtml(html)
+
+    def _build_html(self, points):
+        valid = []
+        for p in (points or []):
+            try:
+                lat = float(p.get("lat"))
+                lon = float(p.get("lon"))
+            except Exception:
+                continue
+            valid.append((lat, lon, p))
+
+        if valid:
+            lat0 = sum(v[0] for v in valid) / len(valid)
+            lon0 = sum(v[1] for v in valid) / len(valid)
+            m = folium.Map(location=[lat0, lon0], zoom_start=16, control_scale=True)
+        else:
+            m = folium.Map(location=[0, 0], zoom_start=2, control_scale=True)
+
+        for lat, lon, p in valid:
+            label = p.get("name")
+            if not label:
+                idx = p.get("idx")
+                label = str(idx) if idx is not None else "Image"
+
+            folium.Marker(
+                location=[lat, lon],
+                popup=label,
+                tooltip=label,
+                icon=folium.Icon(icon="camera", prefix="fa"),
+            ).add_to(m)
+
+        if len(valid) >= 2:
+            lats = [v[0] for v in valid]
+            lons = [v[1] for v in valid]
+            m.fit_bounds([[min(lats), min(lons)], [max(lats), max(lons)]])
+
+        return m.get_root().render()
 
 
 class CustomGraphicsItem(QGraphicsItem):
