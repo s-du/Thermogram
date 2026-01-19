@@ -14,10 +14,13 @@ Thermogram, our Infrared Laboratory, is an intuitive software designed for proce
 
 **The project is still in pre-release, so do not hesitate to send your recommendations or the bugs you encountered!**
 
-**FIRST INSTALLER AVAILABLE HERE**: https://github.com/s-du/Thermogram/releases/tag/v0.2.0
-
 ![](docs/anims/anim_fade.gif) 
     <i>GUI for thermal image processing</i>
+
+## Last news
+- 19/01/2026 : New version 0.3 with improved performance and new drone support (DJI M4T, DJI H30T, DJI M30T)
+
+**PORTABLE VERSION AVAILABLE HERE**: https://github.com/s-du/Thermogram/releases/tag/v0.3.1
 
 ## Features
 The app offers the following key features:
@@ -42,6 +45,7 @@ The app offers the following key features:
     - 'Picture-in-Picture' export format
     - Upscaling for thermal images
 - ...
+
 
 <p align="center">
     <a href=""><img src="docs/screens/capture3.png" alt="Thermogram" border="0" style="width: 100%;"></a>
@@ -109,7 +113,7 @@ The app offers the following key features:
 
 ## Installation
 
-**INSTALLER AVAILABLE HERE**: https://github.com/s-du/Thermogram/releases/tag/v0.2.0
+**PORTABLE VERSION HERE**: [https://github.com/s-du/Thermogram/releases/tag/v0.2.0](https://github.com/s-du/Thermogram/releases/tag/v0.3.1)
 
 OR 
 
@@ -151,11 +155,14 @@ Two arrows on the top of the GUI allow to navigate through the image set. If you
 The 'Batch export' action is particularly handy to export the entire photoset with the current settings.
 
 ## Coming next
-We plan to implement the following functionalities:
+We plan to implement the following functionalities (in order of importance):
+- FLIR data format conversion
 - Automatic alignment of color and infrared images
+- Automatic meteo data fetching
+- SAM 3 implementation
 - Automatic detection of building pathologies
 - Highlighting of sharp temperature increase
-- Generation of reports
+- Improved generation of reports
 
 ## Contributing
 Contributions to the Thermogram App are welcome! If you find any bugs, have suggestions for new features, or would like to contribute enhancements, please follow these steps:
