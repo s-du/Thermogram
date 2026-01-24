@@ -113,7 +113,7 @@ The app offers the following key features:
 
 ## Installation
 
-**PORTABLE VERSION HERE**: [https://github.com/s-du/Thermogram/releases/tag/v0.2.0](https://github.com/s-du/Thermogram/releases/tag/v0.3.1)
+**PORTABLE VERSION HERE**: [https://github.com/s-du/Thermogram/releases/tag/v0.3.1](https://github.com/s-du/Thermogram/releases/tag/v0.3.1)
 
 OR 
 
