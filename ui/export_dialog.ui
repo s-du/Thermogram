@@ -206,6 +206,20 @@
       </widget>
      </item>
      <item>
+      <layout class="QHBoxLayout" name="horizontalLayout_export_mode">
+       <item>
+        <widget class="QLabel" name="label_export_mode">
+         <property name="text">
+          <string>Export mode</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QComboBox" name="comboBox_export_mode"/>
+       </item>
+      </layout>
+     </item>
+     <item>
       <widget class="QLabel" name="label_5">
        <property name="text">
         <string>Naming</string>

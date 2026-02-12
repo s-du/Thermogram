@@ -596,6 +596,56 @@ class ProcessedIm:
 
         self.has_data = True
 
+    def find_matching_refl_temp(self, ref_raw_data, refl_bounds=(-30, 100)):
+        """Find the reflective temperature that makes this image's temperature
+        distribution best match *ref_raw_data* (e.g. the previous image).
+
+        The optimisation minimises the squared difference of the mean
+        temperatures.  A bounded scalar search is used so that only a handful
+        of DJI SDK calls are needed.
+
+        Parameters
+        ----------
+        ref_raw_data : np.ndarray
+            Raw temperature matrix of the reference image.
+        refl_bounds : tuple
+            (min, max) search range for the reflective temperature.
+
+        Returns
+        -------
+        float
+            The optimal reflective temperature value.
+        """
+        from scipy.optimize import minimize_scalar
+
+        ref_mean = float(np.mean(ref_raw_data))
+        ref_std = float(np.std(ref_raw_data))
+
+        # The DJI SDK always writes <image_stem>.raw next to the source image,
+        # ignoring any custom -o path.  Reuse the standard .raw path sequentially.
+        raw_path = Path(str(self.path)[:-4] + '.raw')
+
+        def cost(refl_temp):
+            trial_param = dict(self.thermal_param)
+            trial_param['reflection'] = float(refl_temp)
+            try:
+                read_dji_image(str(self.path), str(raw_path), param=trial_param)
+                with open(raw_path, 'rb') as fd:
+                    f = np.fromfile(fd, dtype='<f4')
+                raw = f.reshape(self.raw_data.shape)
+                trial_mean = float(np.mean(raw))
+                trial_std = float(np.std(raw))
+                return (trial_mean - ref_mean) ** 2 + 0.25 * (trial_std - ref_std) ** 2
+            finally:
+                try:
+                    os.remove(raw_path)
+                except OSError:
+                    pass
+
+        result = minimize_scalar(cost, bounds=refl_bounds, method='bounded',
+                                 options={'xatol': 0.05, 'maxiter': 30})
+        return float(result.x)
+
     def update_colormap_data(self, colormap, n_colors, user_lim_col_high, user_lim_col_low, post_process, tmin, tmax):
         self.colormap = colormap
         self.n_colors = n_colors

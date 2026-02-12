@@ -270,6 +270,8 @@ class RunnerDJI(QtCore.QRunnable):
         self.list_of_ir_export = list_of_ir_export
         self.list_of_rgb_export = list_of_rgb_export
 
+        self.individual_settings = individual_settings
+
         if not individual_settings:  # if global export from current image settings
             self.custom_params = {
                 "tmin": ref_im.tmin_shown,
@@ -280,8 +282,13 @@ class RunnerDJI(QtCore.QRunnable):
                 "col_low": ref_im.user_lim_col_low,
                 "post_process": ref_im.post_process
             }
-            # get global radiometric parameters
-            self.radio_param = ref_im.thermal_param
+            # get global radiometric parameters (deep copy so batch export
+            # doesn't overwrite each image's stored thermal_param)
+            self.radio_param = copy.deepcopy(ref_im.thermal_param)
+        else:
+            # Individual settings: params will be read per-image in process_image
+            self.custom_params = None
+            self.radio_param = None
 
     def run(self):
         # Create necessary subfolders upfront to avoid repeated I/O operations
@@ -308,12 +315,14 @@ class RunnerDJI(QtCore.QRunnable):
 
         # Define a worker function for parallel execution
         def process_image(i, img):
-            if i < 9:
+            if i <= 9:
                 prefix = '000'
-            elif 9 < i < 99:
+            elif i <= 99:
                 prefix = '00'
-            elif 99 < i < 999:
+            elif i <= 999:
                 prefix = '0'
+            else:
+                prefix = ''
 
             iter = int(i * (self.stop - self.start) / len(self.img_objects))
 
@@ -334,13 +343,30 @@ class RunnerDJI(QtCore.QRunnable):
 
             dest_path = os.path.join(ir_subfolder, name)
 
+            # Resolve per-image or global params
+            if self.individual_settings:
+                # Each image uses its own stored radiometric parameters
+                radio_param = copy.deepcopy(img.thermal_param)
+                custom_params = {
+                    "tmin": img.tmin_shown,
+                    "tmax": img.tmax_shown,
+                    "colormap": img.colormap,
+                    "n_colors": img.n_colors,
+                    "col_high": img.user_lim_col_high,
+                    "col_low": img.user_lim_col_low,
+                    "post_process": img.post_process
+                }
+            else:
+                radio_param = self.radio_param
+                custom_params = self.custom_params
+
             # Process raw data for IR image
             process_raw_data(img,
                              dest_path,
                              edges=self.edges,
-                             radio_param=self.radio_param,
+                             radio_param=radio_param,
                              edge_params=self.edges_params,
-                             custom_params=self.custom_params,
+                             custom_params=custom_params,
                              undis=self.undis,
                              zoom=self.zoom,
                              change_shown=False)
@@ -351,9 +377,9 @@ class RunnerDJI(QtCore.QRunnable):
                 process_raw_data(img,
                                  dest_path_tiff,
                                  edges=self.edges,
-                                 radio_param=self.radio_param,
+                                 radio_param=radio_param,
                                  edge_params=self.edges_params,
-                                 custom_params=self.custom_params,
+                                 custom_params=custom_params,
                                  export_tif=True,
                                  undis=self.undis,
                                  zoom=self.zoom,
@@ -387,7 +413,8 @@ class RunnerDJI(QtCore.QRunnable):
 
         # Generate legend in the last step
         legend_dest_path = os.path.join(self.dest_folder, 'plot_onlycbar_tight.png')
-        generate_legend(legend_dest_path, self.custom_params)
+        if self.custom_params is not None:
+            generate_legend(legend_dest_path, self.custom_params)
 
         self.signals.finished.emit()
 

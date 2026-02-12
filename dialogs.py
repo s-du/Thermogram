@@ -1288,6 +1288,7 @@ class DialogBatchExport(QtWidgets.QDialog):
 
         self.comboBox_naming.addItems(['Rename files', 'Keep IR names', 'Match IR with RGB names'])
         self.comboBox_img_format.addItems(['PNG', 'JPG'])
+        self.comboBox_export_mode.addItems(['Use current image settings', 'Use individual image settings'])
 
         # ListView Setup
         self.img_list = img_list

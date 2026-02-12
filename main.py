@@ -442,6 +442,7 @@ class DroneIrWindow(QMainWindow):
             self.pushButton_left.clicked.connect(lambda: self.update_img_to_preview('minus'))
             self.pushButton_right.clicked.connect(lambda: self.update_img_to_preview('plus'))
             self.pushButton_estimate.clicked.connect(self.estimate_temp)
+            self.pushButton_adjust_refl_temp.clicked.connect(self.adjust_refl_temp_from_previous)
             self.pushButton_meas_color.clicked.connect(self.change_meas_color)
             self.pushButton_match.clicked.connect(self.image_matching)
             self.pushButton_edge_options.clicked.connect(self.edge_options)
@@ -451,6 +452,9 @@ class DroneIrWindow(QMainWindow):
             self.pushButton_reset_range.clicked.connect(self.reset_temp_range)
             self.pushButton_heatflow.clicked.connect(self.viz_heatflow)
             self.pushButton_optimhisto.clicked.connect(self.optimal_range)
+            self.pushButton_apply_temp_all.clicked.connect(self.apply_temp_settings_to_all)
+            self.pushButton_apply_palette_all.clicked.connect(self.apply_palette_settings_to_all)
+            self.pushButton_apply_radio_all.clicked.connect(self.apply_radiometric_settings_to_all)
             self.pushButton_add_custom_palette.clicked.connect(self.add_palette)
 
             # Dropdowns Comboboxes
@@ -520,8 +524,19 @@ class DroneIrWindow(QMainWindow):
             else:
                 self.thermal_param['reflection'] = refl_temp
 
-            # Now we can safely switch image data and update preview
-            self.switch_image_data()
+            # Apply the new radiometric parameters directly to the current image
+            self.work_image.update_data_from_param(copy.deepcopy(self.thermal_param))
+
+            # Update slider and line edits with the new temperature range
+            tmin, tmax, tmin_shown, tmax_shown = self.work_image.get_temp_data()
+            self.slider_sensitive = False
+            self.lineEdit_min_temp.setText(str(round(tmin_shown, 2)))
+            self.lineEdit_max_temp.setText(str(round(tmax_shown, 2)))
+            self.range_slider.setMinimum(int(tmin * 100))
+            self.range_slider.setMaximum(int(tmax * 100))
+            self.range_slider.setLowerValue(tmin_shown * 100)
+            self.range_slider.setUpperValue(tmax_shown * 100)
+            self.slider_sensitive = True
 
             self.retrace_items()
             self.update_img_preview()
@@ -558,6 +573,13 @@ class DroneIrWindow(QMainWindow):
                     self.lineEdit_max_temp.setText(str(round(self.work_image.tmax_shown, 2)))
                     return
 
+            # Expand slider min/max so handles stay visible even if user types
+            # temperatures outside the image's natural range
+            new_min = int(min(tmin * 100, self.range_slider.minimum()))
+            new_max = int(max(tmax * 100, self.range_slider.maximum()))
+            self.range_slider.setMinimum(new_min)
+            self.range_slider.setMaximum(new_max)
+
             # Adapt sliders
             self.range_slider.setLowerValue(tmin * 100)
             self.range_slider.setUpperValue(tmax * 100)
@@ -565,7 +587,6 @@ class DroneIrWindow(QMainWindow):
 
         except Exception as e:
             error(f"Error updating temperature range: {str(e)}")
-            raise ThermogramError("Failed to update temperature range") from e
             self.lineEdit_min_temp.setText(str(round(self.work_image.tmin_shown, 2)))
             self.lineEdit_max_temp.setText(str(round(self.work_image.tmax_shown, 2)))
         finally:
@@ -584,11 +605,21 @@ class DroneIrWindow(QMainWindow):
             self.update_img_preview()
 
     def optimal_range(self):
+        self.slider_sensitive = False
         tmin_shown, tmax_shown = self.work_image.compute_optimal_temp_range()
         self.lineEdit_min_temp.setText(str(round(tmin_shown, 2)))
         self.lineEdit_max_temp.setText(str(round(tmax_shown, 2)))
+
+        # Expand slider min/max so handles stay visible
+        new_min = int(min(tmin_shown * 100, self.range_slider.minimum()))
+        new_max = int(max(tmax_shown * 100, self.range_slider.maximum()))
+        self.range_slider.setMinimum(new_min)
+        self.range_slider.setMaximum(new_max)
+
         self.range_slider.setLowerValue(tmin_shown * 100)
         self.range_slider.setUpperValue(tmax_shown * 100)
+        self.slider_sensitive = True
+        self.update_img_preview()
 
     def reset_temp_range(self):
         """Reset the temperature range to the full range of the current image.
@@ -598,21 +629,26 @@ class DroneIrWindow(QMainWindow):
         temperature range limits.
         """
         try:
+            self.slider_sensitive = False
             self.work_image.update_data_from_param(copy.deepcopy(self.work_image.thermal_param))
             tmin, tmax, _, _ = self.work_image.get_temp_data()
             # Fill values lineedits
             self.lineEdit_min_temp.setText(str(round(tmin, 2)))
             self.lineEdit_max_temp.setText(str(round(tmax, 2)))
-            self.range_slider.setLowerValue(tmin * 100)
-            self.range_slider.setUpperValue(tmax * 100)
+            # Set min/max before handle values so handles are always within range
             self.range_slider.setMinimum(int(tmin * 100))
             self.range_slider.setMaximum(int(tmax * 100))
+            self.range_slider.setLowerValue(tmin * 100)
+            self.range_slider.setUpperValue(tmax * 100)
 
             debug(f"Temperature range reset to {tmin:.1f} - {tmax:.1f}")
 
         except Exception as e:
             error(f"Failed to reset temperature range: {str(e)}")
             raise ThermogramError("Failed to reset temperature range") from e
+        finally:
+            self.slider_sensitive = True
+            self.update_img_preview()
 
     def estimate_temp(self):
         ref_pic_name = QFileDialog.getOpenFileName(self, 'Open file',
@@ -624,6 +660,122 @@ class DroneIrWindow(QMainWindow):
             self.lineEdit_max_temp.setText(str(round(tmax, 2)))
 
         self.update_img_preview()
+
+    def adjust_refl_temp_from_previous(self):
+        """Adjust the reflective temperature of the current image so that its
+        temperature distribution matches the previous image's distribution."""
+        if self.active_image == 0:
+            QMessageBox.warning(self, "Warning",
+                                "There is no previous image to match against.")
+            return
+
+        try:
+            QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+
+            # Get the previous image and ensure its data is loaded
+            prev_image = self.images[self.active_image - 1]
+            prev_image.ensure_data_loaded(reset_shown_values=False)
+            ref_raw_data = prev_image.raw_data_undis
+
+            # Run the optimisation
+            optimal_refl = self.work_image.find_matching_refl_temp(ref_raw_data)
+
+            # Apply the new reflective temperature
+            self.thermal_param['reflection'] = optimal_refl
+            self.work_image.update_data_from_param(copy.deepcopy(self.thermal_param))
+
+            # Update UI
+            self.lineEdit_refl_temp.setText(str(round(optimal_refl, 2)))
+            tmin, tmax, tmin_shown, tmax_shown = self.work_image.get_temp_data()
+            self.slider_sensitive = False
+            self.lineEdit_min_temp.setText(str(round(tmin_shown, 2)))
+            self.lineEdit_max_temp.setText(str(round(tmax_shown, 2)))
+            self.range_slider.setMinimum(int(tmin * 100))
+            self.range_slider.setMaximum(int(tmax * 100))
+            self.range_slider.setLowerValue(tmin_shown * 100)
+            self.range_slider.setUpperValue(tmax_shown * 100)
+            self.slider_sensitive = True
+
+            self.retrace_items()
+            self.update_img_preview()
+
+            debug(f"Reflective temperature adjusted to {optimal_refl:.2f} °C "
+                  f"(matching image {self.active_image - 1})")
+
+        except Exception as e:
+            error(f"Failed to adjust reflective temperature: {str(e)}")
+            QMessageBox.warning(self, "Error",
+                                f"Failed to adjust reflective temperature:\n{str(e)}")
+        finally:
+            QApplication.restoreOverrideCursor()
+
+    def apply_temp_settings_to_all(self):
+        """Apply the current image's temperature display settings to all loaded images."""
+        try:
+            tmin_shown = float(self.lineEdit_min_temp.text())
+            tmax_shown = float(self.lineEdit_max_temp.text())
+
+            for img in self.images:
+                img.tmin_shown = tmin_shown
+                img.tmax_shown = tmax_shown
+
+            info(f"Applied temperature settings ({tmin_shown:.2f} - {tmax_shown:.2f}) to all {len(self.images)} images")
+            QMessageBox.information(self, "Done",
+                                   f"Temperature range ({tmin_shown:.2f} – {tmax_shown:.2f} °C) "
+                                   f"applied to all {len(self.images)} images.")
+        except Exception as e:
+            error(f"Failed to apply temperature settings to all: {str(e)}")
+            QMessageBox.warning(self, "Error",
+                                f"Failed to apply temperature settings:\n{str(e)}")
+
+    def apply_palette_settings_to_all(self):
+        """Apply the current image's palette/colormap settings to all loaded images."""
+        try:
+            self.compile_user_values()
+
+            colormap = self.work_image.colormap
+            n_colors = self.work_image.n_colors
+            col_high = self.work_image.user_lim_col_high
+            col_low = self.work_image.user_lim_col_low
+            post_process = self.work_image.post_process
+
+            for img in self.images:
+                img.colormap = colormap
+                img.n_colors = n_colors
+                img.user_lim_col_high = col_high
+                img.user_lim_col_low = col_low
+                img.post_process = post_process
+
+            info(f"Applied palette settings (colormap={colormap}) to all {len(self.images)} images")
+            QMessageBox.information(self, "Done",
+                                   f"Palette settings (colormap: {colormap}) "
+                                   f"applied to all {len(self.images)} images.")
+        except Exception as e:
+            error(f"Failed to apply palette settings to all: {str(e)}")
+            QMessageBox.warning(self, "Error",
+                                f"Failed to apply palette settings:\n{str(e)}")
+
+    def apply_radiometric_settings_to_all(self):
+        """Apply the current radiometric parameters to all loaded images."""
+        try:
+            QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+            params = copy.deepcopy(self.thermal_param)
+
+            for img in self.images:
+                img.update_data_from_param(copy.deepcopy(params))
+
+            info(f"Applied radiometric settings to all {len(self.images)} images: {params}")
+            QMessageBox.information(self, "Done",
+                                   f"Radiometric settings (emissivity={params['emissivity']}, "
+                                   f"distance={params['distance']}, "
+                                   f"reflection={params['reflection']}) "
+                                   f"applied to all {len(self.images)} images.")
+        except Exception as e:
+            error(f"Failed to apply radiometric settings to all: {str(e)}")
+            QMessageBox.warning(self, "Error",
+                                f"Failed to apply radiometric settings:\n{str(e)}")
+        finally:
+            QApplication.restoreOverrideCursor()
 
     # PALETTE _________________________________________________________________
     def add_palette(self):
@@ -1327,6 +1479,8 @@ class DroneIrWindow(QMainWindow):
         self.lineEdit_emissivity.setEnabled(True)
         self.lineEdit_refl_temp.setEnabled(True)
         self.pushButton_estimate.setEnabled(True)
+        self.pushButton_adjust_refl_temp.setEnabled(True)
+        self.pushButton_apply_radio_all.setEnabled(True)
         self.pushButton_reset_range.setEnabled(True)
         self.pushButton_optimhisto.setEnabled(True)
 
@@ -1345,6 +1499,8 @@ class DroneIrWindow(QMainWindow):
 
         #   other buttons
         self.pushButton_heatflow.setEnabled(True)
+        self.pushButton_apply_temp_all.setEnabled(True)
+        self.pushButton_apply_palette_all.setEnabled(True)
         self.pushButton_delete_area.setEnabled(True)
         self.pushButton_delete_points.setEnabled(True)
         self.pushButton_delete_lines.setEnabled(True)
@@ -1500,7 +1656,17 @@ class DroneIrWindow(QMainWindow):
 
             self.update_img_preview()
             self.comboBox_img.clear()
-            self.comboBox_img.addItems(self.ir_imgs)
+            self.comboBox_img.setIconSize(QSize(64, 48))
+            for i, img_name in enumerate(self.ir_imgs):
+                icon = QIcon()
+                try:
+                    pixmap = QPixmap(str(self.list_ir_paths[i]))
+                    if not pixmap.isNull():
+                        icon = QIcon(pixmap.scaled(64, 48, Qt.AspectRatioMode.KeepAspectRatio,
+                                                   Qt.TransformationMode.SmoothTransformation))
+                except Exception:
+                    pass
+                self.comboBox_img.addItem(icon, img_name)
 
             # Final progress
             self.update_progress(nb=100, text="Status: You can now process thermal images!")
@@ -1654,9 +1820,11 @@ class DroneIrWindow(QMainWindow):
                     naming_type = 'match_rgb'
 
                 out_folder = dialog.lineEdit.text()
+                individual_settings = dialog.comboBox_export_mode.currentIndex() == 1
 
                 worker_1 = tt.RunnerDJI(5, 100, out_folder, selected_images, self.work_image, self.edges,
-                                        self.edge_params, undis=undis, zoom=zoom, naming_type=naming_type,
+                                        self.edge_params, individual_settings=individual_settings,
+                                        undis=undis, zoom=zoom, naming_type=naming_type,
                                         file_format=format,
                                         list_of_ir_export=list_ir_export, list_of_rgb_export=list_rgb_export)
                 worker_1.signals.progressed.connect(lambda value: self.update_progress(value))
@@ -1999,10 +2167,11 @@ class DroneIrWindow(QMainWindow):
             # fill values lineedits
             self.lineEdit_min_temp.setText(str(round(tmin_shown, 2)))
             self.lineEdit_max_temp.setText(str(round(tmax_shown, 2)))
-            self.range_slider.setLowerValue(tmin_shown * 100)
-            self.range_slider.setUpperValue(tmax_shown * 100)
+            # Set min/max before handle values so handles are always within range
             self.range_slider.setMinimum(int(tmin * 100))
             self.range_slider.setMaximum(int(tmax * 100))
+            self.range_slider.setLowerValue(tmin_shown * 100)
+            self.range_slider.setUpperValue(tmax_shown * 100)
 
         else:
             # set tmin and tmax shown on pictures:

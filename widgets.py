@@ -28,6 +28,7 @@ class QRangeSlider(QSlider):
 
         self._lowerPressed = False
         self._upperPressed = False
+        self._blockEmit = False
         self.handleWidth = 20
         self.handleHeight = 30
         self.trackHeight = 30
@@ -72,7 +73,13 @@ class QRangeSlider(QSlider):
         )
 
     def scalePosition(self, value):
-        return ((value - self.minimum()) / (self.maximum() - self.minimum())) * self.width()
+        range_ = self.maximum() - self.minimum()
+        if range_ == 0:
+            return self.width() / 2
+        pos = ((value - self.minimum()) / range_) * self.width()
+        # Clamp so handles never draw outside the widget
+        pos = max(self.handleWidth // 2, min(pos, self.width() - self.handleWidth // 2))
+        return pos
 
     def setHandleDimensions(self, width, height):
         """Allow external control over handle size."""
@@ -106,19 +113,30 @@ class QRangeSlider(QSlider):
         return self._lowerValue
 
     def upperValue(self):
-        return self._lowerValue
+        return self._upperValue
 
     def setLowerValue(self, value):
         self._lowerValue = value
-        self.lowerValueChanged.emit(value)
+        if not self._blockEmit:
+            self.lowerValueChanged.emit(int(value))
         self.update()
-
-    def upperValue(self):
-        return self._upperValue
 
     def setUpperValue(self, value):
         self._upperValue = value
-        self.upperValueChanged.emit(value)
+        if not self._blockEmit:
+            self.upperValueChanged.emit(int(value))
+        self.update()
+
+    def setRange(self, lower, upper):
+        """Set both handle values and slider min/max in one call without emitting intermediate signals."""
+        self._blockEmit = True
+        self.setMinimum(int(min(lower, self.minimum())))
+        self.setMaximum(int(max(upper, self.maximum())))
+        self._lowerValue = lower
+        self._upperValue = upper
+        self._blockEmit = False
+        self.lowerValueChanged.emit(int(lower))
+        self.upperValueChanged.emit(int(upper))
         self.update()
 
     def mousePressEvent(self, event):
