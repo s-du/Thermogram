@@ -1340,6 +1340,27 @@ class DialogBatchExport(QtWidgets.QDialog):
             self.lineEdit.setText(folder_path)
 
 
+class DialogOptions(QtWidgets.QDialog):
+    """
+    Dialog that allows the user to choose application options (e.g. temperature unit).
+    """
+
+    def __init__(self, current_temp_unit='C', parent=None):
+        super().__init__(parent)
+        basepath = os.path.dirname(__file__)
+        uifile = os.path.join(basepath, 'ui/options_dialog.ui')
+        loadUi(uifile, self)
+
+        self.comboBox_temp_unit.addItems(['°C (Celsius)', '°F (Fahrenheit)'])
+        if current_temp_unit == 'F':
+            self.comboBox_temp_unit.setCurrentIndex(1)
+        else:
+            self.comboBox_temp_unit.setCurrentIndex(0)
+
+    def get_temp_unit(self):
+        return 'F' if self.comboBox_temp_unit.currentIndex() == 1 else 'C'
+
+
 class DialogEdgeOptions(QtWidgets.QDialog):
     """
     Dialog that allows the user to choose advances thermography options
@@ -1673,7 +1694,7 @@ class ReportConfigDialog(QtWidgets.QDialog):
 
 # MeasLineDialog
 class MeasLineDialog(QtWidgets.QDialog):
-    def __init__(self, data):
+    def __init__(self, data, temp_unit='C'):
         QtWidgets.QDialog.__init__(self)
         basepath = os.path.dirname(__file__)
         basename = 'meas_dialog_2d'
@@ -1681,6 +1702,7 @@ class MeasLineDialog(QtWidgets.QDialog):
         loadUi(uifile, self)
 
         self.setWindowTitle('Line Measurement')
+        self.temp_unit = temp_unit
 
         self.data = data
         self.y_values = data
@@ -1716,9 +1738,15 @@ class MeasLineDialog(QtWidgets.QDialog):
             ax.plot(min_x, min_y, 'o', color='blue', markersize=7, label='Local Minima',
                     markeredgecolor='black', markeredgewidth=0.5)
 
+        # Convert y-axis ticks to display unit
+        if self.temp_unit == 'F':
+            import matplotlib.ticker as mticker
+            ax.yaxis.set_major_formatter(mticker.FuncFormatter(
+                lambda y, _: f"{y * 9.0 / 5.0 + 32.0:.1f}"))
+
         # Aesthetics
         ax.set_xlabel("Length [pixels]", fontsize=10)
-        ax.set_ylabel("Temperature [°C]", fontsize=10)
+        ax.set_ylabel(f"Temperature [{self._unit_suffix()}]", fontsize=10)
         ax.tick_params(axis='both', which='major', labelsize=9)
         ax.grid(True, linestyle='--', linewidth=0.5, alpha=0.7)
         ax.set_facecolor('#fafafa')
@@ -1762,46 +1790,58 @@ class MeasLineDialog(QtWidgets.QDialog):
     def create_connections(self):
         pass
 
+    @staticmethod
+    def _display_temp(t, unit='C'):
+        if unit == 'F':
+            return t * 9.0 / 5.0 + 32.0
+        return t
+
+    def _unit_suffix(self):
+        return '°F' if self.temp_unit == 'F' else '°C'
+
     def create_highlights(self):
         # Basic stats
         self.tmax = np.amax(self.y_values)
         self.tmin = np.amin(self.y_values)
         self.tmean = np.mean(self.y_values)
 
+        suffix = self._unit_suffix()
         highlights = [
-            ['Max. Temp. [°C]', f"{self.tmax:.2f}"],
-            ['Min. Temp. [°C]', f"{self.tmin:.2f}"],
-            ['Average Temp. [°C]', f"{self.tmean:.2f}"]
+            [f'Max. Temp. [{suffix}]', f"{self._display_temp(self.tmax, self.temp_unit):.2f}"],
+            [f'Min. Temp. [{suffix}]', f"{self._display_temp(self.tmin, self.temp_unit):.2f}"],
+            [f'Average Temp. [{suffix}]', f"{self._display_temp(self.tmean, self.temp_unit):.2f}"]
         ]
 
         # --- Local extrema using utility function ---
         self.local_max_idx, self.local_min_idx = tt.find_local_extrema(self.y_values, order=20, max_points=4)
 
         for i, idx in enumerate(self.local_max_idx):
-            highlights.append([f"Local Max {i + 1} @ {idx}", f"{self.y_values[idx]:.2f}"])
+            highlights.append([f"Local Max {i + 1} @ {idx}", f"{self._display_temp(self.y_values[idx], self.temp_unit):.2f}"])
 
         for i, idx in enumerate(self.local_min_idx):
-            highlights.append([f"Local Min {i + 1} @ {idx}", f"{self.y_values[idx]:.2f}"])
+            highlights.append([f"Local Min {i + 1} @ {idx}", f"{self._display_temp(self.y_values[idx], self.temp_unit):.2f}"])
 
         return highlights
 
 
 class Meas3dDialog_simple(QtWidgets.QDialog):
-    def __init__(self, rect_annot):
+    def __init__(self, rect_annot, temp_unit='C'):
         QtWidgets.QDialog.__init__(self)
         basepath = os.path.dirname(__file__)
         basename = 'meas_dialog_3d_simple'
         uifile = os.path.join(basepath, 'ui/%s.ui' % basename)
         loadUi(uifile, self)
 
+        self.temp_unit = temp_unit
+        suffix = '°F' if temp_unit == 'F' else '°C'
         self.setWindowTitle('Area Measurement')
         self.matplot_c = wid.MplCanvas_project3d(self)
         self.ax = self.matplot_c.figure.add_subplot(projection='3d')  # add subplot, retrieve axis object
         self.ax.view_init(elev=70, azim=-45, roll=0)
-        self.ax.set_zlabel('Temperature [°C]')
+        self.ax.set_zlabel(f'Temperature [{suffix}]')
 
         self.data = rect_annot.data_roi
-        self.highlights = rect_annot.compute_highlights()
+        self.highlights = rect_annot.compute_highlights(temp_unit=temp_unit)
 
         # add table model for data
         self.model = wid.TableModel(self.highlights)
@@ -1858,7 +1898,8 @@ class Meas3dDialog_simple(QtWidgets.QDialog):
 
         self.ax.set_xticks([])  # Remove X-axis ticks
         self.ax.set_yticks([])  # Remove Y-axis ticks
-        self.ax.set_zlabel('Temperature [°C]')
+        suffix = '°F' if self.temp_unit == 'F' else '°C'
+        self.ax.set_zlabel(f'Temperature [{suffix}]')
 
         # Calculate the Z scaling factor to match the maximum extent of the X or Y axis
         max_data_dim = max(self.data.shape[0], self.data.shape[1])
@@ -1877,21 +1918,23 @@ class Meas3dDialog_simple(QtWidgets.QDialog):
 
 
 class Meas3dDialog(QtWidgets.QDialog):
-    def __init__(self, rect_annot):
+    def __init__(self, rect_annot, temp_unit='C'):
         QtWidgets.QDialog.__init__(self)
         basepath = os.path.dirname(__file__)
         basename = 'meas_dialog_3d'
         uifile = os.path.join(basepath, 'ui/%s.ui' % basename)
         loadUi(uifile, self)
 
+        self.temp_unit = temp_unit
+        suffix = '°F' if temp_unit == 'F' else '°C'
         self.setWindowTitle('Area Measurement')
         self.matplot_c = wid.MplCanvas_project3d(self)
         self.ax = self.matplot_c.figure.add_subplot(projection='3d')  # add subplot, retrieve axis object
         self.ax.view_init(elev=70, azim=-45, roll=0)
-        self.ax.set_zlabel('Temperature [°C]')
+        self.ax.set_zlabel(f'Temperature [{suffix}]')
 
         self.data = rect_annot.data_roi
-        self.highlights = rect_annot.compute_highlights()
+        self.highlights = rect_annot.compute_highlights(temp_unit=temp_unit)
 
         # create dualviewer
         self.dual_view = wid.DualViewer()
@@ -1952,7 +1995,8 @@ class Meas3dDialog(QtWidgets.QDialog):
 
         self.ax.set_xticks([])  # Remove X-axis ticks
         self.ax.set_yticks([])  # Remove Y-axis ticks
-        self.ax.set_zlabel('Temperature [°C]')
+        suffix = '°F' if self.temp_unit == 'F' else '°C'
+        self.ax.set_zlabel(f'Temperature [{suffix}]')
 
         # Calculate the Z scaling factor to match the maximum extent of the X or Y axis
         max_data_dim = max(self.data.shape[0], self.data.shape[1])

@@ -698,7 +698,7 @@ class ProcessedIm:
 
         return canvas
 
-    def update_temperature_histogram(self, canvas, bins=50):
+    def update_temperature_histogram(self, canvas, bins=50, temp_unit='C'):
         if canvas is None or not hasattr(canvas, 'ax'):
             print("Warning: Tried to update histogram, but canvas is None or incomplete.")
             return
@@ -707,6 +707,7 @@ class ProcessedIm:
 
         import numpy as np
         from matplotlib import cm
+        import matplotlib.ticker as mticker
 
         ax = canvas.ax
         fig = ax.figure
@@ -735,7 +736,10 @@ class ProcessedIm:
         ax.set_facecolor("none")
         fig.patch.set_alpha(0.0)
 
-        # Enable x-axis with temperature ticks
+        # Enable x-axis with temperature ticks (convert to display unit)
+        if temp_unit == 'F':
+            ax.xaxis.set_major_formatter(mticker.FuncFormatter(
+                lambda x, _: f"{x * 9.0 / 5.0 + 32.0:.0f}"))
         ax.tick_params(axis='x', labelsize=7)
         ax.yaxis.set_visible(False)
 
@@ -756,7 +760,17 @@ class PointMeas:
         self.temp = 0
         self.all_items = []
 
-    def create_items(self):
+    @staticmethod
+    def _display_temp(t, unit='C'):
+        if unit == 'F':
+            return t * 9.0 / 5.0 + 32.0
+        return t
+
+    @staticmethod
+    def _unit_suffix(unit='C'):
+        return '°F' if unit == 'F' else '°C'
+
+    def create_items(self, temp_unit='C'):
         self.ellipse_item = QGraphicsEllipseItem()
 
         p1 = QPointF(self.qpoint.x() - 2, self.qpoint.y() - 2)
@@ -765,11 +779,12 @@ class PointMeas:
         r = QRectF(p1, p2)
         self.ellipse_item.setRect(r)
 
-        temp = round(self.temp, 2)
+        temp = round(self._display_temp(self.temp, temp_unit), 2)
+        suffix = self._unit_suffix(temp_unit)
         self.text_item = QGraphicsTextItem()
         self.text_item.setPos(self.qpoint)
         self.text_item.setHtml(
-            "<div style='background-color:rgba(255, 255, 255, 0.3);'>" + str(temp) + "</div>")
+            f"<div style='background-color:rgba(255, 255, 255, 0.3);'>{temp}{suffix}</div>")
 
 
 class LineMeas:
@@ -833,7 +848,17 @@ class LineMeas:
         self.local_maxima = maxima_idx
         self.local_minima = minima_idx
 
-    def create_items(self):
+    @staticmethod
+    def _display_temp(t, unit='C'):
+        if unit == 'F':
+            return t * 9.0 / 5.0 + 32.0
+        return t
+
+    @staticmethod
+    def _unit_suffix(unit='C'):
+        return '°F' if unit == 'F' else '°C'
+
+    def create_items(self, temp_unit='C'):
         self.spot_items.clear()
         self.text_items.clear()
 
@@ -847,10 +872,11 @@ class LineMeas:
         xs = np.linspace(P1[0], P2[0], num_points)
         ys = np.linspace(P1[1], P2[1], num_points)
 
+        suffix = self._unit_suffix(temp_unit)
         for i, idx in enumerate(np.concatenate((self.local_maxima, self.local_minima))):
             x, y = xs[idx], ys[idx]
-            temp = self.data_roi[idx]
-            temp_str = f"{temp:.2f}"
+            temp = self._display_temp(self.data_roi[idx], temp_unit)
+            temp_str = f"{temp:.2f}{suffix}"
 
             # Create ellipse
             ellipse = QGraphicsEllipseItem()
@@ -923,7 +949,17 @@ class RectMeas:
 
         return roi_ir, roi_rgb
 
-    def compute_highlights(self):
+    @staticmethod
+    def _display_temp(t, unit='C'):
+        if unit == 'F':
+            return t * 9.0 / 5.0 + 32.0
+        return t
+
+    @staticmethod
+    def _unit_suffix(unit='C'):
+        return '°F' if unit == 'F' else '°C'
+
+    def compute_highlights(self, temp_unit='C'):
         self.tmax = np.amax(self.data_roi)
         self.tmin = np.amin(self.data_roi)
         self.tmean = np.mean(self.data_roi)
@@ -934,16 +970,17 @@ class RectMeas:
         # normalized data
         self.th_norm = (self.data_roi - self.tmin) / (self.tmax - self.tmin)
 
+        suffix = self._unit_suffix(temp_unit)
         highlights = [
             ['Size [pxl²]', self.area],
-            ['Max. Temp. [°C]', str(self.tmax)],
-            ['Min. Temp. [°C]', str(self.tmin)],
-            ['Average Temp. [°C]', str(self.tmean)],
-            ['Std. Dev. Temp. [°C]', str(self.tstd)]
+            [f'Max. Temp. [{suffix}]', str(self._display_temp(self.tmax, temp_unit))],
+            [f'Min. Temp. [{suffix}]', str(self._display_temp(self.tmin, temp_unit))],
+            [f'Average Temp. [{suffix}]', str(self._display_temp(self.tmean, temp_unit))],
+            [f'Std. Dev. Temp. [{suffix}]', str(self._display_temp(self.tstd, temp_unit))]
         ]
         return highlights
 
-    def create_items(self):
+    def create_items(self, temp_unit='C'):
         initial_coords = self.get_coord_from_item(self.main_item)
         top_left = initial_coords[0]
         x_t_l = top_left.x()
@@ -967,8 +1004,9 @@ class RectMeas:
         # print(f'Minimum position: {xmin, ymin}')
         # print(f'Maximum position: {xmax, ymax}')
 
-        temp_min = str(round(self.tmin, 2))
-        temp_max = str(round(self.tmax, 2))
+        suffix = self._unit_suffix(temp_unit)
+        temp_min = str(round(self._display_temp(self.tmin, temp_unit), 2)) + suffix
+        temp_max = str(round(self._display_temp(self.tmax, temp_unit), 2)) + suffix
 
         self.create_labelled_point(xmin, ymin, temp_min)
         self.create_labelled_point(xmax, ymax, temp_max)

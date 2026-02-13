@@ -353,6 +353,9 @@ class DroneIrWindow(QMainWindow):
 
             self.current_view = 0
 
+            # Temperature display unit ('C' or 'F')
+            self.temp_unit = 'C'
+
             # Default thermal options:
             self.thermal_param = {'emissivity': thermal_config.DEFAULT_EMISSIVITY,
                                   'distance': thermal_config.DEFAULT_DISTANCE,
@@ -409,6 +412,7 @@ class DroneIrWindow(QMainWindow):
             self.actionLoad_folder.triggered.connect(self.load_folder_phase1)
             self.actionReset_all.triggered.connect(self.full_reset)
             self.actionToggle_stylesheet.triggered.connect(self.toggle_stylesheet)
+            self.actionOptions.triggered.connect(self.open_options)
 
             # Processing actions
             self.actionRectangle_meas.triggered.connect(self.rectangle_meas)
@@ -530,12 +534,12 @@ class DroneIrWindow(QMainWindow):
             # Update slider and line edits with the new temperature range
             tmin, tmax, tmin_shown, tmax_shown = self.work_image.get_temp_data()
             self.slider_sensitive = False
-            self.lineEdit_min_temp.setText(str(round(tmin_shown, 2)))
-            self.lineEdit_max_temp.setText(str(round(tmax_shown, 2)))
-            self.range_slider.setMinimum(int(tmin * 100))
-            self.range_slider.setMaximum(int(tmax * 100))
-            self.range_slider.setLowerValue(tmin_shown * 100)
-            self.range_slider.setUpperValue(tmax_shown * 100)
+            self.lineEdit_min_temp.setText(str(round(self.display_temp(tmin_shown), 2)))
+            self.lineEdit_max_temp.setText(str(round(self.display_temp(tmax_shown), 2)))
+            self.range_slider.setMinimum(int(self.display_temp(tmin) * 100))
+            self.range_slider.setMaximum(int(self.display_temp(tmax) * 100))
+            self.range_slider.setLowerValue(self.display_temp(tmin_shown) * 100)
+            self.range_slider.setUpperValue(self.display_temp(tmax_shown) * 100)
             self.slider_sensitive = True
 
             self.retrace_items()
@@ -559,36 +563,36 @@ class DroneIrWindow(QMainWindow):
             # Temporarily disable slider sensitivity to avoid loops
             self.slider_sensitive = False
 
-            # Get current temperature values from Linedits
-            tmin = float(self.lineEdit_min_temp.text())
-            tmax = float(self.lineEdit_max_temp.text())
+            # Get current temperature values from Linedits (in display units)
+            tmin_display = float(self.lineEdit_min_temp.text())
+            tmax_display = float(self.lineEdit_max_temp.text())
 
             # Check boundaries validity
             if not self.skip_update:
-                if tmax <= tmin:
+                if tmax_display <= tmin_display:
                     QMessageBox.warning(self, "Warning",
                                         "Oops! A least one of the temperatures is not valid.  Try again...")
 
-                    self.lineEdit_min_temp.setText(str(round(self.work_image.tmin_shown, 2)))
-                    self.lineEdit_max_temp.setText(str(round(self.work_image.tmax_shown, 2)))
+                    self.lineEdit_min_temp.setText(str(round(self.display_temp(self.work_image.tmin_shown), 2)))
+                    self.lineEdit_max_temp.setText(str(round(self.display_temp(self.work_image.tmax_shown), 2)))
                     return
 
             # Expand slider min/max so handles stay visible even if user types
             # temperatures outside the image's natural range
-            new_min = int(min(tmin * 100, self.range_slider.minimum()))
-            new_max = int(max(tmax * 100, self.range_slider.maximum()))
+            new_min = int(min(tmin_display * 100, self.range_slider.minimum()))
+            new_max = int(max(tmax_display * 100, self.range_slider.maximum()))
             self.range_slider.setMinimum(new_min)
             self.range_slider.setMaximum(new_max)
 
-            # Adapt sliders
-            self.range_slider.setLowerValue(tmin * 100)
-            self.range_slider.setUpperValue(tmax * 100)
-            debug(f"Temperature range updated: {tmin:.1f} - {tmax:.1f}")
+            # Adapt sliders (slider works in display units * 100)
+            self.range_slider.setLowerValue(tmin_display * 100)
+            self.range_slider.setUpperValue(tmax_display * 100)
+            debug(f"Temperature range updated: {tmin_display:.1f} - {tmax_display:.1f} {self.temp_unit_suffix()}")
 
         except Exception as e:
             error(f"Error updating temperature range: {str(e)}")
-            self.lineEdit_min_temp.setText(str(round(self.work_image.tmin_shown, 2)))
-            self.lineEdit_max_temp.setText(str(round(self.work_image.tmax_shown, 2)))
+            self.lineEdit_min_temp.setText(str(round(self.display_temp(self.work_image.tmin_shown), 2)))
+            self.lineEdit_max_temp.setText(str(round(self.display_temp(self.work_image.tmax_shown), 2)))
         finally:
             # Re-enable slider sensitivity
             self.slider_sensitive = True
@@ -607,17 +611,19 @@ class DroneIrWindow(QMainWindow):
     def optimal_range(self):
         self.slider_sensitive = False
         tmin_shown, tmax_shown = self.work_image.compute_optimal_temp_range()
-        self.lineEdit_min_temp.setText(str(round(tmin_shown, 2)))
-        self.lineEdit_max_temp.setText(str(round(tmax_shown, 2)))
+        tmin_d = self.display_temp(tmin_shown)
+        tmax_d = self.display_temp(tmax_shown)
+        self.lineEdit_min_temp.setText(str(round(tmin_d, 2)))
+        self.lineEdit_max_temp.setText(str(round(tmax_d, 2)))
 
         # Expand slider min/max so handles stay visible
-        new_min = int(min(tmin_shown * 100, self.range_slider.minimum()))
-        new_max = int(max(tmax_shown * 100, self.range_slider.maximum()))
+        new_min = int(min(tmin_d * 100, self.range_slider.minimum()))
+        new_max = int(max(tmax_d * 100, self.range_slider.maximum()))
         self.range_slider.setMinimum(new_min)
         self.range_slider.setMaximum(new_max)
 
-        self.range_slider.setLowerValue(tmin_shown * 100)
-        self.range_slider.setUpperValue(tmax_shown * 100)
+        self.range_slider.setLowerValue(tmin_d * 100)
+        self.range_slider.setUpperValue(tmax_d * 100)
         self.slider_sensitive = True
         self.update_img_preview()
 
@@ -632,16 +638,18 @@ class DroneIrWindow(QMainWindow):
             self.slider_sensitive = False
             self.work_image.update_data_from_param(copy.deepcopy(self.work_image.thermal_param))
             tmin, tmax, _, _ = self.work_image.get_temp_data()
-            # Fill values lineedits
-            self.lineEdit_min_temp.setText(str(round(tmin, 2)))
-            self.lineEdit_max_temp.setText(str(round(tmax, 2)))
+            # Fill values lineedits (in display units)
+            tmin_d = self.display_temp(tmin)
+            tmax_d = self.display_temp(tmax)
+            self.lineEdit_min_temp.setText(str(round(tmin_d, 2)))
+            self.lineEdit_max_temp.setText(str(round(tmax_d, 2)))
             # Set min/max before handle values so handles are always within range
-            self.range_slider.setMinimum(int(tmin * 100))
-            self.range_slider.setMaximum(int(tmax * 100))
-            self.range_slider.setLowerValue(tmin * 100)
-            self.range_slider.setUpperValue(tmax * 100)
+            self.range_slider.setMinimum(int(tmin_d * 100))
+            self.range_slider.setMaximum(int(tmax_d * 100))
+            self.range_slider.setLowerValue(tmin_d * 100)
+            self.range_slider.setUpperValue(tmax_d * 100)
 
-            debug(f"Temperature range reset to {tmin:.1f} - {tmax:.1f}")
+            debug(f"Temperature range reset to {tmin_d:.1f} - {tmax_d:.1f} {self.temp_unit_suffix()}")
 
         except Exception as e:
             error(f"Failed to reset temperature range: {str(e)}")
@@ -656,8 +664,8 @@ class DroneIrWindow(QMainWindow):
         img_path = ref_pic_name[0]
         if img_path != '':
             tmin, tmax = tt.compute_delta(img_path, self.thermal_param)
-            self.lineEdit_min_temp.setText(str(round(tmin, 2)))
-            self.lineEdit_max_temp.setText(str(round(tmax, 2)))
+            self.lineEdit_min_temp.setText(str(round(self.display_temp(tmin), 2)))
+            self.lineEdit_max_temp.setText(str(round(self.display_temp(tmax), 2)))
 
         self.update_img_preview()
 
@@ -688,12 +696,12 @@ class DroneIrWindow(QMainWindow):
             self.lineEdit_refl_temp.setText(str(round(optimal_refl, 2)))
             tmin, tmax, tmin_shown, tmax_shown = self.work_image.get_temp_data()
             self.slider_sensitive = False
-            self.lineEdit_min_temp.setText(str(round(tmin_shown, 2)))
-            self.lineEdit_max_temp.setText(str(round(tmax_shown, 2)))
-            self.range_slider.setMinimum(int(tmin * 100))
-            self.range_slider.setMaximum(int(tmax * 100))
-            self.range_slider.setLowerValue(tmin_shown * 100)
-            self.range_slider.setUpperValue(tmax_shown * 100)
+            self.lineEdit_min_temp.setText(str(round(self.display_temp(tmin_shown), 2)))
+            self.lineEdit_max_temp.setText(str(round(self.display_temp(tmax_shown), 2)))
+            self.range_slider.setMinimum(int(self.display_temp(tmin) * 100))
+            self.range_slider.setMaximum(int(self.display_temp(tmax) * 100))
+            self.range_slider.setLowerValue(self.display_temp(tmin_shown) * 100)
+            self.range_slider.setUpperValue(self.display_temp(tmax_shown) * 100)
             self.slider_sensitive = True
 
             self.retrace_items()
@@ -712,16 +720,20 @@ class DroneIrWindow(QMainWindow):
     def apply_temp_settings_to_all(self):
         """Apply the current image's temperature display settings to all loaded images."""
         try:
-            tmin_shown = float(self.lineEdit_min_temp.text())
-            tmax_shown = float(self.lineEdit_max_temp.text())
+            tmin_display = float(self.lineEdit_min_temp.text())
+            tmax_display = float(self.lineEdit_max_temp.text())
+
+            # Convert from display unit back to Celsius for internal storage
+            tmin_c = self.to_celsius(tmin_display)
+            tmax_c = self.to_celsius(tmax_display)
 
             for img in self.images:
-                img.tmin_shown = tmin_shown
-                img.tmax_shown = tmax_shown
+                img.tmin_shown = tmin_c
+                img.tmax_shown = tmax_c
 
-            info(f"Applied temperature settings ({tmin_shown:.2f} - {tmax_shown:.2f}) to all {len(self.images)} images")
+            info(f"Applied temperature settings ({tmin_display:.2f} - {tmax_display:.2f} {self.temp_unit_suffix()}) to all {len(self.images)} images")
             QMessageBox.information(self, "Done",
-                                   f"Temperature range ({tmin_shown:.2f} – {tmax_shown:.2f} °C) "
+                                   f"Temperature range ({tmin_display:.2f} – {tmax_display:.2f} {self.temp_unit_suffix()}) "
                                    f"applied to all {len(self.images)} images.")
         except Exception as e:
             error(f"Failed to apply temperature settings to all: {str(e)}")
@@ -864,8 +876,8 @@ class DroneIrWindow(QMainWindow):
             roi_rgb_path = ''
 
         # add interesting data to viewer
-        new_rect_annot.compute_highlights()
-        new_rect_annot.create_items()
+        new_rect_annot.compute_highlights(temp_unit=self.temp_unit)
+        new_rect_annot.create_items(temp_unit=self.temp_unit)
         for item in new_rect_annot.ellipse_items:
             self.viewer.add_item_from_annot(item)
         for item in new_rect_annot.text_items:
@@ -885,10 +897,10 @@ class DroneIrWindow(QMainWindow):
 
         # bring data 3d figure
         if self.has_rgb:
-            dialog = dia.Meas3dDialog(new_rect_annot)
+            dialog = dia.Meas3dDialog(new_rect_annot, temp_unit=self.temp_unit)
             dialog.dual_view.load_images_from_path(roi_rgb_path, roi_ir_path)
         else:
-            dialog = dia.Meas3dDialog_simple(new_rect_annot)
+            dialog = dia.Meas3dDialog_simple(new_rect_annot, temp_unit=self.temp_unit)
 
         dialog.surface_from_image_matplot(self.work_image.colormap, self.work_image.n_colors,
                                           self.work_image.user_lim_col_low,
@@ -906,7 +918,7 @@ class DroneIrWindow(QMainWindow):
         # compute stuff
         new_line_annot.compute_data(self.work_image.raw_data_undis)
         new_line_annot.compute_highlights()
-        new_line_annot.create_items()
+        new_line_annot.create_items(temp_unit=self.temp_unit)
         for item in new_line_annot.spot_items + new_line_annot.text_items:
             self.viewer.add_item_from_annot(item)
 
@@ -921,7 +933,7 @@ class DroneIrWindow(QMainWindow):
         add_item_in_tree(line_cat[0], desc)
 
         # bring data figure
-        dialog = dia.MeasLineDialog(new_line_annot.data_roi)
+        dialog = dia.MeasLineDialog(new_line_annot.data_roi, temp_unit=self.temp_unit)
         if dialog.exec():
             pass
 
@@ -931,7 +943,7 @@ class DroneIrWindow(QMainWindow):
         # create annotation (object)
         new_pt_annot = tt.PointMeas(qpointf)
         new_pt_annot.temp = self.work_image.raw_data_undis[int(qpointf.y()), int(qpointf.x())]
-        new_pt_annot.create_items()
+        new_pt_annot.create_items(temp_unit=self.temp_unit)
         self.viewer.add_item_from_annot(new_pt_annot.ellipse_item)
         self.viewer.add_item_from_annot(new_pt_annot.text_item)
 
@@ -1106,7 +1118,7 @@ class DroneIrWindow(QMainWindow):
                     interest = self.images[self.active_image].meas_line_list[i]
 
                     # bring data 2d figure
-                    dialog = dia.MeasLineDialog(interest.data_roi)
+                    dialog = dia.MeasLineDialog(interest.data_roi, temp_unit=self.temp_unit)
                     if dialog.exec():
                         pass
         if 'rect' in lookup_text:
@@ -1131,11 +1143,11 @@ class DroneIrWindow(QMainWindow):
                         roi_rgb_path = os.path.join(self.preview_folder, 'roi_rgb.JPG')
                         tt.cv_write_all_path(roi_rgb, roi_rgb_path)
 
-                        dialog = dia.Meas3dDialog(interest)
+                        dialog = dia.Meas3dDialog(interest, temp_unit=self.temp_unit)
                         dialog.dual_view.load_images_from_path(roi_rgb_path, roi_ir_path)
 
                     else:
-                        dialog = dia.Meas3dDialog_simple(interest)
+                        dialog = dia.Meas3dDialog_simple(interest, temp_unit=self.temp_unit)
 
                     dialog.surface_from_image_matplot(self.work_image.colormap, self.work_image.n_colors,
                                                       self.work_image.user_lim_col_low,
@@ -1213,7 +1225,7 @@ class DroneIrWindow(QMainWindow):
             info_text += f"<i>Error reading EXIF data: {str(e)}</i><br>"
         
         # Add thermal information
-        info_text += f"<b>Temperature Range:</b> {self.work_image.tmin:.1f}°C to {self.work_image.tmax:.1f}°C<br>"
+        info_text += f"<b>Temperature Range:</b> {self.display_temp(self.work_image.tmin):.1f}{self.temp_unit_suffix()} to {self.display_temp(self.work_image.tmax):.1f}{self.temp_unit_suffix()}<br>"
         
         # Set the text to the label
         self.label_img_info.setText(info_text)
@@ -1651,8 +1663,8 @@ class DroneIrWindow(QMainWindow):
             # Quickly compute temperature delta on first image
             tmin, tmax, tmin_shown, tmax_shown = self.work_image.get_temp_data()
 
-            self.lineEdit_min_temp.setText(str(round(tmin_shown, 2)))
-            self.lineEdit_max_temp.setText(str(round(tmax_shown, 2)))
+            self.lineEdit_min_temp.setText(str(round(self.display_temp(tmin_shown), 2)))
+            self.lineEdit_max_temp.setText(str(round(self.display_temp(tmax_shown), 2)))
 
             self.update_img_preview()
             self.comboBox_img.clear()
@@ -2053,11 +2065,12 @@ class DroneIrWindow(QMainWindow):
 
     # CHANGE AND VIEW IMAGE ___________________________________________________
     def compile_user_temps_values(self):
-        tmin = float(self.lineEdit_min_temp.text())
-        tmax = float(self.lineEdit_max_temp.text())
+        tmin_display = float(self.lineEdit_min_temp.text())
+        tmax_display = float(self.lineEdit_max_temp.text())
 
-        self.work_image.tmin_shown = tmin
-        self.work_image.tmax_shown = tmax
+        # Convert from display unit back to Celsius for internal storage
+        self.work_image.tmin_shown = self.to_celsius(tmin_display)
+        self.work_image.tmax_shown = self.to_celsius(tmax_display)
 
     def compile_user_values(self):
         # colormap
@@ -2069,21 +2082,21 @@ class DroneIrWindow(QMainWindow):
         except:
             self.work_image.n_colors = 256
 
-        #   temp limits
+        #   temp limits (line edits are in display units, convert back to °C)
         try:
-            tmin = float(self.lineEdit_min_temp.text())
-            tmax = float(self.lineEdit_max_temp.text())
+            tmin_display = float(self.lineEdit_min_temp.text())
+            tmax_display = float(self.lineEdit_max_temp.text())
 
-            # Update the image with validated temperature range
-            self.work_image.tmin_shown = tmin
-            self.work_image.tmax_shown = tmax
+            # Convert from display unit back to Celsius for internal storage
+            self.work_image.tmin_shown = self.to_celsius(tmin_display)
+            self.work_image.tmax_shown = self.to_celsius(tmax_display)
 
         except ValueError as e:
             if not self.skip_update:  # Only show warning if not in the middle of an update
                 QMessageBox.warning(self, "Warning",
                                     "Oops! A least one of the temperatures is not valid. Try again...")
-                self.lineEdit_min_temp.setText(str(round(self.work_image.tmin_shown, 2)))
-                self.lineEdit_max_temp.setText(str(round(self.work_image.tmax_shown, 2)))
+                self.lineEdit_min_temp.setText(str(round(self.display_temp(self.work_image.tmin_shown), 2)))
+                self.lineEdit_max_temp.setText(str(round(self.display_temp(self.work_image.tmax_shown), 2)))
 
         #   out of limits color
         i = self.comboBox_colors_low.currentIndex()
@@ -2136,27 +2149,27 @@ class DroneIrWindow(QMainWindow):
                         point.ellipse_item.clear()
 
                         # recreate all graphical items
-                        point.create_items()
+                        point.create_items(temp_unit=self.temp_unit)
 
                     for i, rect in enumerate(self.work_image.meas_rect_list):
                         # update temperatures with new radiometric parameters
                         coords = rect.get_coord_from_item(rect.rect)
                         rect.compute_temp_data(coords, self.work_image.raw_data_undis)
-                        rect.compute_highlights()
+                        rect.compute_highlights(temp_unit=self.temp_unit)
 
                         rect.text_items.clear()
                         rect.ellipse_items.clear()
 
                         # recreate all graphical items
-                        rect.create_items()
+                        rect.create_items(temp_unit=self.temp_unit)
 
                     for i, line in enumerate(self.work_image.meas_line_list):
                         # update temperatures with new radiometric parameters
-                        line.compute_temp_data(self.work_image.raw_data_undis)
+                        line.compute_data(self.work_image.raw_data_undis)
                         line.compute_highlights()
 
                         # recreate all graphical items
-                        line.create_items()
+                        line.create_items(temp_unit=self.temp_unit)
 
                 else:
                     print('No change in radiometric parameters')
@@ -2164,14 +2177,14 @@ class DroneIrWindow(QMainWindow):
         if not self.checkBox_keep_temp.isChecked():
             tmin, tmax, tmin_shown, tmax_shown = self.work_image.get_temp_data()
 
-            # fill values lineedits
-            self.lineEdit_min_temp.setText(str(round(tmin_shown, 2)))
-            self.lineEdit_max_temp.setText(str(round(tmax_shown, 2)))
+            # fill values lineedits (in display units)
+            self.lineEdit_min_temp.setText(str(round(self.display_temp(tmin_shown), 2)))
+            self.lineEdit_max_temp.setText(str(round(self.display_temp(tmax_shown), 2)))
             # Set min/max before handle values so handles are always within range
-            self.range_slider.setMinimum(int(tmin * 100))
-            self.range_slider.setMaximum(int(tmax * 100))
-            self.range_slider.setLowerValue(tmin_shown * 100)
-            self.range_slider.setUpperValue(tmax_shown * 100)
+            self.range_slider.setMinimum(int(self.display_temp(tmin) * 100))
+            self.range_slider.setMaximum(int(self.display_temp(tmax) * 100))
+            self.range_slider.setLowerValue(self.display_temp(tmin_shown) * 100)
+            self.range_slider.setUpperValue(self.display_temp(tmax_shown) * 100)
 
         else:
             # set tmin and tmax shown on pictures:
@@ -2328,7 +2341,7 @@ class DroneIrWindow(QMainWindow):
             self.viewer.toggleLegendVisibility()
 
         # add histogram in label_summary
-        self.work_image.update_temperature_histogram(self.hist_canvas)
+        self.work_image.update_temperature_histogram(self.hist_canvas, temp_unit=self.temp_unit)
 
        
 
@@ -2520,6 +2533,83 @@ class DroneIrWindow(QMainWindow):
         add_icon(res.find('img/del_spot.png'), self.pushButton_delete_points)
         add_icon(res.find('img/del_line.png'), self.pushButton_delete_lines)
         add_icon(res.find('img/del_rect.png'), self.pushButton_delete_area)
+
+    # TEMPERATURE UNIT CONVERSION HELPERS
+    @staticmethod
+    def c_to_f(t):
+        """Convert Celsius to Fahrenheit."""
+        return t * 9.0 / 5.0 + 32.0
+
+    @staticmethod
+    def f_to_c(t):
+        """Convert Fahrenheit to Celsius."""
+        return (t - 32.0) * 5.0 / 9.0
+
+    def display_temp(self, t_celsius):
+        """Convert a Celsius temperature to the current display unit."""
+        if self.temp_unit == 'F':
+            return self.c_to_f(t_celsius)
+        return t_celsius
+
+    def to_celsius(self, t_display):
+        """Convert a temperature from the current display unit back to Celsius."""
+        if self.temp_unit == 'F':
+            return self.f_to_c(t_display)
+        return t_display
+
+    def temp_unit_suffix(self):
+        """Return the unit suffix string for the current temperature unit."""
+        return '°F' if self.temp_unit == 'F' else '°C'
+
+    def open_options(self):
+        """Open the options dialog and apply changes."""
+        from dialogs import DialogOptions
+        dialog = DialogOptions(current_temp_unit=self.temp_unit, parent=self)
+        if dialog.exec():
+            new_unit = dialog.get_temp_unit()
+            if new_unit != self.temp_unit:
+                self.temp_unit = new_unit
+                # Propagate unit to viewer for legend/magnifier
+                self.viewer.temp_unit = new_unit
+                if self.viewer.magnifying_glass is not None:
+                    self.viewer.magnifying_glass.temp_unit = new_unit
+                # Re-convert displayed temperature line edits
+                if hasattr(self, 'work_image') and self.work_image is not None:
+                    tmin_shown = self.work_image.tmin_shown
+                    tmax_shown = self.work_image.tmax_shown
+                    self.lineEdit_min_temp.setText(str(round(self.display_temp(tmin_shown), 2)))
+                    self.lineEdit_max_temp.setText(str(round(self.display_temp(tmax_shown), 2)))
+
+                    # Update slider range to display units
+                    tmin = self.work_image.tmin
+                    tmax = self.work_image.tmax
+                    self.slider_sensitive = False
+                    self.range_slider.setMinimum(int(self.display_temp(tmin) * 100))
+                    self.range_slider.setMaximum(int(self.display_temp(tmax) * 100))
+                    self.range_slider.setLowerValue(self.display_temp(tmin_shown) * 100)
+                    self.range_slider.setUpperValue(self.display_temp(tmax_shown) * 100)
+                    self.slider_sensitive = True
+
+                    # Recreate all measurement items in the new unit
+                    for point in self.work_image.meas_point_list:
+                        point.text_item = None
+                        point.ellipse_item = None
+                        point.create_items(temp_unit=self.temp_unit)
+
+                    for rect in self.work_image.meas_rect_list:
+                        rect.text_items.clear()
+                        rect.ellipse_items.clear()
+                        rect.create_items(temp_unit=self.temp_unit)
+
+                    for line in self.work_image.meas_line_list:
+                        line.spot_items.clear()
+                        line.text_items.clear()
+                        line.create_items(temp_unit=self.temp_unit)
+
+                    # Refresh annotations and preview
+                    self.retrace_items()
+                    self.update_img_preview()
+                    self.update_image_info_label()
 
     def toggle_stylesheet(self):
         # Toggle the application stylesheet on and off

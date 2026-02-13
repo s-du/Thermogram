@@ -393,12 +393,21 @@ class LegendContainer(QGraphicsRectItem):
 
 # MAGNIFYING GLASS
 class CircularPixmapItem(QGraphicsRectItem):
-    def __init__(self, pixmap, size, parent=None, center_temperature=None, eyedropper_icon=res.find('img/dropper.png')):
+    def __init__(self, pixmap, size, parent=None, center_temperature=None, eyedropper_icon=res.find('img/dropper.png'), temp_unit='C'):
         super().__init__(-size / 2, -size / 2, size, size, parent)
         self.pixmap = pixmap
         self.size = size
         self.center_temperature = center_temperature
         self.eyedropper_icon = QPixmap(eyedropper_icon)  # QPixmap for the icon
+        self.temp_unit = temp_unit
+
+    def display_temp(self, t_celsius):
+        if self.temp_unit == 'F':
+            return t_celsius * 9.0 / 5.0 + 32.0
+        return t_celsius
+
+    def temp_unit_suffix(self):
+        return '°F' if self.temp_unit == 'F' else '°C'
 
     def set_center_temperature(self, temp):
         self.center_temperature = temp
@@ -434,7 +443,7 @@ class CircularPixmapItem(QGraphicsRectItem):
                 painter.drawPixmap(icon_rect.toRect(), self.eyedropper_icon)
 
             painter.save()
-            text = f"{self.center_temperature:.1f}°C"
+            text = f"{self.display_temp(self.center_temperature):.1f}{self.temp_unit_suffix()}"
 
             font = painter.font()
             font.setBold(True)
@@ -485,6 +494,7 @@ class MagnifyingGlass(QGraphicsEllipseItem):
         self.setCursor(Qt.CursorShape.BlankCursor)
 
         self.center_temperature = None
+        self.temp_unit = 'C'
 
     def update_size(self, new_size):
         self._size = new_size
@@ -498,7 +508,8 @@ class MagnifyingGlass(QGraphicsEllipseItem):
             del self.pixmap_item
 
         self.pixmap_item = CircularPixmapItem(
-            pixmap, self._size, self, center_temperature=self.center_temperature
+            pixmap, self._size, self, center_temperature=self.center_temperature,
+            temp_unit=self.temp_unit
         )
         self.pixmap_item.setPos(0, 0)
 
@@ -577,6 +588,7 @@ class PhotoViewer(QGraphicsView):
 
         # thermal data
         self.thermal_array = []
+        self.temp_unit = 'C'  # 'C' or 'F', set by main window
 
         # initialize magnifying glass
         self.magnifying_glass_size = 600  # Adjust this value to change the size
@@ -584,6 +596,16 @@ class PhotoViewer(QGraphicsView):
         self.magnifying_glass = None
         self.line_size = 4
 
+
+    # TEMPERATURE UNIT HELPERS
+    def display_temp(self, t_celsius):
+        """Convert a Celsius temperature to the current display unit."""
+        if self.temp_unit == 'F':
+            return t_celsius * 9.0 / 5.0 + 32.0
+        return t_celsius
+
+    def temp_unit_suffix(self):
+        return '°F' if self.temp_unit == 'F' else '°C'
 
     # LEGEND-RELATED
     def setupLegendLabel(self, img_object, legend_type="colorbar"):
@@ -613,7 +635,7 @@ class PhotoViewer(QGraphicsView):
 
         tick_interval = legendPixmap.height() / 4
         for i, temp in enumerate(self.generateTicks(img_object.tmin_shown, img_object.tmax_shown, 5)):
-            tick_label = QLabel(f"{temp:.2f}°C", self)
+            tick_label = QLabel(f"{self.display_temp(temp):.2f}{self.temp_unit_suffix()}", self)
             tick_label_pos_y = (4 - i) * tick_interval
             tick_label_pos_x = legendPixmap.width() + 10
             tick_label.move(int(tick_label_pos_x), int(tick_label_pos_y))
@@ -645,7 +667,7 @@ class PhotoViewer(QGraphicsView):
         if img_object.user_lim_col_low != 'c':
             custom_cmap.set_under(img_object.user_lim_col_low)
 
-        # Dummy gradient data
+        # Dummy gradient data (internal values in °C)
         data = np.linspace(tmin, tmax, 100).reshape(10, 10)
 
         fig, ax = plt.subplots()
@@ -655,6 +677,7 @@ class PhotoViewer(QGraphicsView):
 
         ticks = np.linspace(tmin, tmax, 5)
         cbar = fig.colorbar(im, ticks=ticks, extend='both')
+        cbar.ax.set_yticklabels([f"{self.display_temp(t):.2f}{self.temp_unit_suffix()}" for t in ticks])
         cbar.ax.tick_params(labelsize=8)
 
         # Add a semi-transparent rounded rectangle background
@@ -717,7 +740,7 @@ class PhotoViewer(QGraphicsView):
         # Show tmin and tmax labels (plus optional middle)
         ticks = np.linspace(tmin, tmax, 5)
         ax.set_yticks(ticks)
-        ax.set_yticklabels([f"{t:.2f}°C" for t in ticks], fontsize=7)
+        ax.set_yticklabels([f"{self.display_temp(t):.2f}{self.temp_unit_suffix()}" for t in ticks], fontsize=7)
 
         ax.grid(True, axis='y', linestyle='--', linewidth=0.3, alpha=0.4)
         fig.tight_layout()
@@ -849,6 +872,7 @@ class PhotoViewer(QGraphicsView):
             self.magnifying_glass_size = int(self.scene_image.width() / 3)
             self.line_size = int(self.scene_image.width() / 300)
             self.magnifying_glass = MagnifyingGlass(self.magnifying_glass_size, border_width=self.line_size * 3)
+            self.magnifying_glass.temp_unit = self.temp_unit
             self._scene.addItem(self.magnifying_glass)
             # Temporarily hide the magnifying glass to avoid rendering it
             self.magnifying_glass.hide()
