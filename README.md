@@ -18,6 +18,12 @@ Thermogram, our Infrared Laboratory, is an intuitive software designed for proce
     <i>GUI for thermal image processing</i>
 
 ## Last news
+- 16/02/2026 : New functionalities added (not yet in the portable release):
+    - Fahrenheit/Celsius option
+    - More subtle control of image parameters (ex. 'apply radiometric options to all images')
+    - Possibility to optimize the reflective temperature on one image using the previous image as reference (help temperature consistency with some drones)
+    - Thumbnails in the image selection menu
+    - ...
 - 19/01/2026 : New version 0.3 with improved performance and new drone support (DJI M4T, DJI H30T, DJI M30T)
 
 **PORTABLE VERSION AVAILABLE HERE**: https://github.com/s-du/Thermogram/releases/tag/v0.3.1
