@@ -265,6 +265,7 @@
      <string>Settings</string>
     </property>
     <addaction name="actionOptions"/>
+    <addaction name="actionGlobal_refl_adjust"/>
     <addaction name="actionToggle_stylesheet"/>
    </widget>
    <widget class="QMenu" name="menuview">
@@ -1542,6 +1543,14 @@
   <action name="actionToggle_stylesheet">
    <property name="text">
     <string>Change App Style</string>
+   </property>
+  </action>
+  <action name="actionGlobal_refl_adjust">
+   <property name="text">
+    <string>Global Refl. Temp. Adjustment</string>
+   </property>
+   <property name="toolTip">
+    <string>Sequentially adjust reflected temperature for all images</string>
    </property>
   </action>
   <action name="actionCreate_Report">

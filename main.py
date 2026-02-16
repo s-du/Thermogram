@@ -413,6 +413,7 @@ class DroneIrWindow(QMainWindow):
             self.actionReset_all.triggered.connect(self.full_reset)
             self.actionToggle_stylesheet.triggered.connect(self.toggle_stylesheet)
             self.actionOptions.triggered.connect(self.open_options)
+            self.actionGlobal_refl_adjust.triggered.connect(self.global_adjust_refl_temp)
 
             # Processing actions
             self.actionRectangle_meas.triggered.connect(self.rectangle_meas)
@@ -714,6 +715,88 @@ class DroneIrWindow(QMainWindow):
             error(f"Failed to adjust reflective temperature: {str(e)}")
             QMessageBox.warning(self, "Error",
                                 f"Failed to adjust reflective temperature:\n{str(e)}")
+        finally:
+            QApplication.restoreOverrideCursor()
+
+    def global_adjust_refl_temp(self):
+        """Sequentially adjust the reflective temperature of every image so that
+        each image's temperature distribution matches the previous one.
+
+        Image 1 is kept as-is.  Image 2 is tuned to match image 1, image 3 to
+        match image 2, and so on.
+        """
+        n = len(self.images)
+        if n < 2:
+            QMessageBox.warning(self, "Warning",
+                                "At least two images are required for global adjustment.")
+            return
+
+        reply = QMessageBox.question(
+            self, "Global Refl. Temp. Adjustment",
+            f"This will sequentially adjust the reflected temperature for "
+            f"{n - 1} image(s), using each previous image as reference.\n\n"
+            f"Proceed?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes)
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        try:
+            QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+
+            # Make sure image 0 has its data loaded
+            self.images[0].ensure_data_loaded(reset_shown_values=False)
+
+            adjusted = []
+            for i in range(1, n):
+                prev_img = self.images[i - 1]
+                cur_img = self.images[i]
+
+                # Ensure both images have data
+                prev_img.ensure_data_loaded(reset_shown_values=False)
+                cur_img.ensure_data_loaded(reset_shown_values=False)
+
+                ref_raw_data = prev_img.raw_data_undis
+
+                # Find optimal reflective temperature
+                optimal_refl = cur_img.find_matching_refl_temp(ref_raw_data)
+
+                # Apply it
+                new_param = dict(cur_img.thermal_param)
+                new_param['reflection'] = optimal_refl
+                cur_img.update_data_from_param(new_param)
+
+                adjusted.append((i, optimal_refl))
+                debug(f"Global refl. adjust: image {i} -> refl={optimal_refl:.2f} °C")
+
+            # Refresh the currently displayed image
+            self.work_image = self.images[self.active_image]
+            self.thermal_param = copy.deepcopy(self.work_image.thermal_param)
+            self.lineEdit_refl_temp.setText(str(round(self.thermal_param['reflection'], 2)))
+
+            tmin, tmax, tmin_shown, tmax_shown = self.work_image.get_temp_data()
+            self.slider_sensitive = False
+            self.lineEdit_min_temp.setText(str(round(self.display_temp(tmin_shown), 2)))
+            self.lineEdit_max_temp.setText(str(round(self.display_temp(tmax_shown), 2)))
+            self.range_slider.setMinimum(int(self.display_temp(tmin) * 100))
+            self.range_slider.setMaximum(int(self.display_temp(tmax) * 100))
+            self.range_slider.setLowerValue(self.display_temp(tmin_shown) * 100)
+            self.range_slider.setUpperValue(self.display_temp(tmax_shown) * 100)
+            self.slider_sensitive = True
+
+            self.retrace_items()
+            self.update_img_preview()
+
+            summary = "\n".join(f"  Image {idx}: {refl:.2f} °C" for idx, refl in adjusted)
+            info(f"Global refl. temp. adjustment complete:\n{summary}")
+            QMessageBox.information(
+                self, "Done",
+                f"Reflected temperature adjusted for {len(adjusted)} image(s).\n\n{summary}")
+
+        except Exception as e:
+            error(f"Global refl. temp. adjustment failed: {str(e)}")
+            QMessageBox.warning(self, "Error",
+                                f"Global adjustment failed:\n{str(e)}")
         finally:
             QApplication.restoreOverrideCursor()
 
@@ -1856,14 +1939,106 @@ class DroneIrWindow(QMainWindow):
         """
         Reset all model parameters (image and categories)
         """
+        # Remove histogram widget
         if hasattr(self, 'hist_canvas') and self.hist_canvas is not None:
             self.layout_histo.removeWidget(self.hist_canvas)
+            self.hist_canvas.deleteLater()
+            self.hist_canvas = None
 
+        # Reset internal state and tree view
         self.initialize_variables()
         self.initialize_tree_view()
 
-        # clean graphicscene
+        # Clean graphics scene
         self.viewer.clean_complete()
+
+        # Clear image combobox
+        self.comboBox_img.clear()
+
+        # Reset temperature line edits
+        self.lineEdit_min_temp.clear()
+        self.lineEdit_max_temp.clear()
+
+        # Reset range slider to defaults
+        self.slider_sensitive = False
+        self.range_slider.setMinimum(0)
+        self.range_slider.setMaximum(20)
+        self.range_slider.setLowerValue(0)
+        self.range_slider.setUpperValue(20)
+        self.range_slider.setEnabled(False)
+        self.slider_sensitive = True
+
+        # Reset palette / color comboboxes to first item
+        self.comboBox_palette.setCurrentIndex(0)
+        self.comboBox_colors_low.setCurrentIndex(0)
+        self.comboBox_colors_high.setCurrentIndex(0)
+        self.comboBox_post.setCurrentIndex(0)
+        self.comboBox_view.setCurrentIndex(0)
+        self.comboBox_legend_type.setCurrentIndex(0)
+        self.lineEdit_colors.setText(str(N_COLORS))
+
+        # Reset edge detection state
+        self.edges = False
+        self.edge_color = EDGE_COLOR
+        self.edge_blur = False
+        self.edge_bil = True
+        self.edge_blur_size = EDGE_BLUR_SIZE
+        self.edge_method = EDGE_METHOD
+        self.edge_opacity = EDGE_OPACITY
+        if hasattr(self, 'checkBox_edges'):
+            self.checkBox_edges.setChecked(False)
+
+        # Disable actions and widgets that require loaded images
+        self.lineEdit_max_temp.setEnabled(False)
+        self.lineEdit_min_temp.setEnabled(False)
+        self.lineEdit_distance.setEnabled(False)
+        self.lineEdit_emissivity.setEnabled(False)
+        self.lineEdit_refl_temp.setEnabled(False)
+        self.pushButton_estimate.setEnabled(False)
+        self.pushButton_adjust_refl_temp.setEnabled(False)
+        self.pushButton_apply_radio_all.setEnabled(False)
+        self.pushButton_reset_range.setEnabled(False)
+        self.pushButton_optimhisto.setEnabled(False)
+        self.pushButton_heatflow.setEnabled(False)
+        self.pushButton_apply_temp_all.setEnabled(False)
+        self.pushButton_apply_palette_all.setEnabled(False)
+        self.pushButton_delete_area.setEnabled(False)
+        self.pushButton_delete_points.setEnabled(False)
+        self.pushButton_delete_lines.setEnabled(False)
+        self.pushButton_right.setEnabled(False)
+        self.pushButton_left.setEnabled(False)
+        self.pushButton_match.setEnabled(False)
+        self.pushButton_edge_options.setEnabled(False)
+
+        self.comboBox_palette.setEnabled(False)
+        self.lineEdit_colors.setEnabled(False)
+        self.comboBox_colors_low.setEnabled(False)
+        self.comboBox_colors_high.setEnabled(False)
+        self.comboBox_post.setEnabled(False)
+        self.comboBox_view.setEnabled(False)
+        self.comboBox_img.setEnabled(False)
+
+        self.actionRectangle_meas.setEnabled(False)
+        self.actionSpot_meas.setEnabled(False)
+        self.actionLine_meas.setEnabled(False)
+        self.action3D_temperature.setEnabled(False)
+        self.actionFind_maxima.setEnabled(False)
+        self.actionProcess_all.setEnabled(False)
+        self.actionCreate_anim.setEnabled(False)
+        self.actionSave_Image.setEnabled(False)
+        self.actionCompose.setEnabled(False)
+        self.actionDetect_object.setEnabled(False)
+        self.actionHand_selector.setEnabled(False)
+
+        if hasattr(self, 'checkBox_edges'):
+            self.checkBox_edges.setEnabled(False)
+        if hasattr(self, 'tab_2'):
+            self.tab_2.setEnabled(False)
+        if hasattr(self, 'actionFlight_map'):
+            self.actionFlight_map.setEnabled(False)
+
+        # Reset status bar
+        self.update_progress(nb=100, text="Status: Choose image folder")
 
     # IMAGE ALIGNMENT __________________________________________________________
     def image_matching(self):
