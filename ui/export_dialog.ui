@@ -118,6 +118,13 @@
           </widget>
          </item>
          <item>
+          <widget class="QCheckBox" name="checkBox_exp_side">
+           <property name="text">
+            <string>Export side-by-side (RGB left / IR right)</string>
+           </property>
+          </widget>
+         </item>
+         <item>
           <spacer name="verticalSpacer_2">
            <property name="orientation">
             <enum>Qt::Vertical</enum>

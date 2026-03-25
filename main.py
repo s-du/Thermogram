@@ -1897,6 +1897,9 @@ class DroneIrWindow(QMainWindow):
                     list_rgb_export.append('RGB')
                 if dialog.checkBox_exp_crop.isChecked():
                     list_rgb_export.append('RGB_CROP')
+                if dialog.checkBox_exp_side.isChecked():
+                    list_rgb_export.append('SIDE_BY_SIDE')
+                include_legend = dialog.checkBox_legend.isChecked()
 
                 # Determining file format
                 format_idx = dialog.comboBox_img_format.currentIndex()
@@ -1921,7 +1924,8 @@ class DroneIrWindow(QMainWindow):
                                         self.edge_params, individual_settings=individual_settings,
                                         undis=undis, zoom=zoom, naming_type=naming_type,
                                         file_format=format,
-                                        list_of_ir_export=list_ir_export, list_of_rgb_export=list_rgb_export)
+                                        list_of_ir_export=list_ir_export, list_of_rgb_export=list_rgb_export,
+                                        include_legend=include_legend)
                 worker_1.signals.progressed.connect(lambda value: self.update_progress(value))
                 worker_1.signals.messaged.connect(lambda string: self.update_progress(text=string))
 

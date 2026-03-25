@@ -247,10 +247,101 @@ class RunnerSignals(QtCore.QObject):
     finished = QtCore.pyqtSignal()
 
 
+def build_compact_legend_image(custom_params, target_height):
+    """Build a compact vertical legend image as a NumPy array (BGR)."""
+    tmin = float(custom_params["tmin"])
+    tmax = float(custom_params["tmax"])
+    color_high = custom_params["col_high"]
+    color_low = custom_params["col_low"]
+    colormap = custom_params["colormap"]
+    n_colors = int(custom_params["n_colors"])
+
+    height = max(int(target_height), 120)
+    bar_w = 36
+    pad = 10
+    tick_len = 8
+    text_w = 88
+    width = bar_w + text_w + (pad * 3) + tick_len
+
+    legend = np.full((height, width, 3), 255, dtype=np.uint8)
+
+    # Build the colormap consistently with thermal rendering
+    if colormap in LIST_CUSTOM_NAMES:
+        all_cmaps = get_all_custom_cmaps(n_colors)
+        custom_cmap = all_cmaps[colormap]
+    else:
+        custom_cmap = cm.get_cmap(colormap, n_colors)
+
+    if color_high != 'c':
+        custom_cmap.set_over(color_high)
+    if color_low != 'c':
+        custom_cmap.set_under(color_low)
+
+    y_values = np.linspace(tmax, tmin, height)
+    span = tmax - tmin
+    if abs(span) < 1e-9:
+        normalized = np.zeros_like(y_values)
+    else:
+        normalized = np.clip((y_values - tmin) / span, 0, 1)
+
+    rgba = custom_cmap(normalized)
+    bar_rgb = np.repeat((rgba[:, :3] * 255).astype(np.uint8)[:, np.newaxis, :], bar_w, axis=1)
+    bar_bgr = bar_rgb[:, :, ::-1]
+
+    x0 = pad
+    legend[:, x0:x0 + bar_w] = bar_bgr
+    cv2.rectangle(legend, (x0, 0), (x0 + bar_w, height - 1), (0, 0, 0), 1)
+
+    # Tick labels
+    tick_count = 5
+    for i, val in enumerate(np.linspace(tmax, tmin, tick_count)):
+        y = int(round(i * (height - 1) / (tick_count - 1)))
+        cv2.line(legend, (x0 + bar_w + 2, y), (x0 + bar_w + 2 + tick_len, y), (0, 0, 0), 1)
+        label = f"{val:.1f}"
+        y_text = min(height - 4, max(12, y + 4))
+        cv2.putText(
+            legend,
+            label,
+            (x0 + bar_w + 2 + tick_len + 6, y_text),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.42,
+            (0, 0, 0),
+            1,
+            cv2.LINE_AA,
+        )
+
+    return legend
+
+
+def export_side_by_side(img_object, ir_path, dest_path, file_format='PNG', include_legend=False, custom_params=None):
+    """Export RGB crop (left) and IR image (right) in a single composed image.
+
+    If include_legend is True, append a compact legend to the far right.
+    """
+    cv_ir = cv_read_all_path(ir_path)
+    cv_rgb_crop = cv_read_all_path(img_object.rgb_path)
+
+    if cv_ir is None or cv_rgb_crop is None:
+        return
+
+    h_ir, w_ir = cv_ir.shape[:2]
+    if cv_rgb_crop.shape[:2] != (h_ir, w_ir):
+        cv_rgb_crop = cv2.resize(cv_rgb_crop, (w_ir, h_ir), interpolation=cv2.INTER_AREA)
+
+    composed = np.hstack([cv_rgb_crop, cv_ir])
+
+    if include_legend and custom_params is not None:
+        legend_img = build_compact_legend_image(custom_params, target_height=composed.shape[0])
+        spacer = np.full((composed.shape[0], 20, 3), 255, dtype=np.uint8)
+        composed = np.hstack([composed, spacer, legend_img])
+
+    cv_write_all_path(composed, dest_path, extension=file_format)
+
+
 class RunnerDJI(QtCore.QRunnable):
     def __init__(self, start, stop, out_folder, img_objects, ref_im, edges, edges_params, individual_settings=False,
                  undis=False, zoom=1, naming_type='rename', file_format='PNG', list_of_ir_export=['IR'],
-                 list_of_rgb_export=[]):
+                 list_of_rgb_export=[], include_legend=False):
         super().__init__()
 
         self.img_objects = img_objects
@@ -269,6 +360,7 @@ class RunnerDJI(QtCore.QRunnable):
         self.file_format = file_format
         self.list_of_ir_export = list_of_ir_export
         self.list_of_rgb_export = list_of_rgb_export
+        self.include_legend = include_legend
 
         self.individual_settings = individual_settings
 
@@ -312,6 +404,11 @@ class RunnerDJI(QtCore.QRunnable):
                                           'RGB_CROP') if 'RGB_CROP' in self.list_of_rgb_export else None
         if rgb_crop_subfolder:
             os.makedirs(rgb_crop_subfolder, exist_ok=True)
+
+        side_by_side_subfolder = os.path.join(self.dest_folder,
+                                              'RGB_IR_SideBySide') if 'SIDE_BY_SIDE' in self.list_of_rgb_export else None
+        if side_by_side_subfolder:
+            os.makedirs(side_by_side_subfolder, exist_ok=True)
 
         # Define a worker function for parallel execution
         def process_image(i, img):
@@ -404,6 +501,18 @@ class RunnerDJI(QtCore.QRunnable):
                 rgb_im = cv_read_all_path(img.rgb_path)
                 rgb_crop_path = os.path.join(rgb_crop_subfolder, crop_name[:-3] + self.file_format)
                 cv_write_all_path(rgb_im, rgb_crop_path, extension=self.file_format)
+
+            # Export side-by-side (RGB crop left, IR right)
+            if side_by_side_subfolder:
+                side_path = os.path.join(side_by_side_subfolder, name)
+                export_side_by_side(
+                    img,
+                    dest_path,
+                    side_path,
+                    file_format=self.file_format,
+                    include_legend=self.include_legend,
+                    custom_params=custom_params,
+                )
 
         # Use ThreadPoolExecutor to process images in parallel
         with ThreadPoolExecutor() as executor:
