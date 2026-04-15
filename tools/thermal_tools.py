@@ -529,7 +529,17 @@ class RunnerDJI(QtCore.QRunnable):
 
 
 class RunnerMiniature(QtCore.QRunnable):
-    def __init__(self, list_rgb_paths, drone_model, scale_percent, dest_crop_folder, start, stop, img_objects=None):
+    def __init__(
+            self,
+            list_rgb_paths,
+            drone_model,
+            scale_percent,
+            dest_crop_folder,
+            start,
+            stop,
+            img_objects=None,
+            overwrite_existing=False,
+    ):
         super().__init__()
         self.signals = RunnerSignals()
         self.list_rgb_paths = list_rgb_paths
@@ -539,6 +549,7 @@ class RunnerMiniature(QtCore.QRunnable):
         self.stop = stop
         self.drone_model = drone_model
         self.img_objects = img_objects
+        self.overwrite_existing = overwrite_existing
 
     def run(self):
         if self.img_objects is not None:
@@ -568,7 +579,7 @@ class RunnerMiniature(QtCore.QRunnable):
             stem, _ = os.path.splitext(file)
             new_name = stem + 'crop.JPG'
             dest_path = os.path.join(self.dest_crop_folder, new_name)
-            if os.path.exists(dest_path):
+            if os.path.exists(dest_path) and not self.overwrite_existing:
                 return
 
             reduction = 2
@@ -749,15 +760,29 @@ def add_lines_from_rgb(path_ir, cv_match_rgb_img, drone_model, mode=1, color='wh
         # --- Pre-process RGB image (optional blur) ---
         processed_rgb_img = cv_match_rgb_img.copy()
 
+        # Actual rendered IR output size (this is the authoritative target for blending)
+        ir_width, ir_height = ir_img.size
+        output_ir_dim = (ir_width, ir_height)
+
         # --- Resize RGB image to match thermal dimensions (if needed) ---
         if hasattr(drone_model, 'dim_undis_ir'):
-            target_dim = drone_model.dim_undis_ir
+            reference_dim = drone_model.dim_undis_ir
+            if reference_dim != output_ir_dim:
+                warning(
+                    f"IR output size ({output_ir_dim[0]}x{output_ir_dim[1]}) differs from "
+                    f"drone reference ({reference_dim[0]}x{reference_dim[1]}). "
+                    f"Using output size for edge overlay."
+                )
+            target_dim = output_ir_dim
             if processed_rgb_img.shape[1] != target_dim[0] or processed_rgb_img.shape[0] != target_dim[1]:
                 info(
                     f"Resizing RGB image from {processed_rgb_img.shape[1]}x{processed_rgb_img.shape[0]} to {target_dim[0]}x{target_dim[1]} for edge detection")
                 processed_rgb_img = cv2.resize(processed_rgb_img, target_dim, interpolation=cv2.INTER_AREA)
         else:
-            warning("drone_model does not have 'dim_undis_ir' attribute. Skipping RGB resize.")
+            warning("drone_model does not have 'dim_undis_ir' attribute. Using IR output dimensions for edge resize.")
+            target_dim = output_ir_dim
+            if processed_rgb_img.shape[1] != target_dim[0] or processed_rgb_img.shape[0] != target_dim[1]:
+                processed_rgb_img = cv2.resize(processed_rgb_img, target_dim, interpolation=cv2.INTER_AREA)
 
         # 2) get edges from the resized RGB image
         edges_img = create_lines(processed_rgb_img, bil=bilateral, mode=mode)
@@ -800,6 +825,18 @@ def add_lines_from_rgb(path_ir, cv_match_rgb_img, drone_model, mode=1, color='wh
 
         # Convert resized edge overlay to float for blending
         foreground_float = edges_rgba.astype(float)
+
+        # Final guard: blend_modes requires identical HxW between background and foreground
+        if foreground_float.shape[:2] != background_float.shape[:2]:
+            warning(
+                f"Edge overlay shape {foreground_float.shape[:2]} does not match IR background "
+                f"{background_float.shape[:2]}; resizing overlay to match IR output."
+            )
+            foreground_float = cv2.resize(
+                foreground_float,
+                (background_float.shape[1], background_float.shape[0]),
+                interpolation=cv2.INTER_AREA,
+            )
 
         # --- Blending logic using blend_modes library ---
         blend_opacity = max(0.0, min(1.0, opacity))

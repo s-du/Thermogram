@@ -270,6 +270,8 @@ class DroneIrWindow(QMainWindow):
             self.tabifyDockWidget(self.dockWidget, self.dockWidget_2)
             self.dockWidget.raise_()  # Make the first dock widget visible by default
 
+            self._rearrange_docks()
+
             # Set up range slider
             self.range_slider = wid.QRangeSlider(tt.COLORMAPS[0])
             self.range_slider.setEnabled(False)
@@ -309,6 +311,38 @@ class DroneIrWindow(QMainWindow):
         except Exception as e:
             error(f"Failed to initialize UI components: {str(e)}")
             raise ThermogramError("Failed to initialize UI components") from e
+
+    def _rearrange_docks(self) -> None:
+        """Adjust dock placement to reduce left-panel crowding."""
+        # Move Edge mix dock to the right pane
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.dockWidget_edge)
+
+        # Move legend controls from Options dock to Temperatures dock
+        temp_layout = getattr(self, 'verticalLayout_2', None)
+        legend_widgets = [
+            getattr(self, 'checkBox_legend', None),
+            getattr(self, 'label_12', None),
+            getattr(self, 'comboBox_legend_type', None),
+        ]
+
+        if temp_layout is not None:
+            insert_pos = temp_layout.count()
+            for i in range(temp_layout.count()):
+                item = temp_layout.itemAt(i)
+                if item is not None and item.spacerItem() is not None:
+                    insert_pos = i
+                    break
+
+            for widget in legend_widgets:
+                if widget is None:
+                    continue
+                temp_layout.insertWidget(insert_pos, widget)
+                insert_pos += 1
+
+        # Options dock is now empty; remove it from docking layout
+        if hasattr(self, 'dockWidget_4'):
+            self.removeDockWidget(self.dockWidget_4)
+            self.dockWidget_4.hide()
 
     def initialize_variables(self):
         """Initialize instance variables with default values.
@@ -2097,7 +2131,8 @@ class DroneIrWindow(QMainWindow):
             worker_1 = tt.RunnerMiniature(self.list_rgb_paths, self.drone_model, 60,
                                           self.rgb_crop_img_folder, 20,
                                           100,
-                                          img_objects=img_objects)
+                                          img_objects=img_objects,
+                                          overwrite_existing=True)
             worker_1.signals.progressed.connect(lambda value: self.update_progress(value))
             worker_1.signals.messaged.connect(lambda string: self.update_progress(text=string))
 

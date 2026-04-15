@@ -466,9 +466,9 @@ class DroneModel:
             self.K_ir = cv_file.getNode("Camera_Matrix").mat()
             self.d_ir = cv_file.getNode("Distortion_Coefficients").mat()
             self.extend = 0.3504
-            self.x_offset = 45
-            self.y_offset = 83
-            self.zoom = 1.12
+            self.x_offset = 6.0
+            self.y_offset = 9.7
+            self.zoom = 2.206
 
         elif name == 'H30T':
             self.ir_xml_path = h30t_ir_xml_path
@@ -528,6 +528,7 @@ class ProcessedIm:
         self.x_offset = drone_model.x_offset if x_offset is None else x_offset
         self.y_offset = drone_model.y_offset if y_offset is None else y_offset
         self.extend = getattr(drone_model, "extend", None) if extend is None else extend
+        self.dim_undis_ir = getattr(drone_model, 'dim_undis_ir', None)
 
         # IR infos
         self.thermal_param = {'emissivity': 0.95, 'distance': 5, 'humidity': 50, 'reflection': 25}
@@ -588,6 +589,16 @@ class ProcessedIm:
         # print(new_params)
         self.thermal_param = new_params
         self.raw_data, self.raw_data_undis = extract_raw_data(self.thermal_param, self.path, self.undistorder_ir)
+
+        if self.raw_data_undis is not None and self.raw_data_undis.ndim >= 2:
+            output_dim_undis_ir = (int(self.raw_data_undis.shape[1]), int(self.raw_data_undis.shape[0]))
+            reference_dim_undis_ir = getattr(self.drone_model, 'dim_undis_ir', None)
+
+            if reference_dim_undis_ir is None or tuple(reference_dim_undis_ir) != output_dim_undis_ir:
+                self.dim_undis_ir = output_dim_undis_ir
+            else:
+                self.dim_undis_ir = tuple(reference_dim_undis_ir)
+
         self.tmin = np.amin(self.raw_data)
         self.tmax = np.amax(self.raw_data)
         if reset_shown_values:
