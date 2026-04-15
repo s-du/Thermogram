@@ -790,12 +790,12 @@ class PointMeas:
         r = QRectF(p1, p2)
         self.ellipse_item.setRect(r)
 
-        temp = round(self._display_temp(self.temp, temp_unit), 2)
+        temp = float(self._display_temp(self.temp, temp_unit))
         suffix = self._unit_suffix(temp_unit)
         self.text_item = QGraphicsTextItem()
         self.text_item.setPos(self.qpoint)
         self.text_item.setHtml(
-            f"<div style='background-color:rgba(255, 255, 255, 0.3);'>{temp}{suffix}</div>")
+            f"<div style='background-color:rgba(255, 255, 255, 0.3);'>{temp:.2f}{suffix}</div>")
 
 
 class LineMeas:

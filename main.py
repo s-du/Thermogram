@@ -2331,6 +2331,15 @@ class DroneIrWindow(QMainWindow):
         - Temp
         - Palette
         """
+        if not self.images:
+            self.work_image = None
+            return
+
+        if self.active_image < 0:
+            self.active_image = 0
+        elif self.active_image >= len(self.images):
+            self.active_image = len(self.images) - 1
+
         self.skip_update = True
         # load stored data
         self.work_image = self.images[self.active_image]
@@ -2450,14 +2459,33 @@ class DroneIrWindow(QMainWindow):
         Iterate through images when user change the image
         """
 
+        if not self.images:
+            self.active_image = 0
+            self.work_image = None
+            return
+
+        max_idx = len(self.images) - 1
+
         if direction == 'minus':
-            self.active_image -= 1
-            self.comboBox_img.setCurrentIndex(self.active_image)
+            self.active_image = max(0, self.active_image - 1)
+            if self.comboBox_img.currentIndex() != self.active_image:
+                with QSignalBlocker(self.comboBox_img):
+                    self.comboBox_img.setCurrentIndex(self.active_image)
         elif direction == 'plus':
-            self.active_image += 1
-            self.comboBox_img.setCurrentIndex(self.active_image)
+            self.active_image = min(max_idx, self.active_image + 1)
+            if self.comboBox_img.currentIndex() != self.active_image:
+                with QSignalBlocker(self.comboBox_img):
+                    self.comboBox_img.setCurrentIndex(self.active_image)
         else:
-            self.active_image = self.comboBox_img.currentIndex()
+            idx = self.comboBox_img.currentIndex()
+            if idx < 0:
+                idx = 0
+            elif idx > max_idx:
+                idx = max_idx
+            self.active_image = idx
+            if self.comboBox_img.currentIndex() != self.active_image:
+                with QSignalBlocker(self.comboBox_img):
+                    self.comboBox_img.setCurrentIndex(self.active_image)
 
         # remove all measurements and annotations and get new data
         self.switch_image_data()
