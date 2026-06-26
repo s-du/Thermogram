@@ -221,6 +221,80 @@ class CustomGraphicsItem(QGraphicsItem):
         self.update()
 
 
+class FusionGraphicsView(QGraphicsView):
+    """Graphics view for fusion preview with wheel zoom and right-drag pan."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._zoom_factor = 1.20
+        self._user_zoomed = False
+        self._is_panning = False
+        self._last_pan_pos = QPoint()
+
+        self.setRenderHint(QPainter.RenderHint.Antialiasing)
+        self.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
+        self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
+        self.setDragMode(QGraphicsView.DragMode.NoDrag)
+        self.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+
+    def reset_to_fit(self):
+        scene = self.scene()
+        if scene is None:
+            return
+        bounds = scene.itemsBoundingRect()
+        if not bounds.isValid() or bounds.isNull():
+            return
+        self.resetTransform()
+        self.fitInView(bounds, QtCore.Qt.AspectRatioMode.KeepAspectRatio)
+        self._user_zoomed = False
+
+    def wheelEvent(self, event):
+        if event.angleDelta().y() == 0:
+            event.ignore()
+            return
+        if event.angleDelta().y() > 0:
+            factor = self._zoom_factor
+        else:
+            factor = 1.0 / self._zoom_factor
+        self.scale(factor, factor)
+        self._user_zoomed = True
+        event.accept()
+
+    def mousePressEvent(self, event):
+        if event.button() == QtCore.Qt.MouseButton.RightButton:
+            self._is_panning = True
+            self._last_pan_pos = event.pos()
+            self.viewport().setCursor(QtCore.Qt.CursorShape.ClosedHandCursor)
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self._is_panning:
+            delta = event.pos() - self._last_pan_pos
+            self._last_pan_pos = event.pos()
+            self.horizontalScrollBar().setValue(self.horizontalScrollBar().value() - delta.x())
+            self.verticalScrollBar().setValue(self.verticalScrollBar().value() - delta.y())
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == QtCore.Qt.MouseButton.RightButton and self._is_panning:
+            self._is_panning = False
+            self.viewport().unsetCursor()
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if not self._user_zoomed:
+            self.reset_to_fit()
+
+
 class HotSpotDialog(QDialog):
     spot_exported = pyqtSignal(list)  # list of QPointF
     def __init__(self, thermal_image, raw_data, parent=None):
@@ -515,7 +589,24 @@ class ImageFusionDialog(QtWidgets.QDialog):
 
         self.dest_path_preview = dest_path_preview
         self.scene = QGraphicsScene()
+        # Replace Designer view with an interactive one (wheel zoom + right-drag pan).
+        original_view = self.view
+        interactive_view = FusionGraphicsView(original_view.parentWidget())
+        interactive_view.setObjectName(original_view.objectName())
+        interactive_view.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        interactive_view.setMinimumSize(original_view.minimumSize())
+        # The .ui file caps the original view to 500x400; remove this cap so resizing can expand the viewer.
+        interactive_view.setMaximumSize(QSize(16777215, 16777215))
+        parent_layout = original_view.parentWidget().layout() if original_view.parentWidget() else None
+        if parent_layout is not None:
+            parent_layout.replaceWidget(original_view, interactive_view)
+        original_view.deleteLater()
+        self.view = interactive_view
         self.view.setScene(self.scene)
+        if hasattr(self, "gridLayout"):
+            self.gridLayout.setColumnStretch(1, 1)
+            self.gridLayout.setColumnStretch(2, 0)
+            self.gridLayout.setRowStretch(1, 1)
         self.image_to_export = None
 
         min_temp_scaled = self.scale_temperature(img_object.tmin)
@@ -622,42 +713,23 @@ class ImageFusionDialog(QtWidgets.QDialog):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        self.fitItemsInView()
+        # Auto-fit during resize only when the user has not manually zoomed.
+        if not self.view._user_zoomed:
+            self.view.reset_to_fit()
 
     def fitItemsInView(self):
-        # Disable scrollbars
-        self.view.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.view.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-
-        # Get the size of the view
-        view_rect = self.view.viewport().rect()
-        view_width = view_rect.width()
-        view_height = view_rect.height()
-
-        # Assuming colorPixmap is the pixmap of the color image item
         pixmap_size = self.colorImageItem.pixmap.size()
         pixmap_width = pixmap_size.width()
         pixmap_height = pixmap_size.height()
+        if pixmap_width <= 0 or pixmap_height <= 0:
+            return
 
-        # Calculate scale factors for width and height
-        scale_factor_width = view_width / pixmap_width
-        scale_factor_height = view_height / pixmap_height
-
-        # Use the smaller scale factor to keep the aspect ratio
-        scale_factor = min(scale_factor_width, scale_factor_height)
-
-        # Apply the scale factor to both pixmap items
-        self.colorImageItem.setScale(scale_factor)
-        self.thermalImageItem.setScale(scale_factor)
-
-        # Adjust the scene size to the scaled pixmap size
-        scaled_width = pixmap_width * scale_factor
-        scaled_height = pixmap_height * scale_factor
-        self.scene.setSceneRect(0, 0, scaled_width, scaled_height)
-
-        # Center the items in the view
-        self.colorImageItem.setPos((view_width - scaled_width) / 2, (view_height - scaled_height) / 2)
-        self.thermalImageItem.setPos((view_width - scaled_width) / 2, (view_height - scaled_height) / 2)
+        self.colorImageItem.setScale(1.0)
+        self.thermalImageItem.setScale(1.0)
+        self.colorImageItem.setPos(0, 0)
+        self.thermalImageItem.setPos(0, 0)
+        self.scene.setSceneRect(0, 0, pixmap_width, pixmap_height)
+        self.view.reset_to_fit()
 
     def recolorIRImage(self, value):
         min_temp = self.range_slider_map.lowerValue() / 100.0  # Adjust if you used scaling

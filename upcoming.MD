@@ -1,0 +1,2 @@
+Next features:
+- In addition to the 'single view' and 'dual view' tabs, could you add a 'general+details' view. There, the infrared image would be shown (with annotations, so similar to the single view) and at the bottom of it the different rectangle annotations in a grid view, with both rgb and IR crop zones

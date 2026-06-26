@@ -982,13 +982,24 @@ class DroneIrWindow(QMainWindow):
         ir_path = self.dest_path_post
         coords = new_rect_annot.get_coord_from_item(rect_item)
         roi_ir, roi_rgb = new_rect_annot.compute_data(coords, self.work_image.raw_data_undis, rgb_path, ir_path)
+        if roi_ir is None or roi_ir.size == 0 or new_rect_annot.data_roi is None or new_rect_annot.data_roi.size == 0:
+            QMessageBox.warning(
+                self,
+                "Invalid Rectangle",
+                "The selected rectangle is outside the thermal image bounds or too small."
+            )
+            self.hand_pan()
+            return
 
         roi_ir_path = os.path.join(self.preview_folder, 'roi_ir.JPG')
         tt.cv_write_all_path(roi_ir, roi_ir_path)
 
         if self.has_rgb:
             roi_rgb_path = os.path.join(self.preview_folder, 'roi_rgb.JPG')
-            tt.cv_write_all_path(roi_rgb, roi_rgb_path)
+            if roi_rgb is not None and roi_rgb.size > 0:
+                tt.cv_write_all_path(roi_rgb, roi_rgb_path)
+            else:
+                roi_rgb_path = ''
         else:
             roi_rgb_path = ''
 
@@ -1253,15 +1264,26 @@ class DroneIrWindow(QMainWindow):
                     coords = interest.get_coord_from_item(interest.main_item)
                     roi_ir, roi_rgb = interest.compute_data(coords, self.work_image.raw_data_undis, rgb_path,
                                                             ir_path)
+                    if roi_ir is None or roi_ir.size == 0 or interest.data_roi is None or interest.data_roi.size == 0:
+                        QMessageBox.warning(
+                            self,
+                            "Invalid Rectangle",
+                            "This rectangle is outside the thermal image bounds or too small."
+                        )
+                        return
                     roi_ir_path = os.path.join(self.preview_folder, 'roi_ir.JPG')
                     tt.cv_write_all_path(roi_ir, roi_ir_path)
 
                     if self.has_rgb:
                         roi_rgb_path = os.path.join(self.preview_folder, 'roi_rgb.JPG')
-                        tt.cv_write_all_path(roi_rgb, roi_rgb_path)
+                        if roi_rgb is not None and roi_rgb.size > 0:
+                            tt.cv_write_all_path(roi_rgb, roi_rgb_path)
+                        else:
+                            roi_rgb_path = ''
 
                         dialog = dia.Meas3dDialog(interest, temp_unit=self.temp_unit)
-                        dialog.dual_view.load_images_from_path(roi_rgb_path, roi_ir_path)
+                        if roi_rgb_path:
+                            dialog.dual_view.load_images_from_path(roi_rgb_path, roi_ir_path)
 
                     else:
                         dialog = dia.Meas3dDialog_simple(interest, temp_unit=self.temp_unit)
@@ -1977,6 +1999,9 @@ class DroneIrWindow(QMainWindow):
         """
         Reset all model parameters (image and categories)
         """
+        previous_skip_state = self.skip_update
+        self.skip_update = True
+
         # Remove histogram widget
         if hasattr(self, 'hist_canvas') and self.hist_canvas is not None:
             self.layout_histo.removeWidget(self.hist_canvas)
@@ -2077,6 +2102,7 @@ class DroneIrWindow(QMainWindow):
 
         # Reset status bar
         self.update_progress(nb=100, text="Status: Choose image folder")
+        self.skip_update = previous_skip_state
 
     # IMAGE ALIGNMENT __________________________________________________________
     def image_matching(self):
@@ -2287,8 +2313,13 @@ class DroneIrWindow(QMainWindow):
         self.work_image.tmax_shown = self.to_celsius(tmax_display)
 
     def compile_user_values(self):
+        if self.work_image is None:
+            return
+
         # colormap
         i = self.comboBox_palette.currentIndex()
+        if i < 0 or i >= len(self._colormap_list):
+            return
         self.work_image.colormap = self._colormap_list[i]
 
         try:
@@ -2504,6 +2535,9 @@ class DroneIrWindow(QMainWindow):
             self.pushButton_left.setEnabled(True)
 
     def create_th_img_preview(self, refresh_dual=False):
+        if self.work_image is None:
+            return
+
         self.compile_user_values()  # store combobox choices in img data
         img = self.work_image
 
@@ -2590,6 +2624,8 @@ class DroneIrWindow(QMainWindow):
     def update_img_preview(self, refresh_dual=False):
         self.viewer.set_thermal_data([])
         if self.skip_update:  # allows to skip image update
+            return
+        if self.work_image is None:
             return
 
         """

@@ -47,7 +47,11 @@ def cv_read_all_path(path):
 
 
 def cv_write_all_path(img, path, extension='PNG'):
+    if img is None or getattr(img, "size", 0) == 0:
+        raise ValueError(f"Cannot write empty image to '{path}'")
     is_success, im_buf_arr = cv2.imencode('.' + extension, img)
+    if not is_success:
+        raise ValueError(f"Could not encode image for '{path}' with extension '{extension}'")
     im_buf_arr.tofile(path)
 
 
@@ -932,29 +936,65 @@ class RectMeas:
         p1 = coords[0]
         p2 = coords[1]
 
+        x1, y1, x2, y2 = self._normalized_clipped_rect(p1, p2, raw_data.shape[1], raw_data.shape[0])
+
         # crop data to last rectangle
-        self.data_roi = raw_data[int(p1.y()):int(p2.y()), int(p1.x()):int(p2.x())]
+        if x2 <= x1 or y2 <= y1:
+            self.data_roi = np.empty((0, 0), dtype=raw_data.dtype)
+            return
+        self.data_roi = raw_data[y1:y2, x1:x2]
+
+    @staticmethod
+    def _normalized_clipped_rect(p1, p2, width, height):
+        x1 = int(min(p1.x(), p2.x()))
+        y1 = int(min(p1.y(), p2.y()))
+        x2 = int(max(p1.x(), p2.x()))
+        y2 = int(max(p1.y(), p2.y()))
+
+        x1 = max(0, min(x1, width))
+        x2 = max(0, min(x2, width))
+        y1 = max(0, min(y1, height))
+        y2 = max(0, min(y2, height))
+        return x1, y1, x2, y2
 
     def compute_data(self, coords, raw_data, rgb_path, ir_path):
         p1 = coords[0]
         p2 = coords[1]
 
+        raw_h, raw_w = raw_data.shape[:2]
+        x1, y1, x2, y2 = self._normalized_clipped_rect(p1, p2, raw_w, raw_h)
+
         # crop data to last rectangle
-        self.data_roi = raw_data[int(p1.y()):int(p2.y()), int(p1.x()):int(p2.x())]
+        if x2 <= x1 or y2 <= y1:
+            self.data_roi = np.empty((0, 0), dtype=raw_data.dtype)
+            return np.empty((0, 0, 3), dtype=np.uint8), None
+        self.data_roi = raw_data[y1:y2, x1:x2]
 
         cv_ir = cv_read_all_path(ir_path)
-        h_ir, w_ir, _ = cv_ir.shape
-        roi_ir = cv_ir[int(p1.y()):int(p2.y()), int(p1.x()):int(p2.x())]
+        if cv_ir is None or cv_ir.size == 0:
+            return np.empty((0, 0, 3), dtype=np.uint8), None
+        h_ir, w_ir = cv_ir.shape[:2]
+        ir_x1, ir_y1, ir_x2, ir_y2 = self._normalized_clipped_rect(p1, p2, w_ir, h_ir)
+        roi_ir = cv_ir[ir_y1:ir_y2, ir_x1:ir_x2]
 
         p1 = (p1.x(), p1.y())
         p2 = (p2.x(), p2.y())
 
         if self.has_rgb:
             cv_rgb = cv_read_all_path(rgb_path)
-            h_rgb, w_rgb, _ = cv_rgb.shape
+            if cv_rgb is None or cv_rgb.size == 0:
+                roi_rgb = np.empty((0, 0, 3), dtype=np.uint8)
+                return roi_ir, roi_rgb
+            h_rgb, w_rgb = cv_rgb.shape[:2]
             scale = w_rgb / w_ir
             crop_tl, crop_tr = get_corresponding_crop_rectangle(p1, p2, scale)
-            roi_rgb = cv_rgb[int(crop_tl[1]):int(crop_tr[1]), int(crop_tl[0]):int(crop_tr[0])]
+            rgb_x1, rgb_y1, rgb_x2, rgb_y2 = self._normalized_clipped_rect(
+                QPointF(crop_tl[0], crop_tl[1]),
+                QPointF(crop_tr[0], crop_tr[1]),
+                w_rgb,
+                h_rgb
+            )
+            roi_rgb = cv_rgb[rgb_y1:rgb_y2, rgb_x1:rgb_x2]
         else:
             roi_rgb = None
 
