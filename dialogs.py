@@ -236,8 +236,24 @@ class FusionGraphicsView(QGraphicsView):
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self.setDragMode(QGraphicsView.DragMode.NoDrag)
+        self.setFrameShape(QFrame.Shape.NoFrame)
+        self.setStyleSheet("border: none;")
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.setViewportUpdateMode(QGraphicsView.ViewportUpdateMode.SmartViewportUpdate)
+        self.setAutoFillBackground(True)
+        self.viewport().setAutoFillBackground(True)
+        self.viewport().setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
         self.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+
+    def set_background_color(self, color: QColor):
+        """Use a stable solid background color (prevents white resize artifacts)."""
+        self.setBackgroundBrush(QBrush(color))
+        palette = self.viewport().palette()
+        palette.setColor(QPalette.ColorRole.Window, color)
+        self.viewport().setPalette(palette)
+        css = f"background-color: rgb({color.red()}, {color.green()}, {color.blue()}); border: none;"
+        self.viewport().setStyleSheet(css)
 
     def reset_to_fit(self):
         scene = self.scene()
@@ -293,6 +309,162 @@ class FusionGraphicsView(QGraphicsView):
         super().resizeEvent(event)
         if not self._user_zoomed:
             self.reset_to_fit()
+
+
+class FusionTempScaleWidget(QWidget):
+    """Horizontal temperature scale with palette markers and ticks."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.axis_min = 0.0
+        self.axis_max = 1.0
+        self.map_min = 0.0
+        self.map_max = 1.0
+        self.colormap_name = 'inferno'
+        self.n_colors = 256
+        self.setMinimumSize(420, 96)
+        self.setAutoFillBackground(True)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+
+    def set_scale_data(self, axis_min, axis_max, map_min, map_max, colormap_name, n_colors):
+        self.axis_min = float(axis_min)
+        self.axis_max = float(axis_max)
+        self.map_min = float(map_min)
+        self.map_max = float(map_max)
+        self.colormap_name = str(colormap_name)
+        self.n_colors = int(max(2, n_colors))
+        self.update()
+
+    def _get_colormap(self):
+        if self.colormap_name in tt.LIST_CUSTOM_NAMES:
+            all_cmaps = tt.get_all_custom_cmaps(self.n_colors)
+            return all_cmaps[self.colormap_name]
+        return cm.get_cmap(self.colormap_name, self.n_colors)
+
+    def _temp_to_x(self, t, bar_left, bar_width):
+        span = max(1e-9, self.axis_max - self.axis_min)
+        ratio = (t - self.axis_min) / span
+        ratio = max(0.0, min(1.0, ratio))
+        return int(round(bar_left + ratio * bar_width))
+
+    @staticmethod
+    def _nice_step(span, target_ticks=6):
+        if span <= 0:
+            return 1.0
+        rough = span / max(1, target_ticks)
+        mag = 10 ** np.floor(np.log10(rough))
+        norm = rough / mag
+        if norm < 1.5:
+            step = 1.0
+        elif norm < 3.0:
+            step = 2.0
+        elif norm < 7.0:
+            step = 5.0
+        else:
+            step = 10.0
+        return step * mag
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        # Always paint full widget background to avoid tiny stale artifacts.
+        bg = self.palette().color(QPalette.ColorRole.Window)
+        painter.fillRect(self.rect(), bg)
+
+        rect = self.rect().adjusted(6, 6, -6, -6)
+        bar_w = max(80, rect.width() - 34)
+        bar_h = 20
+        bar_x = rect.left() + 12
+        bar_y = rect.top() + 24
+        bar_rect = QRect(bar_x, bar_y, bar_w, bar_h)
+
+        if self.axis_max <= self.axis_min:
+            painter.fillRect(bar_rect, QColor(160, 160, 160))
+            return
+
+        cmap = self._get_colormap()
+        map_span = max(1e-9, self.map_max - self.map_min)
+        # Draw a fixed-axis scale, with color mapped via palette limits.
+        for i in range(bar_w):
+            axis_ratio = i / max(1, bar_w - 1)
+            temp = self.axis_min + axis_ratio * (self.axis_max - self.axis_min)
+            palette_ratio = (temp - self.map_min) / map_span
+            palette_ratio = max(0.0, min(1.0, palette_ratio))
+            rgba = cmap(palette_ratio)
+            col = QColor(
+                int(rgba[0] * 255),
+                int(rgba[1] * 255),
+                int(rgba[2] * 255),
+            )
+            painter.setPen(col)
+            painter.drawLine(bar_x + i, bar_y, bar_x + i, bar_y + bar_h - 1)
+
+        painter.setPen(QPen(QColor(30, 30, 30), 1))
+        painter.drawRect(bar_rect)
+
+        # Palette limit handles on the fixed axis.
+        map_min_clamped = max(self.axis_min, min(self.axis_max, self.map_min))
+        map_max_clamped = max(self.axis_min, min(self.axis_max, self.map_max))
+        if map_max_clamped < map_min_clamped:
+            map_min_clamped, map_max_clamped = map_max_clamped, map_min_clamped
+        x_map_min = self._temp_to_x(map_min_clamped, bar_x, bar_w)
+        x_map_max = self._temp_to_x(map_max_clamped, bar_x, bar_w)
+
+        # Quantized tick intervals on the right side.
+        span = self.axis_max - self.axis_min
+        step = self._nice_step(span, target_ticks=6)
+        start = np.ceil(self.axis_min / step) * step
+        ticks = []
+        t = start
+        while t <= self.axis_max + 1e-9:
+            ticks.append(float(t))
+            t += step
+
+        tick_pen = QPen(QColor(20, 20, 20), 1)
+        painter.setPen(tick_pen)
+        tick_y0 = bar_y + bar_h + 2
+        tick_y1 = tick_y0 + 6
+        for t in ticks:
+            x = self._temp_to_x(t, bar_x, bar_w)
+            painter.drawLine(x, tick_y0, x, tick_y1)
+            txt = f"{t:.2f}"
+            tw = painter.fontMetrics().horizontalAdvance(txt)
+            painter.drawText(x - tw // 2, tick_y1 + 14, txt)
+
+        # Triangular handles for palette min/max.
+        tri_brush = QBrush(QColor(0, 0, 0))
+        painter.setBrush(tri_brush)
+        painter.setPen(Qt.PenStyle.NoPen)
+        tri_size = 8
+        tri_min = QPolygon([
+            QPoint(x_map_min, bar_y - 1),
+            QPoint(x_map_min - tri_size // 2, bar_y - tri_size),
+            QPoint(x_map_min + tri_size // 2, bar_y - tri_size),
+        ])
+        tri_max = QPolygon([
+            QPoint(x_map_max, bar_y - 1),
+            QPoint(x_map_max - tri_size // 2, bar_y - tri_size),
+            QPoint(x_map_max + tri_size // 2, bar_y - tri_size),
+        ])
+        painter.drawPolygon(tri_min)
+        painter.drawPolygon(tri_max)
+
+        # Labels for current ranges.
+        painter.setPen(QPen(QColor(20, 20, 20), 1))
+        min_label = f"Palette min {map_min_clamped:.2f} C"
+        max_label = f"Palette max {map_max_clamped:.2f} C"
+        min_w = painter.fontMetrics().horizontalAdvance(min_label)
+        max_w = painter.fontMetrics().horizontalAdvance(max_label)
+        min_x = max(rect.left(), min(rect.right() - min_w, x_map_min - min_w // 2))
+        max_x = max(rect.left(), min(rect.right() - max_w, x_map_max - max_w // 2))
+        labels_y = rect.top() + 16
+        painter.drawText(max_x, labels_y, max_label)
+        painter.drawText(min_x, labels_y, min_label)
+
+        temp_label = "Temperature (C)"
+        temp_w = painter.fontMetrics().horizontalAdvance(temp_label)
+        painter.drawText(bar_x + (bar_w - temp_w) // 2, tick_y1 + 30, temp_label)
 
 
 class HotSpotDialog(QDialog):
@@ -574,12 +746,9 @@ class ImageFusionDialog(QtWidgets.QDialog):
 
     def __init__(self, img_object, ir_img_path, dest_path_preview):
         super().__init__()
-        basepath = os.path.dirname(__file__)
-        basename = 'fusion'
-        uifile = os.path.join(basepath, 'ui/%s.ui' % basename)
-        loadUi(uifile, self)
-
         self.setWindowTitle("Create a custom overlay")
+        self.resize(1100, 720)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
 
         self.ir_path = ir_img_path
         self.img_object = img_object
@@ -589,24 +758,14 @@ class ImageFusionDialog(QtWidgets.QDialog):
 
         self.dest_path_preview = dest_path_preview
         self.scene = QGraphicsScene()
-        # Replace Designer view with an interactive one (wheel zoom + right-drag pan).
-        original_view = self.view
-        interactive_view = FusionGraphicsView(original_view.parentWidget())
-        interactive_view.setObjectName(original_view.objectName())
-        interactive_view.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        interactive_view.setMinimumSize(original_view.minimumSize())
-        # The .ui file caps the original view to 500x400; remove this cap so resizing can expand the viewer.
-        interactive_view.setMaximumSize(QSize(16777215, 16777215))
-        parent_layout = original_view.parentWidget().layout() if original_view.parentWidget() else None
-        if parent_layout is not None:
-            parent_layout.replaceWidget(original_view, interactive_view)
-        original_view.deleteLater()
-        self.view = interactive_view
+        dialog_bg = self.palette().color(QPalette.ColorRole.Window)
+        self.scene.setBackgroundBrush(QBrush(dialog_bg))
+        self.view = FusionGraphicsView(self)
+        self.view.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.view.setMinimumSize(QSize(0, 0))
+        self.view.setMaximumSize(QSize(16777215, 16777215))
         self.view.setScene(self.scene)
-        if hasattr(self, "gridLayout"):
-            self.gridLayout.setColumnStretch(1, 1)
-            self.gridLayout.setColumnStretch(2, 0)
-            self.gridLayout.setRowStretch(1, 1)
+        self.view.set_background_color(dialog_bg)
         self.image_to_export = None
 
         min_temp_scaled = self.scale_temperature(img_object.tmin)
@@ -628,6 +787,7 @@ class ImageFusionDialog(QtWidgets.QDialog):
         self.range_slider_shown.setUpperValue(max_shown_temp_scaled)
         self.range_slider_shown.setMinimum(min_temp_scaled)
         self.range_slider_shown.setMaximum(max_temp_scaled)
+        self.range_slider_shown.setFixedHeight(40)
 
         # range slider for palette
         self.range_slider_map = wid.QRangeSlider(self.colormap_name)
@@ -643,17 +803,125 @@ class ImageFusionDialog(QtWidgets.QDialog):
         self.range_slider_map.lowerValueChanged.connect(self.recolorIRImage)
         self.range_slider_map.upperValueChanged.connect(self.recolorIRImage)
 
-        # edit labels
-        self.label_max.setText(f'{str(min_shown_temp_scaled / 100)} °C')
-        self.label_min.setText(f'{str(max_shown_temp_scaled / 100)} °C')
+        # Labels around sliders
+        self.label_min = QLabel()
+        self.label_max = QLabel()
+        self.label_min_2 = QLabel()
+        self.label_max_2 = QLabel()
+        self.label_min.setText(f"{min_shown_temp_scaled / 100:.2f} C")
+        self.label_max.setText(f"{max_shown_temp_scaled / 100:.2f} C")
+        self.label_min_2.setText(f"{min_shown_temp_scaled / 100:.2f} C")
+        self.label_max_2.setText(f"{max_shown_temp_scaled / 100:.2f} C")
+        self.label_max.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self.label_max_2.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
-        # edit labels
-        self.label_max_2.setText(f'{str(max_shown_temp_scaled / 100)} °C')
-        self.label_min_2.setText(f'{str(min_shown_temp_scaled / 100)} °C')
+        self.temp_scale_widget = FusionTempScaleWidget()
+        self.temp_scale_widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.temp_scale_widget.setFixedHeight(96)
 
-        # new label
-        self.verticalLayout_2.addWidget(self.range_slider_shown)
-        self.verticalLayout_2.addWidget(self.range_slider_map)
+        self.scale_bounds_group = QGroupBox("Scale bounds (C)")
+        bounds_layout = QFormLayout(self.scale_bounds_group)
+        self.edit_map_min = QLineEdit()
+        self.edit_map_max = QLineEdit()
+        self.edit_visible_min = QLineEdit()
+        self.edit_visible_max = QLineEdit()
+        dv = QDoubleValidator(-1000.0, 2000.0, 2)
+        dv.setNotation(QDoubleValidator.Notation.StandardNotation)
+        for le in (self.edit_map_min, self.edit_map_max, self.edit_visible_min, self.edit_visible_max):
+            le.setValidator(dv)
+            le.setMaximumWidth(110)
+            le.editingFinished.connect(self.on_scale_edits_changed)
+
+        bounds_layout.addRow("Map min:", self.edit_map_min)
+        bounds_layout.addRow("Map max:", self.edit_map_max)
+        bounds_layout.addRow("Visible min:", self.edit_visible_min)
+        bounds_layout.addRow("Visible max:", self.edit_visible_max)
+
+        shown_group = QGroupBox("Shown values")
+        shown_layout = QVBoxLayout(shown_group)
+        shown_labels = QHBoxLayout()
+        shown_labels.addWidget(self.label_min)
+        shown_labels.addWidget(self.label_max)
+        shown_layout.addLayout(shown_labels)
+        shown_layout.addWidget(self.range_slider_shown)
+
+        palette_group = QGroupBox("Palette limits")
+        palette_layout = QVBoxLayout(palette_group)
+        palette_labels = QHBoxLayout()
+        palette_labels.addWidget(self.label_min_2)
+        palette_labels.addWidget(self.label_max_2)
+        palette_layout.addLayout(palette_labels)
+        palette_layout.addWidget(self.range_slider_map)
+
+        self.left_scale_panel = QWidget()
+        self.left_scale_panel.setAutoFillBackground(True)
+        self.left_scale_panel.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        left_scale_layout = QVBoxLayout(self.left_scale_panel)
+        left_scale_layout.setContentsMargins(6, 6, 6, 6)
+        left_scale_layout.addWidget(shown_group)
+        left_scale_layout.addWidget(palette_group)
+        left_scale_layout.addWidget(self.scale_bounds_group)
+        left_scale_layout.addStretch(1)
+
+        # Right side options (non-scale related)
+        self.right_options_panel = QWidget()
+        right_layout = QVBoxLayout(self.right_options_panel)
+        right_layout.setContentsMargins(6, 6, 6, 6)
+
+        options_group = QGroupBox("Fusion parameters")
+        options_layout = QVBoxLayout(options_group)
+
+        self.grayscaleCheckbox = QCheckBox("B/W background")
+        self.edgeHighlightCheckbox = QCheckBox("Edge highlight visible IR")
+        self.edgeHighlightCheckbox.setChecked(True)
+        self.edgeHighlightCheckbox.stateChanged.connect(lambda _=None: self.updateIRImage(0))
+        self.edge_highlight_color = QColor(0, 0, 0)
+        self.edgeColorButton = QPushButton("Edge color...")
+        self.edgeColorButton.clicked.connect(self.choose_edge_highlight_color)
+        self.edgeColorSwatch = QLabel()
+        self.edgeColorSwatch.setFixedSize(22, 14)
+        self.edgeColorSwatch.setFrameShape(QFrame.Shape.Box)
+        self.edgeColorSwatch.setLineWidth(1)
+        edge_color_row = QHBoxLayout()
+        edge_color_row.addWidget(self.edgeColorButton)
+        edge_color_row.addWidget(self.edgeColorSwatch)
+        edge_color_row.addStretch(1)
+
+        self.modeComboBox = QComboBox()
+        self.modeComboBox.setMinimumWidth(220)
+        self.opacitySlider = QSlider(Qt.Orientation.Horizontal)
+        self.opacitySlider.setRange(0, 100)
+        self.opacitySlider.setValue(100)
+
+        options_layout.addWidget(self.grayscaleCheckbox)
+        options_layout.addWidget(QLabel("Blend mode:"))
+        options_layout.addWidget(self.modeComboBox)
+        options_layout.addWidget(QLabel("Opacity:"))
+        options_layout.addWidget(self.opacitySlider)
+        options_layout.addWidget(self.edgeHighlightCheckbox)
+        options_layout.addLayout(edge_color_row)
+        options_layout.addStretch(1)
+
+        right_layout.addWidget(options_group)
+        right_layout.addStretch(1)
+
+        # Main dialog layout
+        root_layout = QVBoxLayout(self)
+        content_layout = QHBoxLayout()
+        content_layout.addWidget(self.left_scale_panel, 0)
+        center_panel = QWidget()
+        center_layout = QVBoxLayout(center_panel)
+        center_layout.setContentsMargins(0, 0, 0, 0)
+        center_layout.addWidget(self.view, 1)
+        center_layout.addWidget(self.temp_scale_widget, 0)
+        content_layout.addWidget(center_panel, 1)
+        content_layout.addWidget(self.right_options_panel, 0)
+        root_layout.addLayout(content_layout, 1)
+
+        self.buttonBox = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        root_layout.addWidget(self.buttonBox)
 
         # Load images
         colorPixmap = QPixmap(img_object.rgb_path)
@@ -664,6 +932,8 @@ class ImageFusionDialog(QtWidgets.QDialog):
         self.thermalImageItem = CustomGraphicsItem(thermalPixmap, target_size=colorPixmap.size())
 
         # Add items to scene
+        self.colorImageItem.setZValue(0)
+        self.thermalImageItem.setZValue(1)
         self.scene.addItem(self.colorImageItem)
         self.scene.addItem(self.thermalImageItem)
 
@@ -689,12 +959,13 @@ class ImageFusionDialog(QtWidgets.QDialog):
         self.changeFusionMode(self.modeComboBox.currentText())
         self.changeOpacity(self.opacitySlider.value())
 
-        # button actions
+        # actions
         self.buttonBox.accepted.connect(self.accept)
         self.buttonBox.rejected.connect(self.reject)
-
         self.grayscaleCheckbox.stateChanged.connect(self.toggleGrayscale)
 
+        self._update_edge_color_swatch()
+        self.sync_scale_edits_from_sliders()
         self.updateIRImage(0)
 
     def changeFusionMode(self, mode):
@@ -734,6 +1005,8 @@ class ImageFusionDialog(QtWidgets.QDialog):
     def recolorIRImage(self, value):
         min_temp = self.range_slider_map.lowerValue() / 100.0  # Adjust if you used scaling
         max_temp = self.range_slider_map.upperValue() / 100.0
+        if max_temp <= min_temp:
+            max_temp = min_temp + 1e-6
 
         # edit labels
         self.label_max_2.setText(f'{str(max_temp)} °C')
@@ -756,6 +1029,7 @@ class ImageFusionDialog(QtWidgets.QDialog):
         img_thermal.save(self.dest_path_preview)
         self.ir_path = self.dest_path_preview
 
+        self.updateTemperatureScale()
         self.updateIRImage(0)
 
     def updateIRImage(self, value):
@@ -788,6 +1062,18 @@ class ImageFusionDialog(QtWidgets.QDialog):
         # Apply the mask to the alpha channel, setting those pixels to transparent
         ir_array[..., 3] = np.where(mask, 0, ir_array[..., 3])
 
+        # Edge highlight directly on thermal layer (keeps perfect alignment).
+        if self.edgeHighlightCheckbox.isChecked():
+            visible_mask = (~mask).astype(np.uint8) * 255
+            kernel = np.ones((3, 3), np.uint8)
+            boundary = cv2.morphologyEx(visible_mask, cv2.MORPH_GRADIENT, kernel)
+            edge_pixels = (boundary > 0) & (ir_array[..., 3] > 0)
+            c = self.edge_highlight_color
+            ir_array[edge_pixels, 0] = c.red()
+            ir_array[edge_pixels, 1] = c.green()
+            ir_array[edge_pixels, 2] = c.blue()
+            ir_array[edge_pixels, 3] = 255
+
         # Convert the modified array back to QImage and then to QPixmap
         updated_image = qimage2ndarray.array2qimage(ir_array, normalize=False)
         updated_pixmap = QPixmap.fromImage(updated_image)
@@ -795,9 +1081,90 @@ class ImageFusionDialog(QtWidgets.QDialog):
         # Update the item
         self.thermalImageItem.setPixmap(updated_pixmap)
         self.thermalImageItem.update()
+        self.updateTemperatureScale()
+
+    def updateTemperatureScale(self):
+        map_min = self.range_slider_map.lowerValue() / 100.0
+        map_max = self.range_slider_map.upperValue() / 100.0
+        shown_min = self.range_slider_shown.lowerValue() / 100.0
+        shown_max = self.range_slider_shown.upperValue() / 100.0
+        self.temp_scale_widget.set_scale_data(
+            shown_min,
+            shown_max,
+            map_min,
+            map_max,
+            self.colormap_name,
+            self.n_colors,
+        )
+        self.sync_scale_edits_from_sliders()
+
+    def sync_scale_edits_from_sliders(self):
+        map_min = self.range_slider_map.lowerValue() / 100.0
+        map_max = self.range_slider_map.upperValue() / 100.0
+        shown_min = self.range_slider_shown.lowerValue() / 100.0
+        shown_max = self.range_slider_shown.upperValue() / 100.0
+
+        edits = [
+            (self.edit_map_min, map_min),
+            (self.edit_map_max, map_max),
+            (self.edit_visible_min, shown_min),
+            (self.edit_visible_max, shown_max),
+        ]
+        for edit, value in edits:
+            with QtCore.QSignalBlocker(edit):
+                edit.setText(f"{value:.2f}")
+
+    def on_scale_edits_changed(self):
+        try:
+            map_min = float(self.edit_map_min.text())
+            map_max = float(self.edit_map_max.text())
+            vis_min = float(self.edit_visible_min.text())
+            vis_max = float(self.edit_visible_max.text())
+        except ValueError:
+            self.sync_scale_edits_from_sliders()
+            return
+
+        if map_max <= map_min:
+            map_max = map_min + 0.01
+        if vis_max < vis_min:
+            vis_min, vis_max = vis_max, vis_min
+
+        vis_min = max(map_min, min(map_max, vis_min))
+        vis_max = max(map_min, min(map_max, vis_max))
+
+        map_min_s = self.scale_temperature(map_min)
+        map_max_s = self.scale_temperature(map_max)
+        vis_min_s = self.scale_temperature(vis_min)
+        vis_max_s = self.scale_temperature(vis_max)
+
+        self.range_slider_map.setMinimum(map_min_s)
+        self.range_slider_map.setMaximum(map_max_s)
+        self.range_slider_shown.setMinimum(map_min_s)
+        self.range_slider_shown.setMaximum(map_max_s)
+
+        self.range_slider_map.setLowerValue(map_min_s)
+        self.range_slider_map.setUpperValue(map_max_s)
+        self.range_slider_shown.setLowerValue(vis_min_s)
+        self.range_slider_shown.setUpperValue(vis_max_s)
+
+        self.recolorIRImage(0)
 
     def scale_temperature(self, temp):
         return int(temp * 100)  # Scaling factor of 100
+
+    def _update_edge_color_swatch(self):
+        c = self.edge_highlight_color
+        self.edgeColorSwatch.setStyleSheet(
+            f"background-color: rgb({c.red()}, {c.green()}, {c.blue()});"
+        )
+
+    def choose_edge_highlight_color(self):
+        chosen = QColorDialog.getColor(self.edge_highlight_color, self, "Select edge highlight color")
+        if not chosen.isValid():
+            return
+        self.edge_highlight_color = chosen
+        self._update_edge_color_swatch()
+        self.updateIRImage(0)
 
     def toggleGrayscale(self):
         if self.grayscaleCheckbox.isChecked():
