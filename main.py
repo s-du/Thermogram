@@ -308,6 +308,20 @@ class DroneIrWindow(QMainWindow):
             self.dual_viewer = wid.DualViewer()
             self.verticalLayout_10.addWidget(self.dual_viewer)
 
+            # Dual viewer: RGB crop resolution selector (fast miniature vs full resolution).
+            self.label_dual_rgb_resolution = QLabel("RGB crop resolution:")
+            self.comboBox_dual_rgb_resolution = QComboBox()
+            self.comboBox_dual_rgb_resolution.setMinimumWidth(190)
+            self.comboBox_dual_rgb_resolution.addItems([
+                "Fast (resized crop)",
+                "Full resolution crop",
+            ])
+            dual_res_layout = QHBoxLayout()
+            dual_res_layout.addWidget(self.label_dual_rgb_resolution)
+            dual_res_layout.addWidget(self.comboBox_dual_rgb_resolution)
+            dual_res_layout.addStretch(1)
+            self.verticalLayout_10.addLayout(dual_res_layout)
+
         except Exception as e:
             error(f"Failed to initialize UI components: {str(e)}")
             raise ThermogramError("Failed to initialize UI components") from e
@@ -505,6 +519,7 @@ class DroneIrWindow(QMainWindow):
             self.comboBox_view.currentIndexChanged.connect(self.update_img_preview)
             self.comboBox_edge_overlay_selection.currentIndexChanged.connect(self.change_edge_style)
             self.comboBox_legend_type.currentIndexChanged.connect(self.update_img_preview)
+            self.comboBox_dual_rgb_resolution.currentIndexChanged.connect(self.on_dual_rgb_resolution_changed)
 
             # Line edits
             self.lineEdit_min_temp.editingFinished.connect(self.adapt_slider_values)
@@ -577,6 +592,7 @@ class DroneIrWindow(QMainWindow):
             self.range_slider.setUpperValue(self.display_temp(tmax_shown) * 100)
             self.slider_sensitive = True
 
+            self.refresh_measurements_from_raw_data()
             self.retrace_items()
             self.update_img_preview()
 
@@ -739,6 +755,7 @@ class DroneIrWindow(QMainWindow):
             self.range_slider.setUpperValue(self.display_temp(tmax_shown) * 100)
             self.slider_sensitive = True
 
+            self.refresh_measurements_from_raw_data()
             self.retrace_items()
             self.update_img_preview()
 
@@ -1170,6 +1187,40 @@ class DroneIrWindow(QMainWindow):
                 self.viewer.add_item_from_annot(item)
 
             self.viewer.add_item_from_annot(line.main_item)
+
+    def refresh_measurements_from_raw_data(self):
+        """Recompute all measurement values/items from current raw thermal data."""
+        if self.work_image is None or self.work_image.raw_data_undis is None:
+            return
+
+        raw_data = self.work_image.raw_data_undis
+        h, w = raw_data.shape[:2]
+
+        for point in self.work_image.meas_point_list:
+            x = int(point.qpoint.x())
+            y = int(point.qpoint.y())
+            if 0 <= x < w and 0 <= y < h:
+                point.temp = raw_data[y, x]
+            point.text_item = None
+            point.ellipse_item = None
+            point.create_items(temp_unit=self.temp_unit)
+
+        for rect in self.work_image.meas_rect_list:
+            coords = rect.get_coord_from_item(rect.main_item)
+            rect.compute_temp_data(coords, raw_data)
+            rect.text_items.clear()
+            rect.ellipse_items.clear()
+            if rect.data_roi is not None and rect.data_roi.size > 0:
+                rect.compute_highlights(temp_unit=self.temp_unit)
+                rect.create_items(temp_unit=self.temp_unit)
+
+        for line in self.work_image.meas_line_list:
+            line.compute_data(raw_data)
+            line.spot_items.clear()
+            line.text_items.clear()
+            if line.data_roi is not None and len(line.data_roi) > 0:
+                line.compute_highlights()
+                line.create_items(temp_unit=self.temp_unit)
 
     def change_meas_color(self):
         self.viewer.change_meas_color()
@@ -2038,6 +2089,8 @@ class DroneIrWindow(QMainWindow):
         self.comboBox_post.setCurrentIndex(0)
         self.comboBox_view.setCurrentIndex(0)
         self.comboBox_legend_type.setCurrentIndex(0)
+        if hasattr(self, "comboBox_dual_rgb_resolution"):
+            self.comboBox_dual_rgb_resolution.setCurrentIndex(0)
         self.lineEdit_colors.setText(str(N_COLORS))
 
         # Reset edge detection state
@@ -2168,6 +2221,53 @@ class DroneIrWindow(QMainWindow):
     def miniat_finish(self):
         self.update_progress(nb=100, text='Ready...')
         self.update_img_preview(refresh_dual=True)
+
+    def on_dual_rgb_resolution_changed(self):
+        if self.skip_update or self.work_image is None or not self.has_rgb:
+            return
+        self.update_img_preview(refresh_dual=True)
+
+    def _get_dual_rgb_path(self):
+        """Return RGB path for dual viewer according to selected resolution mode."""
+        if self.work_image is None:
+            return ''
+
+        use_full_res = (
+            hasattr(self, "comboBox_dual_rgb_resolution")
+            and self.comboBox_dual_rgb_resolution.currentIndex() == 1
+        )
+
+        if not use_full_res:
+            return self.work_image.rgb_path
+
+        try:
+            settings = {
+                "rgb_original": getattr(self.work_image, "rgb_path_original", ""),
+                "zoom": getattr(self.work_image, "zoom", None),
+                "x_offset": getattr(self.work_image, "x_offset", None),
+                "y_offset": getattr(self.work_image, "y_offset", None),
+                "dim_undis_ir": getattr(self.work_image, "dim_undis_ir", None),
+            }
+            key_src = json.dumps(settings, sort_keys=True, default=str).encode("utf-8")
+            key = hashlib.md5(key_src).hexdigest()[:12]
+            dest_path = os.path.join(self.preview_folder, f'dual_rgb_full_{self.active_image}_{key}.JPG')
+
+            if not os.path.exists(dest_path):
+                cv_rgb = tt.cv_read_all_path(self.work_image.rgb_path_original)
+                if cv_rgb is None or cv_rgb.size == 0:
+                    return self.work_image.rgb_path
+
+                rgb_crop = tt.match_rgb_custom_parameters_zoom(cv_rgb, self.work_image)
+                if rgb_crop is None or rgb_crop.size == 0:
+                    return self.work_image.rgb_path
+
+                tt.cv_write_all_path(rgb_crop, dest_path, extension='JPG')
+                self._preview_cache_files.append(dest_path)
+
+            return dest_path
+        except Exception:
+            # Fallback to the fast/resized crop if full-resolution generation fails.
+            return self.work_image.rgb_path
 
     def compose_pic(self):
         self.work_image.nb_custom_imgs += 1
@@ -2388,45 +2488,10 @@ class DroneIrWindow(QMainWindow):
         else:
             # compare new to old param
             old_param = copy.deepcopy(self.work_image.get_thermal_param())
-            print(f'checking if new thermal parameters {self.thermal_param} = {old_param}')
-            for key in old_param:
-                if old_param[key] != self.thermal_param.get(key):
-                    # assign a **copy** of the current radiometric parameters to the image
-                    self.work_image.update_data_from_param(copy.deepcopy(self.thermal_param))
-
-                    # update measurements with new radiometric params
-                    for i, point in enumerate(self.work_image.meas_point_list):
-                        # update temperatures with new radiometric parameters
-                        point.temp = self.work_image.raw_data_undis[int(point.qpoint.y()), int(point.qpoint.x())]
-
-                        point.text_item.clear()
-                        point.ellipse_item.clear()
-
-                        # recreate all graphical items
-                        point.create_items(temp_unit=self.temp_unit)
-
-                    for i, rect in enumerate(self.work_image.meas_rect_list):
-                        # update temperatures with new radiometric parameters
-                        coords = rect.get_coord_from_item(rect.rect)
-                        rect.compute_temp_data(coords, self.work_image.raw_data_undis)
-                        rect.compute_highlights(temp_unit=self.temp_unit)
-
-                        rect.text_items.clear()
-                        rect.ellipse_items.clear()
-
-                        # recreate all graphical items
-                        rect.create_items(temp_unit=self.temp_unit)
-
-                    for i, line in enumerate(self.work_image.meas_line_list):
-                        # update temperatures with new radiometric parameters
-                        line.compute_data(self.work_image.raw_data_undis)
-                        line.compute_highlights()
-
-                        # recreate all graphical items
-                        line.create_items(temp_unit=self.temp_unit)
-
-                else:
-                    print('No change in radiometric parameters')
+            if any(old_param[key] != self.thermal_param.get(key) for key in old_param):
+                # assign a **copy** of the current radiometric parameters to the image
+                self.work_image.update_data_from_param(copy.deepcopy(self.thermal_param))
+                self.refresh_measurements_from_raw_data()
 
         if not self.checkBox_keep_temp.isChecked():
             tmin, tmax, tmin_shown, tmax_shown = self.work_image.get_temp_data()
@@ -2608,7 +2673,8 @@ class DroneIrWindow(QMainWindow):
             if refresh_dual:
                 # reset the dual viewer
                 self.dual_viewer.refresh()
-            self.dual_viewer.load_images_from_path(self.work_image.rgb_path, dest_path_post)
+            dual_rgb_path = self._get_dual_rgb_path()
+            self.dual_viewer.load_images_from_path(dual_rgb_path, dest_path_post)
 
         self.dest_path_post = dest_path_post
 
