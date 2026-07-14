@@ -177,8 +177,11 @@ class DroneIrWindow(QMainWindow):
         info(f"Loading UI file: {ui_file}")
         uic.loadUi(str(ui_file), self)
 
-        # Boolean flag to track the stylesheet state
-        self.style_active = False
+        # Style selection state
+        app_style = QApplication.instance().style() if QApplication.instance() is not None else None
+        self.default_qt_style_name = app_style.objectName() if app_style is not None else ""
+        self.selected_style_mode = "qt_default"  # qt_default | fusion | custom_qss | qt_named
+        self.selected_qt_style_name = self.default_qt_style_name
 
         # Initialize status
         self.update_progress(nb=100, text="Status: Choose image folder")
@@ -271,6 +274,7 @@ class DroneIrWindow(QMainWindow):
             self.dockWidget.raise_()  # Make the first dock widget visible by default
 
             self._rearrange_docks()
+            self._enable_scroll_for_docks()
 
             # Set up range slider
             self.range_slider = wid.QRangeSlider(tt.COLORMAPS[0])
@@ -326,37 +330,191 @@ class DroneIrWindow(QMainWindow):
             error(f"Failed to initialize UI components: {str(e)}")
             raise ThermogramError("Failed to initialize UI components") from e
 
-    def _rearrange_docks(self) -> None:
-        """Adjust dock placement to reduce left-panel crowding."""
-        # Move Edge mix dock to the right pane
-        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.dockWidget_edge)
-
-        # Move legend controls from Options dock to Temperatures dock
-        temp_layout = getattr(self, 'verticalLayout_2', None)
-        legend_widgets = [
-            getattr(self, 'checkBox_legend', None),
-            getattr(self, 'label_12', None),
-            getattr(self, 'comboBox_legend_type', None),
+    def _enable_scroll_for_docks(self) -> None:
+        """Wrap each dock content in a scroll area for small screens."""
+        dock_names = [
+            "dockWidget",
+            "dockWidget_2",
+            "dockWidget_3",
+            "dockWidget_radio",
+            "dockWidget_edge",
+            "dockWidget_4",
         ]
 
+        for dock_name in dock_names:
+            dock = getattr(self, dock_name, None)
+            if dock is None:
+                continue
+
+            content = dock.widget()
+            if content is None:
+                continue
+
+            # Skip if already wrapped.
+            if isinstance(content, QScrollArea):
+                content.setWidgetResizable(True)
+                content.setFrameShape(QFrame.Shape.NoFrame)
+                content.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+                content.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+                continue
+
+            scroll = QScrollArea(dock)
+            scroll.setWidgetResizable(True)
+            scroll.setFrameShape(QFrame.Shape.NoFrame)
+            scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+            scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+            scroll.setWidget(content)
+            dock.setWidget(scroll)
+
+    def _rearrange_docks(self) -> None:
+        """Group docks on right and consolidate controls into Temperature dock."""
+        temp_layout = getattr(self, 'verticalLayout_2', None)
+        palette_layout = getattr(self, 'verticalLayout_4', None)
+        radio_layout = getattr(self, 'verticalLayout_12', None)
+        options_layout = getattr(self, 'verticalLayout_17', None)
+
+        def _drain_items(src_layout: QLayout) -> list:
+            drained = []
+            if src_layout is None:
+                return drained
+            while src_layout.count() > 0:
+                item = src_layout.takeAt(0)
+                if item is not None:
+                    drained.append(item)
+            return drained
+
+        def _item_key(item) -> str:
+            if item is None:
+                return ""
+            if item.widget() is not None:
+                return item.widget().objectName() or ""
+            if item.layout() is not None:
+                return item.layout().objectName() or ""
+            return ""
+
+        def _add_item(dst_layout: QLayout, item) -> None:
+            if item is None:
+                return
+            if item.widget() is not None:
+                dst_layout.addWidget(item.widget())
+            elif item.layout() is not None:
+                dst_layout.addLayout(item.layout())
+
         if temp_layout is not None:
-            insert_pos = temp_layout.count()
-            for i in range(temp_layout.count()):
-                item = temp_layout.itemAt(i)
-                if item is not None and item.spacerItem() is not None:
-                    insert_pos = i
-                    break
+            temp_items = _drain_items(temp_layout)
+            palette_items = _drain_items(palette_layout)
+            radio_items = _drain_items(radio_layout)
+            visual_items = _drain_items(options_layout)
 
-            for widget in legend_widgets:
-                if widget is None:
+            all_items = temp_items + palette_items + radio_items + visual_items
+
+            temp_range_keys = {
+                "checkBox_keep_temp",
+                "horizontalLayout_2",
+                "horizontalLayout",
+                "horizontalLayout_slider",
+                "horizontalLayout_14",
+                "layout_histo",
+                "pushButton_apply_temp_all",
+            }
+            palette_keys = {
+                "checkBox_keep_palette",
+                "pushButton_add_custom_palette",
+                "comboBox_palette",
+                "horizontalLayout_4",
+                "horizontalLayout_5",
+                "horizontalLayout_6",
+                "horizontalLayout_7",
+                "pushButton_apply_palette_all",
+            }
+            radio_keys = {
+                "checkBox_keep_radiometric",
+                "horizontalLayout_11",
+                "horizontalLayout_12",
+                "horizontalLayout_13",
+                "pushButton_adjust_refl_temp",
+                "pushButton_apply_radio_all",
+            }
+            visual_keys = {
+                "pushButton_heatflow",
+                "checkBox_legend",
+                "label_12",
+                "comboBox_legend_type",
+            }
+
+            section_map = {
+                "range": [],
+                "palette": [],
+                "radio": [],
+                "visual": [],
+            }
+            leftovers = []
+
+            for item in all_items:
+                key = _item_key(item)
+                if not key:
                     continue
-                temp_layout.insertWidget(insert_pos, widget)
-                insert_pos += 1
+                if key in temp_range_keys:
+                    section_map["range"].append(item)
+                elif key in palette_keys:
+                    section_map["palette"].append(item)
+                elif key in radio_keys:
+                    section_map["radio"].append(item)
+                elif key in visual_keys:
+                    section_map["visual"].append(item)
+                else:
+                    leftovers.append(item)
 
-        # Options dock is now empty; remove it from docking layout
-        if hasattr(self, 'dockWidget_4'):
-            self.removeDockWidget(self.dockWidget_4)
-            self.dockWidget_4.hide()
+            group_specs = [
+                ("Temperature range", "range"),
+                ("Palette", "palette"),
+                ("Radiometric", "radio"),
+                ("Visual", "visual"),
+            ]
+
+            for title, section_key in group_specs:
+                group = QGroupBox(title, self.dockWidget)
+                group_layout = QVBoxLayout(group)
+                for item in section_map[section_key]:
+                    _add_item(group_layout, item)
+                if group_layout.count() > 0:
+                    temp_layout.addWidget(group)
+
+            # Keep unknown items visible rather than dropping them.
+            for item in leftovers:
+                _add_item(temp_layout, item)
+
+            temp_layout.addStretch(1)
+
+        # Remove docks whose content has been merged into Temperature.
+        for merged_dock_name in ("dockWidget_2", "dockWidget_4", "dockWidget_radio"):
+            merged_dock = getattr(self, merged_dock_name, None)
+            if merged_dock is not None:
+                self.removeDockWidget(merged_dock)
+                merged_dock.hide()
+
+        # Rename main dock after consolidation.
+        if hasattr(self, "dockWidget") and self.dockWidget is not None:
+            self.dockWidget.setWindowTitle("Temperature")
+
+        # Group remaining docks on the right side as tabs.
+        docks_to_tab = [
+            getattr(self, "dockWidget", None),       # Temperature (includes range/palette/radiometric/visual)
+            getattr(self, "dockWidget_3", None),     # Analysis
+            getattr(self, "dockWidget_edge", None),  # Edge mix
+        ]
+        docks_to_tab = [d for d in docks_to_tab if d is not None]
+        if not docks_to_tab:
+            return
+
+        for dock in docks_to_tab:
+            self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock)
+            dock.show()
+
+        base = docks_to_tab[0]
+        for dock in docks_to_tab[1:]:
+            self.tabifyDockWidget(base, dock)
+        base.raise_()
 
     def initialize_variables(self):
         """Initialize instance variables with default values.
@@ -2921,10 +3079,11 @@ class DroneIrWindow(QMainWindow):
     # GENERAL GUI METHODS __________________________________________________________________________
     def show_radio_dock(self):
         """
-        Show the radiometric parameters dock widget if it's hidden or closed.
+        Focus the Temperature dock (radiometric controls are merged there).
         """
-        if not self.dockWidget_radio.isVisible():
-            self.dockWidget_radio.show()
+        if hasattr(self, "dockWidget") and self.dockWidget is not None:
+            self.dockWidget.show()
+            self.dockWidget.raise_()
 
     def show_edge_dock(self):
         """
@@ -3083,23 +3242,108 @@ class DroneIrWindow(QMainWindow):
                     self.update_img_preview()
                     self.update_image_info_label()
 
-    def toggle_stylesheet(self):
-        # Toggle the application stylesheet on and off
-        if self.style_active:
-            # Deactivate stylesheet
-            QApplication.instance().setStyleSheet("")
-            QApplication.instance().setStyle('Fusion')
-            self.style_active = False
-        else:
-            # Test if dark theme is used
-            palette = QApplication.instance().palette()
-            bg_color = palette.color(QPalette.ColorRole.Window)
+    def _is_dark_system_theme(self) -> bool:
+        app = QApplication.instance()
+        if app is None:
+            return False
+        palette = app.palette()
+        bg_color = palette.color(QPalette.ColorRole.Window)
+        return bg_color.lightness() < 128
 
-            is_dark_theme = bg_color.lightness() < 128
-            print(f'Windows dark theme: {is_dark_theme}')
-            stylesheet_file = "dark_theme.qss" if is_dark_theme else "light_theme.qss"
-            QApplication.instance().setStyleSheet(load_stylesheet(stylesheet_file))
-            self.style_active = True
+    def _apply_style_selection(self, mode: str, qt_style_name: str = "") -> None:
+        """Apply one of the supported application style modes."""
+        app = QApplication.instance()
+        if app is None:
+            return
+
+        # Reset stylesheet first so Qt style changes remain visible.
+        app.setStyleSheet("")
+
+        if mode == "fusion":
+            app.setStyle("Fusion")
+            self.selected_style_mode = "fusion"
+            self.selected_qt_style_name = "Fusion"
+            return
+
+        if mode == "custom_qss":
+            stylesheet_file = "dark_theme.qss" if self._is_dark_system_theme() else "light_theme.qss"
+            app.setStyleSheet(load_stylesheet(stylesheet_file))
+            self.selected_style_mode = "custom_qss"
+            return
+
+        if mode == "qt_named":
+            if qt_style_name:
+                app.setStyle(qt_style_name)
+            self.selected_style_mode = "qt_named"
+            self.selected_qt_style_name = qt_style_name
+            return
+
+        # Default platform Qt style.
+        if self.default_qt_style_name:
+            app.setStyle(self.default_qt_style_name)
+        self.selected_style_mode = "qt_default"
+        self.selected_qt_style_name = self.default_qt_style_name
+
+    def toggle_stylesheet(self):
+        """Open style chooser dialog and apply selected style."""
+        app = QApplication.instance()
+        if app is None:
+            return
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Choose application style")
+        dialog.setMinimumWidth(420)
+
+        layout = QVBoxLayout(dialog)
+
+        form = QFormLayout()
+        mode_combo = QComboBox(dialog)
+        mode_combo.addItem("System default (PyQt6)", "qt_default")
+        mode_combo.addItem("Fusion", "fusion")
+        mode_combo.addItem("Custom style (QSS auto light/dark)", "custom_qss")
+        mode_combo.addItem("Standard Qt style", "qt_named")
+
+        style_combo = QComboBox(dialog)
+        available_styles = sorted(QStyleFactory.keys(), key=lambda s: s.lower())
+        style_combo.addItems(available_styles)
+
+        def sync_style_combo_state():
+            is_named = mode_combo.currentData() == "qt_named"
+            style_combo.setEnabled(is_named)
+
+        form.addRow("Style mode:", mode_combo)
+        form.addRow("Qt style:", style_combo)
+        layout.addLayout(form)
+
+        # Preselect current state
+        idx_mode = mode_combo.findData(self.selected_style_mode)
+        if idx_mode >= 0:
+            mode_combo.setCurrentIndex(idx_mode)
+        else:
+            mode_combo.setCurrentIndex(0)
+
+        if self.selected_qt_style_name:
+            idx_style = style_combo.findText(self.selected_qt_style_name, Qt.MatchFlag.MatchFixedString)
+            if idx_style >= 0:
+                style_combo.setCurrentIndex(idx_style)
+
+        mode_combo.currentIndexChanged.connect(sync_style_combo_state)
+        sync_style_combo_state()
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel,
+            parent=dialog,
+        )
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        selected_mode = mode_combo.currentData()
+        selected_qt_style = style_combo.currentText()
+        self._apply_style_selection(selected_mode, selected_qt_style)
 
     def show_info(self):
         """Show application information dialog."""
@@ -3140,7 +3384,6 @@ def main(argv=None):
 
     # Create the application if necessary
     app = QApplication(argv)
-    app.setStyle('Fusion')
 
     # Test if dark theme is used
     palette = app.palette()
