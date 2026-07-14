@@ -565,6 +565,7 @@ class ProcessedIm:
         # for custom images
         self.nb_custom_imgs = 0
         self.custom_images = []
+        self.custom_image_legend_params = []
         
         # for report inclusion
         self.include_in_report = True

@@ -372,6 +372,7 @@ class DroneIrWindow(QMainWindow):
 
             # Set path variables
             self.custom_images = []
+            self.custom_image_legend_params = []
             self.list_rgb_paths = []
             self.list_ir_paths = []
             self.list_z_paths = []
@@ -2291,9 +2292,12 @@ class DroneIrWindow(QMainWindow):
                     dialog.exportComposedImage(file_path)
 
             # add custom image to list
-            dialog.exportComposedImage(dest_path_temp)
+            dialog.exportComposedImage(dest_path_temp, include_legend=False)
+            legend_params = dialog.get_custom_legend_params()
             self.custom_images.append(dest_path_temp)
+            self.custom_image_legend_params.append(legend_params)
             self.work_image.custom_images.append(dest_path_temp)
+            self.work_image.custom_image_legend_params.append(legend_params)
 
             self.update_combo_view()
         else:
@@ -2474,6 +2478,8 @@ class DroneIrWindow(QMainWindow):
         self.skip_update = True
         # load stored data
         self.work_image = self.images[self.active_image]
+        self.custom_images = list(getattr(self.work_image, "custom_images", []))
+        self.custom_image_legend_params = list(getattr(self.work_image, "custom_image_legend_params", []))
 
         # Lazy thermal data loading: only load when the image is visited/used
         self.work_image.ensure_data_loaded(reset_shown_values=True)
@@ -2738,8 +2744,15 @@ class DroneIrWindow(QMainWindow):
             self.viewer.fitInView()
 
             self.viewer.clean_scene()
-            if self.viewer.legendLabel.isVisible():
-                self.viewer.toggleLegendVisibility()
+            custom_idx = v - 3
+            if self.checkBox_legend.isChecked():
+                params_list = getattr(self.work_image, "custom_image_legend_params", [])
+                if 0 <= custom_idx < len(params_list):
+                    self.viewer.setupFusionLegendLabel(params_list[custom_idx])
+                else:
+                    self.viewer.setupLegendLabel(self.work_image, legend_type='colorbar')
+            else:
+                self.viewer.clearLegend()
 
             # add annotations
             self.retrace_items()

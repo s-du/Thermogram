@@ -621,6 +621,81 @@ class PhotoViewer(QGraphicsView):
         else:
             print(f"Unknown legend_type: {legend_type}")
 
+    def setupFusionLegendLabel(self, legend_params: dict):
+        """Legend with full original span and fusion infill logic (main-style look)."""
+        import matplotlib.pyplot as plt
+        import matplotlib.colors as mcol
+        from io import BytesIO
+
+        self.clearLegend()
+
+        axis_min = float(legend_params.get("axis_min", 0.0))
+        axis_max = float(legend_params.get("axis_max", 1.0))
+        shown_min = float(legend_params.get("shown_min", axis_min))
+        shown_max = float(legend_params.get("shown_max", axis_max))
+        map_min = float(legend_params.get("map_min", shown_min))
+        map_max = float(legend_params.get("map_max", shown_max))
+        n_colors = int(legend_params.get("n_colors", 256))
+        colormap = legend_params.get("colormap", "inferno")
+
+        if axis_max <= axis_min:
+            axis_max = axis_min + 1e-6
+        if shown_max < shown_min:
+            shown_min, shown_max = shown_max, shown_min
+        shown_min = max(axis_min, min(axis_max, shown_min))
+        shown_max = max(axis_min, min(axis_max, shown_max))
+        if map_max <= map_min:
+            map_max = map_min + 1e-6
+
+        if colormap in tt.LIST_CUSTOM_NAMES:
+            all_cmaps = tt.get_all_custom_cmaps(n_colors)
+            base_cmap = all_cmaps[colormap]
+        else:
+            base_cmap = cm.get_cmap(colormap, n_colors)
+
+        # Build explicit per-temperature colors over full axis span.
+        # Hidden parts become grey; visible part follows palette mapping.
+        n_steps = 512
+        temps = np.linspace(axis_min, axis_max, n_steps)
+        map_span = map_max - map_min
+        colors = np.zeros((n_steps, 4), dtype=np.float32)
+        for i, t in enumerate(temps):
+            if t < shown_min or t > shown_max:
+                grey = 0.72 if (i // 6) % 2 == 0 else 0.78  # light hatch-like banding
+                colors[i] = (grey, grey, grey, 1.0)
+            else:
+                ratio = (t - map_min) / map_span
+                ratio = max(0.0, min(1.0, ratio))
+                colors[i] = base_cmap(ratio)
+
+        fusion_cmap = mcol.ListedColormap(colors)
+        norm = mcol.Normalize(vmin=axis_min, vmax=axis_max)
+        data = temps.reshape(n_steps, 1)
+
+        fig, ax = plt.subplots()
+        im = ax.imshow(data, cmap=fusion_cmap, norm=norm, origin='lower', aspect='auto')
+        ax.axis("off")
+
+        ticks = np.linspace(axis_min, axis_max, 5)
+        cbar = fig.colorbar(im, ticks=ticks, extend='both')
+        cbar.ax.set_yticklabels([f"{self.display_temp(t):.2f}{self.temp_unit_suffix()}" for t in ticks])
+        cbar.ax.tick_params(labelsize=8)
+
+        # Same visual family as normal legend.
+        fig.patch.set_facecolor((1, 1, 1, 0.5))
+        ax.remove()
+
+        buf = BytesIO()
+        plt.savefig(buf, format='png', bbox_inches='tight')
+        plt.close(fig)
+        buf.seek(0)
+
+        image = QImage.fromData(buf.read())
+        pixmap = QPixmap.fromImage(image)
+        self.legendLabel = QLabel(self)
+        self.legendLabel.setPixmap(pixmap)
+        self.legendLabel.show()
+
     def _setupBarLegend(self, img_object):
         if img_object.colormap in tt.LIST_CUSTOM_NAMES:
             all_cmaps = tt.get_all_custom_cmaps(256)

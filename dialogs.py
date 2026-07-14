@@ -1166,6 +1166,23 @@ class ImageFusionDialog(QtWidgets.QDialog):
         self._update_edge_color_swatch()
         self.updateIRImage(0)
 
+    def get_custom_legend_params(self):
+        """Legend params for custom image display/export in main viewer."""
+        shown_min = self.range_slider_shown.lowerValue() / 100.0
+        shown_max = self.range_slider_shown.upperValue() / 100.0
+        map_min = self.range_slider_map.lowerValue() / 100.0
+        map_max = self.range_slider_map.upperValue() / 100.0
+        return {
+            "axis_min": float(self.img_object.tmin),
+            "axis_max": float(self.img_object.tmax),
+            "shown_min": float(shown_min),
+            "shown_max": float(shown_max),
+            "map_min": float(map_min),
+            "map_max": float(map_max),
+            "colormap": self.colormap_name,
+            "n_colors": int(self.n_colors),
+        }
+
     def toggleGrayscale(self):
         if self.grayscaleCheckbox.isChecked():
             # Convert to grayscale
@@ -1177,16 +1194,71 @@ class ImageFusionDialog(QtWidgets.QDialog):
             self.colorImageItem.setPixmap(colorPixmap, rescale=False)
         self.colorImageItem.update()
 
-    def exportComposedImage(self, output_path):
+    def _build_main_style_legend_pixmap(self, target_height: int):
+        """Build legend pixmap using the same matplotlib style as main viewer."""
+        from io import BytesIO
+        import matplotlib.pyplot as plt
+
+        shown_min = self.range_slider_shown.lowerValue() / 100.0
+        shown_max = self.range_slider_shown.upperValue() / 100.0
+        map_min = self.range_slider_map.lowerValue() / 100.0
+        map_max = self.range_slider_map.upperValue() / 100.0
+        if map_max <= map_min:
+            map_max = map_min + 1e-6
+
+        if self.colormap_name in tt.LIST_CUSTOM_NAMES:
+            all_cmaps = tt.get_all_custom_cmaps(self.n_colors)
+            custom_cmap = all_cmaps[self.colormap_name]
+        else:
+            custom_cmap = cm.get_cmap(self.colormap_name, self.n_colors)
+
+        # Use visible-range data and palette-range mapping.
+        data = np.linspace(shown_min, shown_max, 100).reshape(10, 10)
+
+        fig, ax = plt.subplots()
+        im = ax.imshow(data, cmap=custom_cmap, vmin=map_min, vmax=map_max)
+        ax.axis("off")
+
+        ticks = np.linspace(shown_min, shown_max, 5)
+        cbar = fig.colorbar(im, ticks=ticks, extend='both')
+        cbar.ax.set_yticklabels([f"{t:.2f}°C" for t in ticks])
+        cbar.ax.tick_params(labelsize=8)
+
+        fig.patch.set_facecolor((1, 1, 1, 0.5))
+        ax.remove()
+
+        buf = BytesIO()
+        plt.savefig(buf, format='png', bbox_inches='tight')
+        plt.close(fig)
+        buf.seek(0)
+
+        image = QImage.fromData(buf.read())
+        pixmap = QPixmap.fromImage(image)
+        if target_height > 0 and not pixmap.isNull():
+            pixmap = pixmap.scaledToHeight(target_height, Qt.TransformationMode.SmoothTransformation)
+        return pixmap
+
+    def exportComposedImage(self, output_path, include_legend=True):
         """
         Export the composed image (fused color and infrared images) to the specified output path.
         """
         # Determine the size of the composed image
         width = self.colorImageItem.pixmap.width()
         height = self.colorImageItem.pixmap.height()
+        legend_pixmap = None
+
+        if include_legend:
+            try:
+                legend_pixmap = self._build_main_style_legend_pixmap(int(height * (2 / 3)))
+            except Exception:
+                legend_pixmap = None
+
+        margin = 20 if legend_pixmap is not None and not legend_pixmap.isNull() else 0
+        legend_w = legend_pixmap.width() if legend_pixmap is not None and not legend_pixmap.isNull() else 0
+        out_width = width + margin + legend_w
 
         # Create an empty QImage with the size of the final composed image
-        composed_image = QImage(width, height, QImage.Format.Format_ARGB32)
+        composed_image = QImage(out_width, height, QImage.Format.Format_ARGB32)
         composed_image.fill(QtCore.Qt.GlobalColor.transparent)  # Start with a transparent image
 
         # Initialize a QPainter to draw on the composed QImage
@@ -1201,6 +1273,12 @@ class ImageFusionDialog(QtWidgets.QDialog):
 
         # Draw the infrared image with the appropriate blending mode
         painter.drawPixmap(0, 0, self.thermalImageItem.pixmap)
+
+        # Draw compact legend on the right side (same general placement as main save image).
+        if legend_pixmap is not None and not legend_pixmap.isNull():
+            painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
+            painter.setOpacity(1.0)
+            painter.drawPixmap(width + margin, 0, legend_pixmap)
 
         # End the painter
         painter.end()

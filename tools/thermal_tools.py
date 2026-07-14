@@ -251,6 +251,8 @@ def build_compact_legend_image(custom_params, target_height):
     """Build a compact vertical legend image as a NumPy array (BGR)."""
     tmin = float(custom_params["tmin"])
     tmax = float(custom_params["tmax"])
+    map_min = float(custom_params.get("map_min", tmin))
+    map_max = float(custom_params.get("map_max", tmax))
     color_high = custom_params["col_high"]
     color_low = custom_params["col_low"]
     colormap = custom_params["colormap"]
@@ -278,11 +280,11 @@ def build_compact_legend_image(custom_params, target_height):
         custom_cmap.set_under(color_low)
 
     y_values = np.linspace(tmax, tmin, height)
-    span = tmax - tmin
-    if abs(span) < 1e-9:
+    map_span = map_max - map_min
+    if abs(map_span) < 1e-9:
         normalized = np.zeros_like(y_values)
     else:
-        normalized = np.clip((y_values - tmin) / span, 0, 1)
+        normalized = np.clip((y_values - map_min) / map_span, 0, 1)
 
     rgba = custom_cmap(normalized)
     bar_rgb = np.repeat((rgba[:, :3] * 255).astype(np.uint8)[:, np.newaxis, :], bar_w, axis=1)
