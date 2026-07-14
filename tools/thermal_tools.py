@@ -343,7 +343,7 @@ def export_side_by_side(img_object, ir_path, dest_path, file_format='PNG', inclu
 class RunnerDJI(QtCore.QRunnable):
     def __init__(self, start, stop, out_folder, img_objects, ref_im, edges, edges_params, individual_settings=False,
                  undis=False, zoom=1, naming_type='rename', file_format='PNG', list_of_ir_export=['IR'],
-                 list_of_rgb_export=[], include_legend=False):
+                 list_of_rgb_export=[], include_legend=False, remove_exif=False):
         super().__init__()
 
         self.img_objects = img_objects
@@ -363,6 +363,7 @@ class RunnerDJI(QtCore.QRunnable):
         self.list_of_ir_export = list_of_ir_export
         self.list_of_rgb_export = list_of_rgb_export
         self.include_legend = include_legend
+        self.remove_exif = remove_exif
 
         self.individual_settings = individual_settings
 
@@ -493,9 +494,12 @@ class RunnerDJI(QtCore.QRunnable):
             if rgb_subfolder:
                 _, rgb_name = os.path.split(img.rgb_path_original)
                 with Image.open(img.rgb_path_original) as rgb_im:
-                    exif = rgb_im.getexif()
                     rgb_path = os.path.join(rgb_subfolder, rgb_name[:-3] + self.file_format)
-                    rgb_im.save(rgb_path, exif=exif, compress_level=0)
+                    if self.remove_exif:
+                        rgb_im.save(rgb_path, compress_level=0)
+                    else:
+                        exif = rgb_im.getexif()
+                        rgb_im.save(rgb_path, exif=exif, compress_level=0)
 
             # Export RGB Crop if needed
             if rgb_crop_subfolder:

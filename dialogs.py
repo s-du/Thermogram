@@ -1195,48 +1195,9 @@ class ImageFusionDialog(QtWidgets.QDialog):
         self.colorImageItem.update()
 
     def _build_main_style_legend_pixmap(self, target_height: int):
-        """Build legend pixmap using the same matplotlib style as main viewer."""
-        from io import BytesIO
-        import matplotlib.pyplot as plt
-
-        shown_min = self.range_slider_shown.lowerValue() / 100.0
-        shown_max = self.range_slider_shown.upperValue() / 100.0
-        map_min = self.range_slider_map.lowerValue() / 100.0
-        map_max = self.range_slider_map.upperValue() / 100.0
-        if map_max <= map_min:
-            map_max = map_min + 1e-6
-
-        if self.colormap_name in tt.LIST_CUSTOM_NAMES:
-            all_cmaps = tt.get_all_custom_cmaps(self.n_colors)
-            custom_cmap = all_cmaps[self.colormap_name]
-        else:
-            custom_cmap = cm.get_cmap(self.colormap_name, self.n_colors)
-
-        # Use visible-range data and palette-range mapping.
-        data = np.linspace(shown_min, shown_max, 100).reshape(10, 10)
-
-        fig, ax = plt.subplots()
-        im = ax.imshow(data, cmap=custom_cmap, vmin=map_min, vmax=map_max)
-        ax.axis("off")
-
-        ticks = np.linspace(shown_min, shown_max, 5)
-        cbar = fig.colorbar(im, ticks=ticks, extend='both')
-        cbar.ax.set_yticklabels([f"{t:.2f}°C" for t in ticks])
-        cbar.ax.tick_params(labelsize=8)
-
-        fig.patch.set_facecolor((1, 1, 1, 0.5))
-        ax.remove()
-
-        buf = BytesIO()
-        plt.savefig(buf, format='png', bbox_inches='tight')
-        plt.close(fig)
-        buf.seek(0)
-
-        image = QImage.fromData(buf.read())
-        pixmap = QPixmap.fromImage(image)
-        if target_height > 0 and not pixmap.isNull():
-            pixmap = pixmap.scaledToHeight(target_height, Qt.TransformationMode.SmoothTransformation)
-        return pixmap
+        """Build legend pixmap identical to main custom-image viewer legend."""
+        params = self.get_custom_legend_params()
+        return wid.build_fusion_legend_pixmap(params, temp_unit='C', target_height=target_height)
 
     def exportComposedImage(self, output_path, include_legend=True):
         """
@@ -1788,6 +1749,48 @@ class DialogSelectImages(QtWidgets.QDialog):
     def get_selected_indices(self):
         selected_indexes = self.listView.selectedIndexes()
         return sorted({index.row() for index in selected_indexes})
+
+
+class DialogSingleImageExport(QtWidgets.QDialog):
+    """Batch-style export dialog dedicated to current image only."""
+
+    def __init__(self, default_folder, parameters_style, parameters_temp, parameters_radiometric, parent=None):
+        super().__init__(parent)
+        basepath = os.path.dirname(__file__)
+        basename = 'export_dialog'
+        uifile = os.path.join(basepath, 'ui/%s.ui' % basename)
+        loadUi(uifile, self)
+
+        self.setWindowTitle("Export current image")
+
+        self.comboBox_naming.addItems(['Rename files', 'Keep IR names', 'Match IR with RGB names'])
+        self.comboBox_img_format.addItems(['PNG', 'JPG'])
+        self.comboBox_export_mode.addItems(['Use current image settings', 'Use individual image settings'])
+
+        # Hide multi-image selection widgets (single active image only)
+        self.listView.hide()
+        if hasattr(self, "gridLayout"):
+            self.gridLayout.setColumnStretch(0, 1)
+            self.gridLayout.setColumnStretch(1, 0)
+        self.resize(760, 640)
+
+        # Button actions
+        self.buttonBox.accepted.connect(self.accept)
+        self.buttonBox.rejected.connect(self.reject)
+
+        # Set initial parameters
+        desc = (f'Palette parameters: \n'
+                f'- palette: {parameters_style[0]}')
+        self.label_current_settings.setText(desc)
+        self.lineEdit.setText(default_folder)
+
+        # Browse folder button
+        self.pushButton.clicked.connect(self.browse_folder)
+
+    def browse_folder(self):
+        folder_path = QtWidgets.QFileDialog.getExistingDirectory(self, "Select Folder")
+        if folder_path:
+            self.lineEdit.setText(folder_path)
 
 
 class DialogBatchExport(QtWidgets.QDialog):

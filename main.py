@@ -1878,12 +1878,12 @@ class DroneIrWindow(QMainWindow):
             error(f"Failed to update image list: {str(e)}")
             raise ThermogramError(f"Failed to update image list: {str(e)}") from e
 
-    def save_image(self, folder='', filename='current_view.jpg'):
-        """Save the current thermal image with measurements and legend (PyQt6 compatible)."""
+    def save_image(self, folder='', filename='current_view.jpg', include_measurements=None, include_legend=None, save_format=None):
+        """Save current view (programmatic) or launch single-image export dialog."""
         try:
             from PyQt6.QtCore import QRectF, QSize
             from PyQt6.QtGui import QImage, QPainter
-            from PyQt6.QtWidgets import QFileDialog
+            from PyQt6.QtWidgets import QMessageBox
             from PyQt6.QtCore import Qt
             import os
 
@@ -1894,6 +1894,98 @@ class DroneIrWindow(QMainWindow):
                 painter.drawImage(0, 0, image)
                 painter.end()
                 bg_image.save(path, 'JPEG', 100)
+
+            # Main-menu call: use full export dialog equivalent to batch export for one image.
+            if not folder:
+                if self.work_image is None:
+                    QMessageBox.warning(self, "No image", "Load an image before exporting.")
+                    return None
+
+                self.colormap, self.n_colors, self.user_lim_col_high, self.user_lim_col_low, self.post_process = self.work_image.get_colormap_data()
+                tmin, tmax, tmin_shown, tmax_shown = self.work_image.get_temp_data()
+                parameters_style = [self.colormap, self.n_colors, self.user_lim_col_high, self.user_lim_col_low,
+                                    self.post_process]
+                parameters_temp = [tmin, tmax, tmin_shown, tmax_shown]
+                parameters_radio = self.work_image.thermal_param
+
+                desc = f'{PROC_TH_FOLDER}_{self.colormap}_{str(round(tmin_shown, 0))}_{str(round(tmax_shown, 0))}_{self.post_process}_single'
+                self.last_out_folder = os.path.join(self.app_folder, desc)
+                if not os.path.exists(self.last_out_folder):
+                    os.mkdir(self.last_out_folder)
+
+                dialog = dia.DialogSingleImageExport(self.last_out_folder, parameters_style, parameters_temp,
+                                                     parameters_radio, parent=self)
+                if not dialog.exec():
+                    return None
+
+                list_ir_export = []
+                list_rgb_export = []
+                undis = dialog.checkBox_undis.isChecked()
+                zoom = dialog.spinBox.value()
+                if dialog.checkBox_exp_ir.isChecked():
+                    list_ir_export.append('IR')
+                if dialog.checkBox_exp_tif.isChecked():
+                    list_ir_export.append('IR_TIF')
+                if dialog.checkBox_exp_picpic.isChecked():
+                    list_ir_export.append('PICPIC')
+                if dialog.checkBox_exp_rgb.isChecked():
+                    list_rgb_export.append('RGB')
+                if dialog.checkBox_exp_crop.isChecked():
+                    list_rgb_export.append('RGB_CROP')
+                if dialog.checkBox_exp_side.isChecked():
+                    list_rgb_export.append('SIDE_BY_SIDE')
+                include_legend = dialog.checkBox_legend.isChecked()
+                remove_exif = dialog.checkBox.isChecked() if hasattr(dialog, "checkBox") else False
+
+                if not list_ir_export and not list_rgb_export:
+                    QMessageBox.warning(self, "No export selected", "Please select at least one export type.")
+                    return None
+
+                format_idx = dialog.comboBox_img_format.currentIndex()
+                if format_idx == 0:
+                    format = 'PNG'
+                elif format_idx == 1:
+                    format = 'JPG'
+                else:
+                    format = 'PNG'
+
+                selected_option = dialog.comboBox_naming.currentIndex()
+                if selected_option == 0:
+                    naming_type = 'rename'
+                elif selected_option == 1:
+                    naming_type = 'keep_ir'
+                elif selected_option == 2:
+                    naming_type = 'match_rgb'
+                else:
+                    naming_type = 'rename'
+
+                out_folder = dialog.lineEdit.text().strip()
+                if not out_folder:
+                    QMessageBox.warning(self, "Invalid output folder", "Please select an output folder.")
+                    return None
+                os.makedirs(out_folder, exist_ok=True)
+                individual_settings = dialog.comboBox_export_mode.currentIndex() == 1
+
+                worker_1 = tt.RunnerDJI(5, 100, out_folder, [self.work_image], self.work_image, self.edges,
+                                        self.edge_params, individual_settings=individual_settings,
+                                        undis=undis, zoom=zoom, naming_type=naming_type,
+                                        file_format=format,
+                                        list_of_ir_export=list_ir_export, list_of_rgb_export=list_rgb_export,
+                                        include_legend=include_legend, remove_exif=remove_exif)
+                worker_1.signals.progressed.connect(lambda value: self.update_progress(value))
+                worker_1.signals.messaged.connect(lambda string: self.update_progress(text=string))
+
+                self.__pool.start(worker_1)
+                worker_1.signals.finished.connect(self.process_all_phase2)
+                return out_folder
+
+            # Programmatic call: keep legacy one-shot "current view" save.
+            if include_measurements is None:
+                include_measurements = True
+            if include_legend is None:
+                include_legend = True
+
+            selected_format = save_format
 
             photo_pixmap = self.viewer._photo.pixmap() if hasattr(self.viewer, "_photo") else None
             if photo_pixmap is not None and not photo_pixmap.isNull():
@@ -1909,7 +2001,7 @@ class DroneIrWindow(QMainWindow):
             legend_pixmap = None
             legend_width = 0
 
-            if legend_label and legend_label.isVisible() and legend_label.pixmap() is not None:
+            if include_legend and legend_label and legend_label.isVisible() and legend_label.pixmap() is not None:
                 original_pixmap = legend_label.pixmap()
 
                 # Scale legend to 2/3 of image height
@@ -1936,23 +2028,24 @@ class DroneIrWindow(QMainWindow):
             painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
             painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
 
-            self.viewer._scene.render(painter, QRectF(0, 0, content_width, content_height), scene_rect)
+            if include_measurements:
+                self.viewer._scene.render(painter, QRectF(0, 0, content_width, content_height), scene_rect)
+            else:
+                if photo_pixmap is not None and not photo_pixmap.isNull():
+                    painter.drawPixmap(0, 0, photo_pixmap)
 
             if legend_pixmap:
                 painter.drawPixmap(content_width + margin, 0, legend_pixmap)
 
             painter.end()
 
-            # Save
-            if not folder:
-                file_path, _ = QFileDialog.getSaveFileName(
-                    None, "Save Image", "",
-                    "PNG Image (*.png);;JPEG Image (*.jpg *.jpeg *.JPEG)"
-                )
-            else:
-                file_path = os.path.join(folder, filename)
+            # Save for programmatic path only
+            file_path = os.path.join(folder, filename)
 
             if file_path:
+                if not os.path.splitext(file_path)[1]:
+                    default_ext = '.jpg' if str(selected_format).upper() == 'JPG' else '.png'
+                    file_path = file_path + default_ext
                 if file_path.lower().endswith(('.jpg', '.jpeg')):
                     save_with_white_background(image, file_path)
                 else:
@@ -2033,7 +2126,7 @@ class DroneIrWindow(QMainWindow):
                                         undis=undis, zoom=zoom, naming_type=naming_type,
                                         file_format=format,
                                         list_of_ir_export=list_ir_export, list_of_rgb_export=list_rgb_export,
-                                        include_legend=include_legend)
+                                        include_legend=include_legend, remove_exif=remove_exif)
                 worker_1.signals.progressed.connect(lambda value: self.update_progress(value))
                 worker_1.signals.messaged.connect(lambda string: self.update_progress(text=string))
 
@@ -2226,10 +2319,21 @@ class DroneIrWindow(QMainWindow):
     def on_dual_rgb_resolution_changed(self):
         if self.skip_update or self.work_image is None or not self.has_rgb:
             return
+        # Keep main-view behavior, but also force dual viewer reload even when
+        # current main view branch does not call create_th_img_preview().
         self.update_img_preview(refresh_dual=True)
+        try:
+            dual_rgb_path = self._get_selected_rgb_crop_path()
+            ir_preview_path = getattr(self, "dest_path_post", "")
+            if dual_rgb_path and ir_preview_path and os.path.exists(dual_rgb_path) and os.path.exists(ir_preview_path):
+                self.dual_viewer.refresh()
+                self.dual_viewer.load_images_from_path(dual_rgb_path, ir_preview_path)
+        except Exception:
+            # Best effort only; main refresh path above already handles fallback.
+            pass
 
-    def _get_dual_rgb_path(self):
-        """Return RGB path for dual viewer according to selected resolution mode."""
+    def _get_selected_rgb_crop_path(self):
+        """Return RGB crop path according to selected resolution mode."""
         if self.work_image is None:
             return ''
 
@@ -2242,8 +2346,13 @@ class DroneIrWindow(QMainWindow):
             return self.work_image.rgb_path
 
         try:
+            os.makedirs(self.preview_folder, exist_ok=True)
+            src_rgb_path = getattr(self.work_image, "rgb_path_original", "") or getattr(self.work_image, "rgb_path", "")
+            if not src_rgb_path or not os.path.exists(src_rgb_path):
+                return self.work_image.rgb_path
+
             settings = {
-                "rgb_original": getattr(self.work_image, "rgb_path_original", ""),
+                "rgb_original": src_rgb_path,
                 "zoom": getattr(self.work_image, "zoom", None),
                 "x_offset": getattr(self.work_image, "x_offset", None),
                 "y_offset": getattr(self.work_image, "y_offset", None),
@@ -2251,10 +2360,10 @@ class DroneIrWindow(QMainWindow):
             }
             key_src = json.dumps(settings, sort_keys=True, default=str).encode("utf-8")
             key = hashlib.md5(key_src).hexdigest()[:12]
-            dest_path = os.path.join(self.preview_folder, f'dual_rgb_full_{self.active_image}_{key}.JPG')
+            dest_path = os.path.join(self.preview_folder, f'rgb_crop_full_{self.active_image}_{key}.JPG')
 
             if not os.path.exists(dest_path):
-                cv_rgb = tt.cv_read_all_path(self.work_image.rgb_path_original)
+                cv_rgb = tt.cv_read_all_path(src_rgb_path)
                 if cv_rgb is None or cv_rgb.size == 0:
                     return self.work_image.rgb_path
 
@@ -2263,6 +2372,11 @@ class DroneIrWindow(QMainWindow):
                     return self.work_image.rgb_path
 
                 tt.cv_write_all_path(rgb_crop, dest_path, extension='JPG')
+                if not os.path.exists(dest_path):
+                    return self.work_image.rgb_path
+                probe = QPixmap(dest_path)
+                if probe.isNull():
+                    return self.work_image.rgb_path
                 self._preview_cache_files.append(dest_path)
 
             return dest_path
@@ -2679,7 +2793,7 @@ class DroneIrWindow(QMainWindow):
             if refresh_dual:
                 # reset the dual viewer
                 self.dual_viewer.refresh()
-            dual_rgb_path = self._get_dual_rgb_path()
+            dual_rgb_path = self._get_selected_rgb_crop_path()
             self.dual_viewer.load_images_from_path(dual_rgb_path, dest_path_post)
 
         self.dest_path_post = dest_path_post
@@ -2712,7 +2826,8 @@ class DroneIrWindow(QMainWindow):
         self.current_view = copy.deepcopy(v)
 
         if v == 1:  # if rgb view
-            self.viewer.setPhoto(QPixmap(self.work_image.rgb_path))
+            rgb_path = self._get_selected_rgb_crop_path()
+            self.viewer.setPhoto(QPixmap(rgb_path))
             # scale view
             self.viewer.fitInView()
             self.viewer.clean_scene()
